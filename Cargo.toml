@@ -1,9 +1,18 @@
 [package]
-name = "receipt-engine"
+name = "defarm-engine"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[[bin]]
+name = "defarm-api"
+path = "src/bin/api.rs"
+
+[[bin]]
+name = "defarm-demo"
+path = "src/main.rs"
 
 [dependencies]
+# Core dependencies
 blake3 = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -11,3 +20,21 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 aes-gcm = "0.10"
 rand = "0.8"
+
+# Web server dependencies
+tokio = { version = "1.0", features = ["full"] }
+axum = { version = "0.7", features = ["json"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Authentication
+jsonwebtoken = "9.0"
+bcrypt = "0.15"
+
+# Environment
+dotenv = "0.15"
+
+# Utilities
+base64 = "0.22"

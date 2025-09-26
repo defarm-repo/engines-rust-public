@@ -7,6 +7,7 @@ pub mod verification_engine;
 pub mod items_engine;
 pub mod events_engine;
 pub mod circuits_engine;
+pub mod api;
 
 pub use types::*;
 pub use logging::*;

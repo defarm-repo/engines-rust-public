@@ -61,7 +61,7 @@ pub struct Item {
     pub status: ItemStatus,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ItemStatus {
     Active,
     Deprecated,

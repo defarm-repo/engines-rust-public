@@ -1,4 +1,4 @@
-use receipt_engine::{
+use defarm_engine::{
     Identifier, ReceiptEngine, InMemoryStorage, EventsEngine, CircuitsEngine,
     EventType, MemberRole, Item, StorageBackend
 };
