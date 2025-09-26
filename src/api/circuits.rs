@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
     routing::{get, post, put},
@@ -59,6 +59,13 @@ pub struct JoinRequestResponse {
     pub requested_at: i64,
     pub message: Option<String>,
     pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CircuitListQuery {
+    pub user_id: Option<String>,
+    pub include_public: Option<bool>,
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -122,6 +129,7 @@ pub fn circuit_routes() -> Router {
 
     Router::new()
         .route("/", post(create_circuit))
+        .route("/", get(list_circuits))
         .route("/:id", get(get_circuit))
         .route("/:id/members", post(add_member))
         .route("/:id/push/:dfid", post(push_item))
@@ -371,11 +379,41 @@ async fn deactivate_circuit(
 
 async fn list_circuits(
     State(state): State<Arc<CircuitState>>,
+    Query(params): Query<CircuitListQuery>,
 ) -> Result<Json<Vec<CircuitResponse>>, (StatusCode, Json<Value>)> {
     let engine = state.engine.lock().unwrap();
 
     match engine.list_circuits() {
-        Ok(circuits) => {
+        Ok(mut circuits) => {
+            // Apply permission-based filtering
+            if let Some(user_id) = &params.user_id {
+                circuits = circuits.into_iter().filter(|circuit| {
+                    // Include circuits where user is a member
+                    let is_member = circuit.is_member(user_id);
+
+                    // Include public circuits if requested
+                    let is_public = params.include_public.unwrap_or(true) &&
+                                   circuit.permissions.allow_public_visibility;
+
+                    is_member || is_public
+                }).collect();
+            } else if !params.include_public.unwrap_or(false) {
+                // If no user_id provided and not requesting public, return empty list for security
+                circuits = Vec::new();
+            } else {
+                // Only show public circuits
+                circuits = circuits.into_iter().filter(|circuit| {
+                    circuit.permissions.allow_public_visibility
+                }).collect();
+            }
+
+            // Apply status filter
+            if let Some(status_str) = &params.status {
+                circuits = circuits.into_iter().filter(|circuit| {
+                    format!("{:?}", circuit.status).to_lowercase() == status_str.to_lowercase()
+                }).collect();
+            }
+
             let response: Vec<CircuitResponse> = circuits
                 .into_iter()
                 .map(circuit_to_response)
