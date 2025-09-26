@@ -36,6 +36,31 @@ pub struct ApproveOperationRequest {
     pub approver_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct JoinCircuitRequest {
+    pub requester_id: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApproveJoinRequest {
+    pub admin_id: String,
+    pub role: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RejectJoinRequest {
+    pub admin_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JoinRequestResponse {
+    pub requester_id: String,
+    pub requested_at: i64,
+    pub message: Option<String>,
+    pub status: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CircuitResponse {
     pub circuit_id: String,
@@ -47,6 +72,7 @@ pub struct CircuitResponse {
     pub members: Vec<CircuitMemberResponse>,
     pub permissions: CircuitPermissionsResponse,
     pub status: String,
+    pub pending_requests: Vec<JoinRequestResponse>,
 }
 
 #[derive(Debug, Serialize)]
@@ -104,6 +130,10 @@ pub fn circuit_routes() -> Router {
         .route("/:id/operations/pending", get(get_pending_operations))
         .route("/operations/:operation_id/approve", post(approve_operation))
         .route("/:id/deactivate", put(deactivate_circuit))
+        .route("/:id/requests", post(request_to_join_circuit))
+        .route("/:id/requests/pending", get(get_pending_join_requests))
+        .route("/:id/requests/:requester_id/approve", post(approve_join_request))
+        .route("/:id/requests/:requester_id/reject", post(reject_join_request))
         .route("/list", get(list_circuits))
         .route("/member/:member_id", get(get_circuits_for_member))
         .with_state(state)
@@ -147,6 +177,15 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
             allow_public_visibility: circuit.permissions.allow_public_visibility,
         },
         status: format!("{:?}", circuit.status),
+        pending_requests: circuit.pending_requests
+            .into_iter()
+            .map(|req| JoinRequestResponse {
+                requester_id: req.requester_id,
+                requested_at: req.requested_at.timestamp(),
+                message: req.message,
+                status: format!("{:?}", req.status),
+            })
+            .collect(),
     }
 }
 
@@ -362,5 +401,82 @@ async fn get_circuits_for_member(
             Ok(Json(response))
         }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuits for member: {}", e)})))),
+    }
+}
+
+async fn request_to_join_circuit(
+    State(state): State<Arc<CircuitState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<JoinCircuitRequest>,
+) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let mut engine = state.engine.lock().unwrap();
+
+    match engine.request_to_join_circuit(&circuit_id, &payload.requester_id, payload.message) {
+        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to submit join request: {}", e)})))),
+    }
+}
+
+async fn get_pending_join_requests(
+    State(state): State<Arc<CircuitState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<JoinRequestResponse>>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let engine = state.engine.lock().unwrap();
+
+    match engine.get_pending_join_requests(&circuit_id) {
+        Ok(requests) => {
+            let response: Vec<JoinRequestResponse> = requests
+                .into_iter()
+                .map(|req| JoinRequestResponse {
+                    requester_id: req.requester_id,
+                    requested_at: req.requested_at.timestamp(),
+                    message: req.message,
+                    status: format!("{:?}", req.status),
+                })
+                .collect();
+            Ok(Json(response))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get pending requests: {}", e)})))),
+    }
+}
+
+async fn approve_join_request(
+    State(state): State<Arc<CircuitState>>,
+    Path((id, requester_id)): Path<(String, String)>,
+    Json(payload): Json<ApproveJoinRequest>,
+) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let role = parse_member_role(&payload.role)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
+
+    let mut engine = state.engine.lock().unwrap();
+
+    match engine.approve_join_request(&circuit_id, &requester_id, &payload.admin_id, role) {
+        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to approve join request: {}", e)})))),
+    }
+}
+
+async fn reject_join_request(
+    State(state): State<Arc<CircuitState>>,
+    Path((id, requester_id)): Path<(String, String)>,
+    Json(payload): Json<RejectJoinRequest>,
+) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let mut engine = state.engine.lock().unwrap();
+
+    match engine.reject_join_request(&circuit_id, &requester_id, &payload.admin_id) {
+        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to reject join request: {}", e)})))),
     }
 }

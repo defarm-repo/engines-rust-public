@@ -254,6 +254,22 @@ pub struct Circuit {
     pub members: Vec<CircuitMember>,
     pub permissions: CircuitPermissions,
     pub status: CircuitStatus,
+    pub pending_requests: Vec<JoinRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JoinRequest {
+    pub requester_id: String,
+    pub requested_at: DateTime<Utc>,
+    pub message: Option<String>,
+    pub status: JoinRequestStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum JoinRequestStatus {
+    Pending,
+    Approved,
+    Rejected,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -374,6 +390,7 @@ impl Circuit {
             members: vec![owner_member],
             permissions: CircuitPermissions::default(),
             status: CircuitStatus::Active,
+            pending_requests: Vec::new(),
         }
     }
 
@@ -418,6 +435,67 @@ impl Circuit {
 
     pub fn get_member(&self, member_id: &str) -> Option<&CircuitMember> {
         self.members.iter().find(|m| m.member_id == member_id)
+    }
+
+    pub fn is_member(&self, member_id: &str) -> bool {
+        self.members.iter().any(|m| m.member_id == member_id)
+    }
+
+    pub fn has_pending_request(&self, requester_id: &str) -> bool {
+        self.pending_requests.iter().any(|r| r.requester_id == requester_id && matches!(r.status, JoinRequestStatus::Pending))
+    }
+
+    pub fn add_join_request(&mut self, requester_id: String, message: Option<String>) -> Result<(), String> {
+        // Check if user is already a member
+        if self.is_member(&requester_id) {
+            return Err("User is already a member of this circuit".to_string());
+        }
+
+        // Check if there's already a pending request
+        if self.has_pending_request(&requester_id) {
+            return Err("User already has a pending request for this circuit".to_string());
+        }
+
+        let request = JoinRequest {
+            requester_id,
+            requested_at: Utc::now(),
+            message,
+            status: JoinRequestStatus::Pending,
+        };
+
+        self.pending_requests.push(request);
+        self.last_modified = Utc::now();
+        Ok(())
+    }
+
+    pub fn approve_join_request(&mut self, requester_id: &str, role: MemberRole) -> Result<(), String> {
+        // Find and update the request
+        let request = self.pending_requests.iter_mut()
+            .find(|r| r.requester_id == requester_id && matches!(r.status, JoinRequestStatus::Pending))
+            .ok_or("No pending request found for this user")?;
+
+        request.status = JoinRequestStatus::Approved;
+
+        // Add the user as a member
+        self.add_member(requester_id.to_string(), role);
+        self.last_modified = Utc::now();
+        Ok(())
+    }
+
+    pub fn reject_join_request(&mut self, requester_id: &str) -> Result<(), String> {
+        let request = self.pending_requests.iter_mut()
+            .find(|r| r.requester_id == requester_id && matches!(r.status, JoinRequestStatus::Pending))
+            .ok_or("No pending request found for this user")?;
+
+        request.status = JoinRequestStatus::Rejected;
+        self.last_modified = Utc::now();
+        Ok(())
+    }
+
+    pub fn get_pending_requests(&self) -> Vec<&JoinRequest> {
+        self.pending_requests.iter()
+            .filter(|r| matches!(r.status, JoinRequestStatus::Pending))
+            .collect()
     }
 }
 

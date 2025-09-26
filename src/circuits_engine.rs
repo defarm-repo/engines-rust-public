@@ -356,6 +356,115 @@ impl<S: StorageBackend> CircuitsEngine<S> {
     pub fn get_logs_by_event_type(&self, event_type: &str) -> Vec<crate::logging::LogEntry> {
         self.logger.borrow().get_logs_by_event_type(event_type).into_iter().cloned().collect()
     }
+
+    pub fn request_to_join_circuit(
+        &mut self,
+        circuit_id: &Uuid,
+        requester_id: &str,
+        message: Option<String>,
+    ) -> Result<Circuit, CircuitsError> {
+        let mut storage = self.storage.lock().unwrap();
+
+        let mut circuit = storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        circuit.add_join_request(requester_id.to_string(), message)
+            .map_err(|e| CircuitsError::ValidationError(e))?;
+
+        storage
+            .update_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger.borrow_mut().info("circuits_engine", "join_request_created", "Join request submitted")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("requester_id", requester_id.to_string());
+
+        Ok(circuit)
+    }
+
+    pub fn approve_join_request(
+        &mut self,
+        circuit_id: &Uuid,
+        requester_id: &str,
+        approver_id: &str,
+        role: MemberRole,
+    ) -> Result<Circuit, CircuitsError> {
+        let mut storage = self.storage.lock().unwrap();
+
+        let mut circuit = storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check if approver has permission to manage members
+        if !circuit.has_permission(approver_id, &crate::types::Permission::ManageMembers) {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to approve join requests".to_string(),
+            ));
+        }
+
+        circuit.approve_join_request(requester_id, role)
+            .map_err(|e| CircuitsError::ValidationError(e))?;
+
+        storage
+            .update_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger.borrow_mut().info("circuits_engine", "join_request_approved", "Join request approved")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("requester_id", requester_id.to_string())
+            .with_context("approver_id", approver_id.to_string());
+
+        Ok(circuit)
+    }
+
+    pub fn reject_join_request(
+        &mut self,
+        circuit_id: &Uuid,
+        requester_id: &str,
+        rejector_id: &str,
+    ) -> Result<Circuit, CircuitsError> {
+        let mut storage = self.storage.lock().unwrap();
+
+        let mut circuit = storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check if rejector has permission to manage members
+        if !circuit.has_permission(rejector_id, &crate::types::Permission::ManageMembers) {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to reject join requests".to_string(),
+            ));
+        }
+
+        circuit.reject_join_request(requester_id)
+            .map_err(|e| CircuitsError::ValidationError(e))?;
+
+        storage
+            .update_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger.borrow_mut().info("circuits_engine", "join_request_rejected", "Join request rejected")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("requester_id", requester_id.to_string())
+            .with_context("rejector_id", rejector_id.to_string());
+
+        Ok(circuit)
+    }
+
+    pub fn get_pending_join_requests(&self, circuit_id: &Uuid) -> Result<Vec<crate::types::JoinRequest>, CircuitsError> {
+        let storage = self.storage.lock().unwrap();
+
+        let circuit = storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        Ok(circuit.get_pending_requests().into_iter().cloned().collect())
+    }
 }
 
 #[cfg(test)]
