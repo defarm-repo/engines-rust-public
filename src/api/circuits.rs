@@ -426,7 +426,7 @@ async fn pull_item(
             Ok(Json(json!({
                 "item": {
                     "dfid": item.dfid,
-                    "canonical_identifiers": item.canonical_identifiers,
+                    "identifiers": item.identifiers,
                     "enriched_data": item.enriched_data,
                     "creation_timestamp": item.creation_timestamp.timestamp(),
                     "last_modified": item.last_modified.timestamp(),

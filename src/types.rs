@@ -52,7 +52,7 @@ pub enum ProcessingStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub dfid: String,
-    pub canonical_identifiers: Vec<Identifier>,
+    pub identifiers: Vec<Identifier>,
     pub enriched_data: HashMap<String, serde_json::Value>,
     pub creation_timestamp: DateTime<Utc>,
     pub last_modified: DateTime<Utc>,
@@ -144,7 +144,7 @@ impl Item {
     pub fn new(dfid: String, identifiers: Vec<Identifier>, source_entry: Uuid) -> Self {
         Self {
             dfid,
-            canonical_identifiers: identifiers,
+            identifiers,
             enriched_data: HashMap::new(),
             creation_timestamp: Utc::now(),
             last_modified: Utc::now(),
@@ -162,8 +162,8 @@ impl Item {
 
     pub fn add_identifiers(&mut self, identifiers: Vec<Identifier>) {
         for identifier in identifiers {
-            if !self.canonical_identifiers.contains(&identifier) {
-                self.canonical_identifiers.push(identifier);
+            if !self.identifiers.contains(&identifier) {
+                self.identifiers.push(identifier);
             }
         }
         self.last_modified = Utc::now();

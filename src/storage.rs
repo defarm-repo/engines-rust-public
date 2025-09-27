@@ -251,7 +251,7 @@ impl StorageBackend for InMemoryStorage {
     fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
         Ok(self.items
             .values()
-            .filter(|item| item.canonical_identifiers.contains(identifier))
+            .filter(|item| item.identifiers.contains(identifier))
             .cloned()
             .collect())
     }

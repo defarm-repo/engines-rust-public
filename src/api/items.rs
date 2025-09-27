@@ -20,7 +20,7 @@ pub struct IdentifierRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateItemRequest {
-    pub canonical_identifiers: Vec<IdentifierRequest>,
+    pub identifiers: Vec<IdentifierRequest>,
     pub enriched_data: Option<HashMap<String, serde_json::Value>>,
     pub source_entry: String,
 }
@@ -53,7 +53,7 @@ pub struct ItemQueryParams {
 #[derive(Debug, Serialize)]
 pub struct ItemResponse {
     pub dfid: String,
-    pub canonical_identifiers: Vec<IdentifierRequest>,
+    pub identifiers: Vec<IdentifierRequest>,
     pub enriched_data: HashMap<String, serde_json::Value>,
     pub creation_timestamp: i64,
     pub last_modified: i64,
@@ -115,7 +115,7 @@ fn parse_item_status(status_str: &str) -> Result<ItemStatus, String> {
 fn item_to_response(item: Item) -> ItemResponse {
     ItemResponse {
         dfid: item.dfid,
-        canonical_identifiers: item.canonical_identifiers
+        identifiers: item.identifiers
             .into_iter()
             .map(|id| IdentifierRequest { key: id.key, value: id.value })
             .collect(),
@@ -139,12 +139,12 @@ async fn create_item(
     let source_entry = uuid::Uuid::parse_str(&payload.source_entry)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid source entry UUID"}))))?;
 
-    let identifiers: Vec<Identifier> = payload.canonical_identifiers
+    let identifiers: Vec<Identifier> = payload.identifiers
         .into_iter()
         .map(|id| Identifier::new(id.key, id.value))
         .collect();
 
-    match engine.create_item_with_generated_dfid(identifiers, source_entry) {
+    match engine.create_item_with_generated_dfid(identifiers, source_entry, payload.enriched_data) {
         Ok(item) => Ok(Json(item_to_response(item))),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to create item: {}", e)})))),
     }
@@ -230,10 +230,10 @@ async fn list_items(
             if let Some(key) = &params.identifier_key {
                 if let Some(value) = &params.identifier_value {
                     items.retain(|item| {
-                        item.canonical_identifiers.iter().any(|id| id.key == *key && id.value == *value)
+                        item.identifiers.iter().any(|id| id.key == *key && id.value == *value)
                     });
                 } else {
-                    items.retain(|item| item.canonical_identifiers.iter().any(|id| id.key == *key));
+                    items.retain(|item| item.identifiers.iter().any(|id| id.key == *key));
                 }
             }
 

@@ -109,12 +109,55 @@ impl<S: ItemsStorage> ItemsEngine<S> {
         Ok(item)
     }
 
-    pub fn create_item_with_generated_dfid(&mut self, identifiers: Vec<Identifier>, source_entry: Uuid) -> Result<Item, ItemsError> {
-        // Generate a unique DFID
+    pub fn create_item_with_generated_dfid(&mut self, identifiers: Vec<Identifier>, source_entry: Uuid, enriched_data: Option<HashMap<String, serde_json::Value>>) -> Result<Item, ItemsError> {
+        // Step 1: Check if any identifier matches existing items (entity resolution)
+        for identifier in &identifiers {
+            if let Ok(existing_items) = self.find_items_by_identifier(identifier) {
+                if let Some(existing_item) = existing_items.first() {
+                    let dfid = existing_item.dfid.clone();
+
+                    self.logger.info("ItemsEngine", "duplicate_detected", "Found existing item with matching identifier")
+                        .with_context("existing_dfid", dfid.clone())
+                        .with_context("matching_identifier", format!("{}:{}", identifier.key, identifier.value))
+                        .with_context("source_entry", source_entry.to_string());
+
+                    // Add any new identifiers to existing item
+                    let new_identifiers: Vec<Identifier> = identifiers.into_iter()
+                        .filter(|id| !existing_item.identifiers.contains(id))
+                        .collect();
+
+                    if !new_identifiers.is_empty() {
+                        self.add_identifiers(&dfid, new_identifiers)?;
+                    }
+
+                    // Enrich existing item with new data
+                    if let Some(data) = enriched_data {
+                        return self.enrich_item(&dfid, data, source_entry);
+                    }
+
+                    // Return the existing item (potentially with new identifiers)
+                    return self.get_item(&dfid)?.ok_or_else(|| ItemsError::ItemNotFound(dfid));
+                }
+            }
+        }
+
+        // Step 2: No duplicate found - generate DFID and create new item
         let dfid = self.dfid_engine.generate_dfid();
 
-        // Use the existing create_item method
-        self.create_item(dfid, identifiers, source_entry)
+        self.logger.info("ItemsEngine", "new_item_creation", "Creating new item - no duplicates found")
+            .with_context("new_dfid", dfid.clone())
+            .with_context("identifiers_count", identifiers.len().to_string())
+            .with_context("source_entry", source_entry.to_string());
+
+        let mut item = self.create_item(dfid, identifiers, source_entry)?;
+
+        // Add enriched data if provided
+        if let Some(data) = enriched_data {
+            item.enrich(data, source_entry);
+            self.storage.store_item(&item)?;
+        }
+
+        Ok(item)
     }
 
     pub fn get_item(&self, dfid: &str) -> Result<Option<Item>, ItemsError> {
@@ -147,11 +190,11 @@ impl<S: ItemsStorage> ItemsEngine<S> {
             .with_context("dfid", dfid.to_string())
             .with_context("new_identifiers_count", identifiers.len().to_string());
 
-        let original_count = item.canonical_identifiers.len();
+        let original_count = item.identifiers.len();
         item.add_identifiers(identifiers);
         self.storage.update_item(&item)?;
 
-        let new_count = item.canonical_identifiers.len();
+        let new_count = item.identifiers.len();
         let added_count = new_count - original_count;
 
         self.logger.info("ItemsEngine", "identifiers_added", "Identifiers added successfully")
@@ -173,7 +216,7 @@ impl<S: ItemsStorage> ItemsEngine<S> {
             .with_context("secondary_dfid", secondary_dfid.to_string());
 
         // Merge identifiers
-        primary_item.add_identifiers(secondary_item.canonical_identifiers.clone());
+        primary_item.add_identifiers(secondary_item.identifiers.clone());
 
         // Merge enriched data
         primary_item.enriched_data.extend(secondary_item.enriched_data.clone());
@@ -215,7 +258,7 @@ impl<S: ItemsStorage> ItemsEngine<S> {
         );
 
         // Remove the split identifiers from the original item
-        original_item.canonical_identifiers.retain(|id| !identifiers_for_new_item.contains(id));
+        original_item.identifiers.retain(|id| !identifiers_for_new_item.contains(id));
 
         // Mark original item as split
         original_item.status = ItemStatus::Split;
@@ -290,7 +333,7 @@ impl<S: ItemsStorage> ItemsEngine<S> {
                 ItemStatus::Split => stats.split_items += 1,
             }
 
-            stats.total_identifiers += item.canonical_identifiers.len();
+            stats.total_identifiers += item.identifiers.len();
             total_confidence += item.confidence_score;
         }
 
@@ -361,7 +404,7 @@ mod tests {
         fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
             Ok(self.items
                 .values()
-                .filter(|item| item.canonical_identifiers.contains(identifier))
+                .filter(|item| item.identifiers.contains(identifier))
                 .cloned()
                 .collect())
         }
@@ -392,7 +435,7 @@ mod tests {
         let item = engine.create_item(dfid.clone(), identifiers.clone(), source_entry).unwrap();
 
         assert_eq!(item.dfid, dfid);
-        assert_eq!(item.canonical_identifiers, identifiers);
+        assert_eq!(item.identifiers, identifiers);
         assert_eq!(item.source_entries, vec![source_entry]);
         assert!(matches!(item.status, ItemStatus::Active));
     }
@@ -434,7 +477,7 @@ mod tests {
         let merged_item = engine.merge_items(&dfid1, &dfid2).unwrap();
 
         assert_eq!(merged_item.dfid, dfid1);
-        assert_eq!(merged_item.canonical_identifiers.len(), 2);
+        assert_eq!(merged_item.identifiers.len(), 2);
 
         // Check that secondary item is marked as merged
         let secondary_item = engine.get_item(&dfid2).unwrap().unwrap();
