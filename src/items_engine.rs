@@ -1,3 +1,4 @@
+use crate::dfid_engine::DfidEngine;
 use crate::logging::{LoggingEngine, LogEntry};
 use crate::storage::{StorageError, StorageBackend};
 use crate::types::{Item, Identifier, ItemStatus};
@@ -73,6 +74,7 @@ pub trait ItemsStorage {
 pub struct ItemsEngine<S: ItemsStorage> {
     storage: S,
     logger: LoggingEngine,
+    dfid_engine: DfidEngine,
 }
 
 impl<S: ItemsStorage> ItemsEngine<S> {
@@ -83,6 +85,7 @@ impl<S: ItemsStorage> ItemsEngine<S> {
         Self {
             storage,
             logger,
+            dfid_engine: DfidEngine::new(),
         }
     }
 
@@ -104,6 +107,14 @@ impl<S: ItemsStorage> ItemsEngine<S> {
             .with_context("dfid", dfid);
 
         Ok(item)
+    }
+
+    pub fn create_item_with_generated_dfid(&mut self, identifiers: Vec<Identifier>, source_entry: Uuid) -> Result<Item, ItemsError> {
+        // Generate a unique DFID
+        let dfid = self.dfid_engine.generate_dfid();
+
+        // Use the existing create_item method
+        self.create_item(dfid, identifiers, source_entry)
     }
 
     pub fn get_item(&self, dfid: &str) -> Result<Option<Item>, ItemsError> {
@@ -218,6 +229,14 @@ impl<S: ItemsStorage> ItemsEngine<S> {
             .with_context("new_dfid", new_dfid);
 
         Ok((original_item, new_item))
+    }
+
+    pub fn split_item_with_generated_dfid(&mut self, dfid: &str, identifiers_for_new_item: Vec<Identifier>) -> Result<(Item, Item), ItemsError> {
+        // Generate a unique DFID for the new item
+        let new_dfid = self.dfid_engine.generate_dfid();
+
+        // Use the existing split_item method
+        self.split_item(dfid, identifiers_for_new_item, new_dfid)
     }
 
     pub fn deprecate_item(&mut self, dfid: &str) -> Result<Item, ItemsError> {

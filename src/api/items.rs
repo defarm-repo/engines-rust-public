@@ -20,7 +20,6 @@ pub struct IdentifierRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateItemRequest {
-    pub dfid: String,
     pub canonical_identifiers: Vec<IdentifierRequest>,
     pub enriched_data: Option<HashMap<String, serde_json::Value>>,
     pub source_entry: String,
@@ -35,7 +34,6 @@ pub struct UpdateItemRequest {
 #[derive(Debug, Deserialize)]
 pub struct SplitItemRequest {
     pub identifiers_for_new_item: Vec<IdentifierRequest>,
-    pub new_dfid: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,7 +144,7 @@ async fn create_item(
         .map(|id| Identifier::new(id.key, id.value))
         .collect();
 
-    match engine.create_item(payload.dfid, identifiers, source_entry) {
+    match engine.create_item_with_generated_dfid(identifiers, source_entry) {
         Ok(item) => Ok(Json(item_to_response(item))),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to create item: {}", e)})))),
     }
@@ -279,7 +277,7 @@ async fn split_item(
         .map(|id| Identifier::new(id.key, id.value))
         .collect();
 
-    match engine.split_item(&dfid, identifiers, split_request.new_dfid) {
+    match engine.split_item_with_generated_dfid(&dfid, identifiers) {
         Ok((original_item, new_item)) => {
             Ok(Json(SplitItemResponse {
                 original_item: item_to_response(original_item),
