@@ -3,7 +3,7 @@ use crate::logging::LoggingEngine;
 use crate::storage::StorageBackend;
 use crate::types::{
     Circuit, CircuitOperation, CircuitStatus, EventVisibility,
-    Item, MemberRole, OperationStatus, OperationType, Permission,
+    Item, MemberRole, OperationStatus, OperationType, Permission, CustomRole,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -464,6 +464,286 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .ok_or(CircuitsError::CircuitNotFound)?;
 
         Ok(circuit.get_pending_requests().into_iter().cloned().collect())
+    }
+
+    pub fn update_circuit(
+        &mut self,
+        circuit_id: &Uuid,
+        name: Option<String>,
+        description: Option<String>,
+        permissions: Option<crate::types::CircuitPermissions>,
+        requester_id: &str,
+    ) -> Result<Circuit, CircuitsError> {
+        let mut storage = self.storage.lock().unwrap();
+
+        let mut circuit = storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check if requester has permission to update circuit
+        if !circuit.has_permission(requester_id, &crate::types::Permission::ManagePermissions) &&
+           circuit.owner_id != requester_id {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to update circuit".to_string(),
+            ));
+        }
+
+        // Apply updates
+        if let Some(new_name) = name {
+            circuit.update_name(new_name);
+        }
+
+        if let Some(new_description) = description {
+            circuit.update_description(new_description);
+        }
+
+        if let Some(new_permissions) = permissions {
+            circuit.update_permissions(new_permissions);
+        }
+
+        storage
+            .update_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger.borrow_mut().info("circuits_engine", "circuit_updated", "Circuit updated successfully")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("requester_id", requester_id.to_string());
+
+        Ok(circuit)
+    }
+
+    pub fn create_custom_role(
+        &mut self,
+        circuit_id: &Uuid,
+        role_name: String,
+        permissions: Vec<Permission>,
+        description: String,
+        color: Option<String>,
+        requester_id: &str,
+    ) -> Result<CustomRole, CircuitsError> {
+        let mut circuit = self.get_circuit(circuit_id)?.ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check if requester has permission to manage roles
+        if !circuit.has_permission(requester_id, &Permission::ManageRoles) {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to manage roles".to_string(),
+            ));
+        }
+
+        // Add the custom role
+        circuit.add_custom_role(role_name.clone(), permissions, description, color, requester_id.to_string())
+            .map_err(|e| CircuitsError::ValidationError(e))?;
+
+        // Save the updated circuit
+        self.storage.lock().unwrap().store_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        let custom_role = circuit.get_custom_role(&role_name)
+            .ok_or(CircuitsError::ValidationError("Failed to create role".to_string()))?
+            .clone();
+
+        self.logger.borrow_mut().info("circuits_engine", "custom_role_created", "Custom role created successfully")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("role_name", role_name)
+            .with_context("created_by", requester_id.to_string());
+
+        Ok(custom_role)
+    }
+
+    pub fn get_custom_roles(&self, circuit_id: &Uuid) -> Result<Vec<CustomRole>, CircuitsError> {
+        let circuit = self.get_circuit(circuit_id)?.ok_or(CircuitsError::CircuitNotFound)?;
+        Ok(circuit.custom_roles.clone())
+    }
+
+    pub fn assign_member_custom_role(
+        &mut self,
+        circuit_id: &Uuid,
+        member_id: &str,
+        role_name: &str,
+        requester_id: &str,
+    ) -> Result<Circuit, CircuitsError> {
+        let mut circuit = self.get_circuit(circuit_id)?.ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check if requester has permission to manage members
+        if !circuit.has_permission(requester_id, &Permission::ManageMembers) {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to manage members".to_string(),
+            ));
+        }
+
+        // Assign the custom role
+        circuit.assign_custom_role(member_id, role_name)
+            .map_err(|e| CircuitsError::ValidationError(e))?;
+
+        // Save the updated circuit
+        self.storage.lock().unwrap().store_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger.borrow_mut().info("circuits_engine", "member_role_assigned", "Member role assigned successfully")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("member_id", member_id.to_string())
+            .with_context("role_name", role_name.to_string())
+            .with_context("assigned_by", requester_id.to_string());
+
+        Ok(circuit)
+    }
+
+    pub fn remove_custom_role(
+        &mut self,
+        circuit_id: &Uuid,
+        role_name: &str,
+        requester_id: &str,
+    ) -> Result<(), CircuitsError> {
+        let mut circuit = self.get_circuit(circuit_id)?.ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check if requester has permission to manage roles
+        if !circuit.has_permission(requester_id, &Permission::ManageRoles) {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to manage roles".to_string(),
+            ));
+        }
+
+        // Remove the custom role
+        circuit.remove_custom_role(role_name)
+            .map_err(|e| CircuitsError::ValidationError(e))?;
+
+        // Save the updated circuit
+        self.storage.lock().unwrap().store_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger.borrow_mut().info("circuits_engine", "custom_role_removed", "Custom role removed successfully")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("role_name", role_name.to_string())
+            .with_context("removed_by", requester_id.to_string());
+
+        Ok(())
+    }
+
+    pub fn update_public_settings(
+        &mut self,
+        circuit_id: &Uuid,
+        settings: crate::types::PublicSettings,
+        requester_id: &str,
+    ) -> Result<Circuit, CircuitsError> {
+        let mut storage = self.storage.lock().unwrap();
+
+        let mut circuit = storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check if requester has permission to manage circuit settings
+        if !circuit.has_permission(requester_id, &crate::types::Permission::ManagePermissions) &&
+           circuit.owner_id != requester_id {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to update public settings".to_string(),
+            ));
+        }
+
+        // Update public settings
+        circuit.update_public_settings(settings)
+            .map_err(|e| CircuitsError::ValidationError(e))?;
+
+        // Store updated circuit
+        storage.store_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger.borrow_mut().info("circuits_engine", "public_settings_updated", "Public settings updated successfully")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("updated_by", requester_id.to_string());
+
+        Ok(circuit)
+    }
+
+    pub fn get_public_circuit_info(&self, circuit_id: &Uuid) -> Result<Option<crate::types::PublicCircuitInfo>, CircuitsError> {
+        let storage = self.storage.lock().unwrap();
+
+        let circuit = storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        Ok(circuit.get_public_info())
+    }
+
+    pub fn join_public_circuit(
+        &mut self,
+        circuit_id: &Uuid,
+        requester_id: &str,
+        access_password: Option<String>,
+        message: Option<String>,
+    ) -> Result<(bool, String), CircuitsError> {
+        let mut storage = self.storage.lock().unwrap();
+
+        let mut circuit = storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check if circuit is publicly accessible
+        if !circuit.is_publicly_accessible() {
+            return Err(CircuitsError::PermissionDenied(
+                "Circuit is not publicly accessible".to_string(),
+            ));
+        }
+
+        // Check if requester is already a member
+        if circuit.is_member(requester_id) {
+            return Err(CircuitsError::ValidationError(
+                "User is already a member of this circuit".to_string(),
+            ));
+        }
+
+        // Check password for protected circuits
+        if let Some(ref settings) = circuit.public_settings {
+            if let crate::types::PublicAccessMode::Protected = settings.access_mode {
+                if let Some(ref expected_password) = settings.access_password {
+                    if access_password.as_ref() != Some(expected_password) {
+                        return Err(CircuitsError::PermissionDenied(
+                            "Invalid access password".to_string(),
+                        ));
+                    }
+                } else {
+                    return Err(CircuitsError::ValidationError(
+                        "Circuit requires password but none is configured".to_string(),
+                    ));
+                }
+            }
+        }
+
+        // Check if auto-approval is enabled
+        let auto_approve = circuit.public_settings
+            .as_ref()
+            .map(|s| s.auto_approve_members)
+            .unwrap_or(false);
+
+        if auto_approve {
+            // Add member directly
+            circuit.add_member(requester_id.to_string(), crate::types::MemberRole::Member);
+
+            storage.store_circuit(&circuit)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+            self.logger.borrow_mut().info("circuits_engine", "public_join_auto_approved", "User automatically joined public circuit")
+                .with_context("circuit_id", circuit_id.to_string())
+                .with_context("new_member", requester_id.to_string());
+
+            Ok((false, "Automatically approved".to_string()))
+        } else {
+            // Create join request
+            circuit.add_join_request(requester_id.to_string(), message)
+                .map_err(|e| CircuitsError::ValidationError(e))?;
+
+            storage.store_circuit(&circuit)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+            self.logger.borrow_mut().info("circuits_engine", "public_join_request_created", "Join request created for public circuit")
+                .with_context("circuit_id", circuit_id.to_string())
+                .with_context("requester", requester_id.to_string());
+
+            Ok((true, "Join request submitted".to_string()))
+        }
     }
 }
 

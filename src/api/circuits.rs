@@ -2,15 +2,17 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
-    routing::{get, post, put},
+    routing::{get, patch, post, put},
     Router,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::{CircuitsEngine, InMemoryStorage, MemberRole, Circuit, CircuitOperation};
+use crate::types::{CircuitPermissions, Permission, CustomRole};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitRequest {
@@ -68,6 +70,52 @@ pub struct CircuitListQuery {
     pub status: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateCircuitRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub permissions: Option<UpdateCircuitPermissions>,
+    pub requester_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateCircuitPermissions {
+    pub default_push: Option<bool>,
+    pub default_pull: Option<bool>,
+    pub require_approval_for_push: Option<bool>,
+    pub require_approval_for_pull: Option<bool>,
+    pub allow_public_visibility: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCustomRoleRequest {
+    pub role_name: String,
+    pub permissions: Vec<String>,
+    pub description: String,
+    pub color: Option<String>,
+    pub requester_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AssignRoleRequest {
+    pub role: String,
+    pub custom_role_name: Option<String>,
+    pub requester_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CustomRoleResponse {
+    pub role_id: String,
+    pub role_name: String,
+    pub permissions: Vec<String>,
+    pub description: String,
+    pub color: Option<String>,
+    pub member_count: usize,
+    pub created_timestamp: i64,
+    pub created_by: String,
+    pub is_default: bool,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CircuitResponse {
     pub circuit_id: String,
@@ -80,12 +128,14 @@ pub struct CircuitResponse {
     pub permissions: CircuitPermissionsResponse,
     pub status: String,
     pub pending_requests: Vec<JoinRequestResponse>,
+    pub custom_roles: Vec<CustomRoleResponse>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CircuitMemberResponse {
     pub member_id: String,
     pub role: String,
+    pub custom_role_name: Option<String>,
     pub permissions: Vec<String>,
     pub joined_timestamp: i64,
 }
@@ -97,6 +147,44 @@ pub struct CircuitPermissionsResponse {
     pub require_approval_for_push: bool,
     pub require_approval_for_pull: bool,
     pub allow_public_visibility: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePublicSettingsRequest {
+    pub requester_id: String,
+    pub public_settings: PublicSettingsRequest,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PublicSettingsRequest {
+    pub access_mode: String,
+    pub scheduled_date: Option<String>,
+    pub access_password: Option<String>,
+    pub public_name: Option<String>,
+    pub public_description: Option<String>,
+    pub primary_color: Option<String>,
+    pub secondary_color: Option<String>,
+    pub published_items: Option<Vec<String>>,
+    pub auto_approve_members: Option<bool>,
+    pub auto_publish_pushed_items: Option<bool>,
+    pub show_encrypted_events: Option<bool>,
+    pub required_event_types: Option<String>,
+    pub data_quality_rules: Option<String>,
+    pub export_permissions: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JoinPublicCircuitRequest {
+    pub requester_id: String,
+    pub access_password: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PublicJoinResponse {
+    pub success: bool,
+    pub message: String,
+    pub requires_approval: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -131,6 +219,8 @@ pub fn circuit_routes() -> Router {
         .route("/", post(create_circuit))
         .route("/", get(list_circuits))
         .route("/:id", get(get_circuit))
+        .route("/:id", patch(update_circuit))
+        .route("/:id", put(update_circuit))
         .route("/:id/members", post(add_member))
         .route("/:id/push/:dfid", post(push_item))
         .route("/:id/pull/:dfid", post(pull_item))
@@ -142,6 +232,12 @@ pub fn circuit_routes() -> Router {
         .route("/:id/requests/pending", get(get_pending_join_requests))
         .route("/:id/requests/:requester_id/approve", post(approve_join_request))
         .route("/:id/requests/:requester_id/reject", post(reject_join_request))
+        .route("/:id/roles", post(create_custom_role))
+        .route("/:id/roles", get(get_custom_roles))
+        .route("/:id/members/:user_id", patch(assign_member_role))
+        .route("/:id/public-settings", put(update_public_settings))
+        .route("/:id/public", get(get_public_circuit))
+        .route("/:id/public/join", post(join_public_circuit))
         .route("/list", get(list_circuits))
         .route("/member/:member_id", get(get_circuits_for_member))
         .with_state(state)
@@ -157,7 +253,24 @@ fn parse_member_role(role_str: &str) -> Result<MemberRole, String> {
     }
 }
 
+fn parse_permission(permission_str: &str) -> Result<Permission, String> {
+    match permission_str.to_lowercase().as_str() {
+        "push" => Ok(Permission::Push),
+        "pull" => Ok(Permission::Pull),
+        "invite" => Ok(Permission::Invite),
+        "managemembers" => Ok(Permission::ManageMembers),
+        "managepermissions" => Ok(Permission::ManagePermissions),
+        "manageroles" => Ok(Permission::ManageRoles),
+        "delete" => Ok(Permission::Delete),
+        "certify" => Ok(Permission::Certify),
+        "audit" => Ok(Permission::Audit),
+        _ => Err(format!("Invalid permission: {}", permission_str)),
+    }
+}
+
 fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
+    let role_counts = circuit.get_member_count_by_role();
+
     CircuitResponse {
         circuit_id: circuit.circuit_id.to_string(),
         name: circuit.name,
@@ -170,6 +283,7 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
             .map(|member| CircuitMemberResponse {
                 member_id: member.member_id,
                 role: format!("{:?}", member.role),
+                custom_role_name: member.custom_role_name,
                 permissions: member.permissions
                     .into_iter()
                     .map(|p| format!("{:?}", p))
@@ -194,6 +308,30 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
                 status: format!("{:?}", req.status),
             })
             .collect(),
+        custom_roles: circuit.custom_roles
+            .into_iter()
+            .map(|role| {
+                let member_count = role_counts.get(&role.role_name).copied().unwrap_or(0);
+                custom_role_to_response(role, member_count)
+            })
+            .collect(),
+    }
+}
+
+fn custom_role_to_response(role: CustomRole, member_count: usize) -> CustomRoleResponse {
+    CustomRoleResponse {
+        role_id: role.role_id.to_string(),
+        role_name: role.role_name,
+        permissions: role.permissions
+            .into_iter()
+            .map(|p| format!("{:?}", p))
+            .collect(),
+        description: role.description,
+        color: role.color,
+        member_count,
+        created_timestamp: role.created_timestamp.timestamp(),
+        created_by: role.created_by,
+        is_default: role.is_default,
     }
 }
 
@@ -516,5 +654,235 @@ async fn reject_join_request(
     match engine.reject_join_request(&circuit_id, &requester_id, &payload.admin_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to reject join request: {}", e)})))),
+    }
+}
+
+async fn update_circuit(
+    State(state): State<Arc<CircuitState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateCircuitRequest>,
+) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let mut engine = state.engine.lock().unwrap();
+
+    // Get current circuit to preserve existing values
+    let current_circuit = engine.get_circuit(&circuit_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+
+    // Convert permissions if provided, preserving existing values for unspecified fields
+    let permissions = if let Some(update_perms) = payload.permissions {
+        Some(CircuitPermissions {
+            default_push: update_perms.default_push.unwrap_or(current_circuit.permissions.default_push),
+            default_pull: update_perms.default_pull.unwrap_or(current_circuit.permissions.default_pull),
+            require_approval_for_push: update_perms.require_approval_for_push.unwrap_or(current_circuit.permissions.require_approval_for_push),
+            require_approval_for_pull: update_perms.require_approval_for_pull.unwrap_or(current_circuit.permissions.require_approval_for_pull),
+            allow_public_visibility: update_perms.allow_public_visibility.unwrap_or(current_circuit.permissions.allow_public_visibility),
+        })
+    } else {
+        None
+    };
+
+    match engine.update_circuit(&circuit_id, payload.name, payload.description, permissions, &payload.requester_id) {
+        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to update circuit: {}", e)})))),
+    }
+}
+
+async fn create_custom_role(
+    State(state): State<Arc<CircuitState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<CreateCustomRoleRequest>,
+) -> Result<Json<CustomRoleResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    // Parse permissions
+    let permissions: Result<Vec<Permission>, String> = payload.permissions
+        .into_iter()
+        .map(|p| parse_permission(&p))
+        .collect();
+
+    let permissions = permissions
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
+
+    let mut engine = state.engine.lock().unwrap();
+
+    match engine.create_custom_role(&circuit_id, payload.role_name, permissions, payload.description, payload.color, &payload.requester_id) {
+        Ok(custom_role) => {
+            let role_counts = engine.get_circuit(&circuit_id)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
+                .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?
+                .get_member_count_by_role();
+
+            let member_count = role_counts.get(&custom_role.role_name).copied().unwrap_or(0);
+            Ok(Json(custom_role_to_response(custom_role, member_count)))
+        },
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to create custom role: {}", e)})))),
+    }
+}
+
+async fn get_custom_roles(
+    State(state): State<Arc<CircuitState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<CustomRoleResponse>>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let engine = state.engine.lock().unwrap();
+
+    match engine.get_custom_roles(&circuit_id) {
+        Ok(roles) => {
+            let circuit = engine.get_circuit(&circuit_id)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
+                .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+
+            let role_counts = circuit.get_member_count_by_role();
+
+            let response: Vec<CustomRoleResponse> = roles
+                .into_iter()
+                .map(|role| {
+                    let member_count = role_counts.get(&role.role_name).copied().unwrap_or(0);
+                    custom_role_to_response(role, member_count)
+                })
+                .collect();
+
+            Ok(Json(response))
+        },
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get custom roles: {}", e)})))),
+    }
+}
+
+async fn assign_member_role(
+    State(state): State<Arc<CircuitState>>,
+    Path((id, user_id)): Path<(String, String)>,
+    Json(payload): Json<AssignRoleRequest>,
+) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let mut engine = state.engine.lock().unwrap();
+
+    // If a custom role is specified, assign it
+    let role_name = payload.custom_role_name.unwrap_or(payload.role);
+
+    match engine.assign_member_custom_role(&circuit_id, &user_id, &role_name, &payload.requester_id) {
+        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to assign role: {}", e)})))),
+    }
+}
+
+async fn update_public_settings(
+    State(state): State<Arc<CircuitState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdatePublicSettingsRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    // Parse access mode
+    let access_mode = match payload.public_settings.access_mode.to_lowercase().as_str() {
+        "public" => crate::types::PublicAccessMode::Public,
+        "protected" => crate::types::PublicAccessMode::Protected,
+        "scheduled" => crate::types::PublicAccessMode::Scheduled,
+        _ => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid access mode"})))),
+    };
+
+    // Parse scheduled date if provided
+    let scheduled_date = if let Some(date_str) = payload.public_settings.scheduled_date {
+        Some(chrono::DateTime::parse_from_rfc3339(&date_str)
+            .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid scheduled date format"}))))?
+            .with_timezone(&chrono::Utc))
+    } else {
+        None
+    };
+
+    // Parse export permissions
+    let export_permissions = if let Some(export_str) = payload.public_settings.export_permissions {
+        match export_str.to_lowercase().as_str() {
+            "admin" => Some(crate::types::ExportPermissionLevel::Admin),
+            "members" => Some(crate::types::ExportPermissionLevel::Members),
+            "public" => Some(crate::types::ExportPermissionLevel::Public),
+            _ => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid export permission level"})))),
+        }
+    } else {
+        None
+    };
+
+    let public_settings = crate::types::PublicSettings {
+        access_mode,
+        scheduled_date,
+        access_password: payload.public_settings.access_password,
+        public_name: payload.public_settings.public_name,
+        public_description: payload.public_settings.public_description,
+        primary_color: payload.public_settings.primary_color,
+        secondary_color: payload.public_settings.secondary_color,
+        published_items: payload.public_settings.published_items.unwrap_or_default(),
+        auto_approve_members: payload.public_settings.auto_approve_members.unwrap_or(false),
+        auto_publish_pushed_items: payload.public_settings.auto_publish_pushed_items.unwrap_or(false),
+        show_encrypted_events: payload.public_settings.show_encrypted_events.unwrap_or(false),
+        required_event_types: payload.public_settings.required_event_types,
+        data_quality_rules: payload.public_settings.data_quality_rules,
+        export_permissions,
+    };
+
+    let mut engine = state.engine.lock().unwrap();
+    match engine.update_public_settings(&circuit_id, public_settings, &payload.requester_id) {
+        Ok(circuit) => Ok(Json(json!({
+            "success": true,
+            "data": circuit_to_response(circuit)
+        }))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to update public settings: {}", e)})))),
+    }
+}
+
+async fn get_public_circuit(
+    State(state): State<Arc<CircuitState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let engine = state.engine.lock().unwrap();
+    match engine.get_public_circuit_info(&circuit_id) {
+        Ok(Some(public_info)) => Ok(Json(json!({
+            "success": true,
+            "data": {
+                "circuit_id": public_info.circuit_id.to_string(),
+                "public_name": public_info.public_name,
+                "public_description": public_info.public_description,
+                "primary_color": public_info.primary_color,
+                "secondary_color": public_info.secondary_color,
+                "member_count": public_info.member_count,
+                "access_mode": format!("{:?}", public_info.access_mode).to_lowercase(),
+                "requires_password": public_info.requires_password,
+                "is_currently_accessible": public_info.is_currently_accessible,
+                "published_items": [],
+                "recent_activity": []
+            }
+        }))),
+        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit is not publicly accessible"})))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get public circuit info: {}", e)})))),
+    }
+}
+
+async fn join_public_circuit(
+    State(state): State<Arc<CircuitState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<JoinPublicCircuitRequest>,
+) -> Result<Json<PublicJoinResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let mut engine = state.engine.lock().unwrap();
+    match engine.join_public_circuit(&circuit_id, &payload.requester_id, payload.access_password, payload.message) {
+        Ok((requires_approval, message)) => Ok(Json(PublicJoinResponse {
+            success: true,
+            message,
+            requires_approval,
+        })),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to join circuit: {}", e)})))),
     }
 }
