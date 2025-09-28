@@ -1,7 +1,7 @@
 use crate::dfid_engine::DfidEngine;
 use crate::logging::{LoggingEngine, LogEntry};
 use crate::storage::{StorageError, StorageBackend};
-use crate::types::{Item, Identifier, ItemStatus};
+use crate::types::{Item, Identifier, ItemStatus, ItemShare, SharedItemResponse};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -30,54 +30,14 @@ impl From<StorageError> for ItemsError {
     }
 }
 
-// Implement ItemsStorage for any StorageBackend
-impl<T: StorageBackend> ItemsStorage for T {
-    fn store_item(&mut self, item: &Item) -> Result<(), StorageError> {
-        self.store_item(item)
-    }
 
-    fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError> {
-        self.get_item_by_dfid(dfid)
-    }
-
-    fn update_item(&mut self, item: &Item) -> Result<(), StorageError> {
-        self.update_item(item)
-    }
-
-    fn list_items(&self) -> Result<Vec<Item>, StorageError> {
-        self.list_items()
-    }
-
-    fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
-        self.find_items_by_identifier(identifier)
-    }
-
-    fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError> {
-        self.find_items_by_status(status)
-    }
-
-    fn delete_item(&mut self, dfid: &str) -> Result<(), StorageError> {
-        self.delete_item(dfid)
-    }
-}
-
-pub trait ItemsStorage {
-    fn store_item(&mut self, item: &Item) -> Result<(), StorageError>;
-    fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError>;
-    fn update_item(&mut self, item: &Item) -> Result<(), StorageError>;
-    fn list_items(&self) -> Result<Vec<Item>, StorageError>;
-    fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError>;
-    fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError>;
-    fn delete_item(&mut self, dfid: &str) -> Result<(), StorageError>;
-}
-
-pub struct ItemsEngine<S: ItemsStorage> {
+pub struct ItemsEngine<S: StorageBackend> {
     storage: S,
     logger: LoggingEngine,
     dfid_engine: DfidEngine,
 }
 
-impl<S: ItemsStorage> ItemsEngine<S> {
+impl<S: StorageBackend> ItemsEngine<S> {
     pub fn new(storage: S) -> Self {
         let mut logger = LoggingEngine::new();
         logger.info("ItemsEngine", "initialization", "Items engine initialized");
@@ -351,6 +311,65 @@ impl<S: ItemsStorage> ItemsEngine<S> {
     pub fn get_logs_by_event_type(&self, event_type: &str) -> Vec<&LogEntry> {
         self.logger.get_logs_by_event_type(event_type)
     }
+
+    // Item Sharing methods
+    pub fn share_item(&mut self, dfid: &str, shared_by: String, recipient_user_id: String, permissions: Option<Vec<String>>) -> Result<ItemShare, ItemsError> {
+        // Verify the item exists
+        let _item = self.get_item(dfid)?.ok_or_else(|| ItemsError::ItemNotFound(dfid.to_string()))?;
+
+        // Create the share
+        let share = ItemShare::new(dfid.to_string(), shared_by, recipient_user_id, permissions);
+
+        // Store the share
+        self.storage.store_item_share(&share)?;
+
+        self.logger.info("ItemsEngine", "item_shared", "Item shared with user")
+            .with_context("dfid", dfid.to_string())
+            .with_context("share_id", share.share_id.clone())
+            .with_context("shared_by", share.shared_by.clone())
+            .with_context("recipient", share.recipient_user_id.clone());
+
+        Ok(share)
+    }
+
+    pub fn get_shares_for_user(&self, user_id: &str) -> Result<Vec<SharedItemResponse>, ItemsError> {
+        let shares = self.storage.get_shares_for_user(user_id)?;
+        let mut shared_items = Vec::new();
+
+        for share in shares {
+            if let Some(item) = self.get_item(&share.dfid)? {
+                shared_items.push(SharedItemResponse {
+                    share_id: share.share_id,
+                    item,
+                    shared_by: share.shared_by,
+                    shared_at: share.shared_at,
+                    permissions: share.permissions,
+                });
+            }
+        }
+
+        Ok(shared_items)
+    }
+
+    pub fn get_shares_for_item(&self, dfid: &str) -> Result<Vec<ItemShare>, ItemsError> {
+        self.storage.get_shares_for_item(dfid).map_err(ItemsError::from)
+    }
+
+    pub fn is_item_shared_with_user(&self, dfid: &str, user_id: &str) -> Result<bool, ItemsError> {
+        self.storage.is_item_shared_with_user(dfid, user_id).map_err(ItemsError::from)
+    }
+
+    pub fn revoke_share(&mut self, share_id: &str) -> Result<(), ItemsError> {
+        // Get share info for logging before deletion
+        if let Ok(Some(share)) = self.storage.get_item_share(share_id) {
+            self.logger.info("ItemsEngine", "share_revoked", "Item share revoked")
+                .with_context("share_id", share_id.to_string())
+                .with_context("dfid", share.dfid)
+                .with_context("recipient", share.recipient_user_id);
+        }
+
+        self.storage.delete_item_share(share_id).map_err(ItemsError::from)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -383,7 +402,7 @@ mod tests {
         }
     }
 
-    impl ItemsStorage for MockItemsStorage {
+    impl StorageBackend for MockItemsStorage {
         fn store_item(&mut self, item: &Item) -> Result<(), StorageError> {
             self.items.insert(item.dfid.clone(), item.clone());
             Ok(())
@@ -419,6 +438,114 @@ mod tests {
 
         fn delete_item(&mut self, dfid: &str) -> Result<(), StorageError> {
             self.items.remove(dfid);
+            Ok(())
+        }
+
+        // Item Share operations - simplified implementations for testing
+        fn store_item_share(&mut self, _share: &ItemShare) -> Result<(), StorageError> {
+            Ok(())
+        }
+
+        fn get_item_share(&self, _share_id: &str) -> Result<Option<ItemShare>, StorageError> {
+            Ok(None)
+        }
+
+        fn get_shares_for_user(&self, _user_id: &str) -> Result<Vec<ItemShare>, StorageError> {
+            Ok(Vec::new())
+        }
+
+        fn get_shares_for_item(&self, _dfid: &str) -> Result<Vec<ItemShare>, StorageError> {
+            Ok(Vec::new())
+        }
+
+        fn is_item_shared_with_user(&self, _dfid: &str, _user_id: &str) -> Result<bool, StorageError> {
+            Ok(false)
+        }
+
+        fn delete_item_share(&mut self, _share_id: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+
+        // Implement all remaining StorageBackend methods with minimal functionality for testing
+        fn store_circuit(&mut self, _circuit: &crate::types::Circuit) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_circuit_by_id(&self, _circuit_id: &str) -> Result<Option<crate::types::Circuit>, StorageError> {
+            Ok(None)
+        }
+        fn update_circuit(&mut self, _circuit: &crate::types::Circuit) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn list_circuits(&self) -> Result<Vec<crate::types::Circuit>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_circuits_for_user(&self, _user_id: &str) -> Result<Vec<crate::types::Circuit>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn delete_circuit(&mut self, _circuit_id: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn store_circuit_item(&mut self, _circuit_item: &crate::types::CircuitItem) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_circuit_items(&self, _circuit_id: &str) -> Result<Vec<crate::types::CircuitItem>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_circuit_item(&self, _circuit_id: &str, _dfid: &str) -> Result<Option<crate::types::CircuitItem>, StorageError> {
+            Ok(None)
+        }
+        fn update_circuit_item(&mut self, _circuit_item: &crate::types::CircuitItem) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove_circuit_item(&mut self, _circuit_id: &str, _dfid: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn store_activity(&mut self, _activity: &crate::types::Activity) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_activity_by_id(&self, _activity_id: &str) -> Result<Option<crate::types::Activity>, StorageError> {
+            Ok(None)
+        }
+        fn get_all_activities(&self) -> Result<Vec<crate::types::Activity>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_activities_for_user(&self, _user_id: &str) -> Result<Vec<crate::types::Activity>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_activities_for_circuit(&self, _circuit_id: &str) -> Result<Vec<crate::types::Activity>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn store_data_lake_entry(&mut self, _entry: &crate::types::DataLakeEntry) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_data_lake_entry_by_id(&self, _entry_id: &uuid::Uuid) -> Result<Option<crate::types::DataLakeEntry>, StorageError> {
+            Ok(None)
+        }
+        fn get_data_lake_entries_by_status(&self, _status: crate::types::ProcessingStatus) -> Result<Vec<crate::types::DataLakeEntry>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn update_data_lake_entry(&mut self, _entry: &crate::types::DataLakeEntry) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn store_identifier_mapping(&mut self, _mapping: &crate::types::IdentifierMapping) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_identifier_mappings(&self, _identifier: &Identifier) -> Result<Vec<crate::types::IdentifierMapping>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn update_identifier_mapping(&mut self, _mapping: &crate::types::IdentifierMapping) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn store_conflict_resolution(&mut self, _conflict: &crate::types::ConflictResolution) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_conflict_resolution(&self, _conflict_id: &uuid::Uuid) -> Result<Option<crate::types::ConflictResolution>, StorageError> {
+            Ok(None)
+        }
+        fn get_pending_conflicts(&self) -> Result<Vec<crate::types::ConflictResolution>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn update_conflict_resolution(&mut self, _conflict: &crate::types::ConflictResolution) -> Result<(), StorageError> {
             Ok(())
         }
     }

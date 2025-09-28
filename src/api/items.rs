@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::{ItemsEngine, InMemoryStorage, Item, ItemStatus, Identifier};
+use crate::{ItemsEngine, InMemoryStorage, Item, ItemStatus, Identifier, ItemShare, SharedItemResponse};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdentifierRequest {
@@ -71,6 +71,36 @@ pub struct ItemStatsResponse {
     pub average_confidence: f64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ShareItemRequest {
+    pub recipient_user_id: String,
+    pub permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShareItemResponse {
+    pub share_id: String,
+    pub dfid: String,
+    pub recipient_user_id: String,
+    pub shared_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SharedItemListResponse {
+    pub share_id: String,
+    pub item: ItemResponse,
+    pub shared_by: String,
+    pub shared_at: i64,
+    pub permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SharedWithCheckResponse {
+    pub is_shared: bool,
+    pub share_id: Option<String>,
+    pub shared_at: Option<i64>,
+}
+
 pub struct ItemState {
     pub engine: Arc<Mutex<ItemsEngine<InMemoryStorage>>>,
 }
@@ -84,9 +114,9 @@ impl ItemState {
     }
 }
 
-pub fn item_routes() -> Router {
-    let state = Arc::new(ItemState::new());
+use super::shared_state::AppState;
 
+pub fn item_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", post(create_item))
         .route("/", get(list_items))
@@ -96,10 +126,13 @@ pub fn item_routes() -> Router {
         .route("/:dfid/merge", post(merge_items))
         .route("/:dfid/split", post(split_item))
         .route("/:dfid/deprecate", put(deprecate_item))
+        .route("/:dfid/share", post(share_item))
+        .route("/:dfid/shared-with/:user_id", get(check_item_shared_with_user))
         .route("/search", get(search_items))
         .route("/stats", get(get_item_stats))
         .route("/identifier/:key/:value", get(get_items_by_identifier))
-        .with_state(state)
+        .route("/shared-to/:user_id", get(get_shared_items_for_user))
+        .with_state(app_state)
 }
 
 fn parse_item_status(status_str: &str) -> Result<ItemStatus, String> {
@@ -131,10 +164,10 @@ fn item_to_response(item: Item) -> ItemResponse {
 }
 
 async fn create_item(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateItemRequest>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.items_engine.lock().unwrap();
 
     let source_entry = uuid::Uuid::parse_str(&payload.source_entry)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid source entry UUID"}))))?;
@@ -151,10 +184,10 @@ async fn create_item(
 }
 
 async fn get_item(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.items_engine.lock().unwrap();
 
     match engine.get_item(&dfid) {
         Ok(Some(item)) => Ok(Json(item_to_response(item))),
@@ -164,11 +197,11 @@ async fn get_item(
 }
 
 async fn update_item(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
     Json(payload): Json<UpdateItemRequest>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.items_engine.lock().unwrap();
 
     // Update enriched data if provided
     if let Some(enriched_data) = payload.enriched_data {
@@ -201,10 +234,10 @@ async fn update_item(
 }
 
 async fn delete_item(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.items_engine.lock().unwrap();
 
     match engine.deprecate_item(&dfid) {
         Ok(_) => Ok(Json(json!({"message": "Item deprecated successfully"}))),
@@ -213,10 +246,10 @@ async fn delete_item(
 }
 
 async fn list_items(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<ItemQueryParams>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.items_engine.lock().unwrap();
 
     match engine.list_items() {
         Ok(mut items) => {
@@ -253,11 +286,11 @@ async fn list_items(
 }
 
 async fn merge_items(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Path(primary_dfid): Path<String>,
     Json(secondary_dfid): Json<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.items_engine.lock().unwrap();
 
     match engine.merge_items(&primary_dfid, &secondary_dfid) {
         Ok(item) => Ok(Json(item_to_response(item))),
@@ -266,11 +299,11 @@ async fn merge_items(
 }
 
 async fn split_item(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
     Json(split_request): Json<SplitItemRequest>,
 ) -> Result<Json<SplitItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.items_engine.lock().unwrap();
 
     let identifiers: Vec<Identifier> = split_request.identifiers_for_new_item
         .into_iter()
@@ -289,10 +322,10 @@ async fn split_item(
 }
 
 async fn deprecate_item(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.items_engine.lock().unwrap();
 
     match engine.deprecate_item(&dfid) {
         Ok(item) => Ok(Json(item_to_response(item))),
@@ -302,7 +335,7 @@ async fn deprecate_item(
 
 
 async fn search_items(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<ItemQueryParams>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
     // Reuse list_items logic for search
@@ -310,9 +343,9 @@ async fn search_items(
 }
 
 async fn get_item_stats(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<ItemStatsResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.items_engine.lock().unwrap();
 
     match engine.list_items() {
         Ok(items) => {
@@ -338,10 +371,10 @@ async fn get_item_stats(
 }
 
 async fn get_items_by_identifier(
-    State(state): State<Arc<ItemState>>,
+    State(state): State<Arc<AppState>>,
     Path((key, value)): Path<(String, String)>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.items_engine.lock().unwrap();
     let identifier = Identifier::new(key, value);
 
     match engine.find_items_by_identifier(&identifier) {
@@ -353,5 +386,82 @@ async fn get_items_by_identifier(
             Ok(Json(response))
         }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get items by identifier: {}", e)})))),
+    }
+}
+
+// Sharing endpoints
+async fn share_item(
+    State(state): State<Arc<AppState>>,
+    Path(dfid): Path<String>,
+    Json(payload): Json<ShareItemRequest>,
+) -> Result<Json<ShareItemResponse>, (StatusCode, Json<Value>)> {
+    let mut engine = state.items_engine.lock().unwrap();
+
+    // For now, use a placeholder for the shared_by user ID
+    // In a real application, this would come from authentication
+    let shared_by = "current_user".to_string();
+
+    match engine.share_item(&dfid, shared_by, payload.recipient_user_id, payload.permissions) {
+        Ok(share) => Ok(Json(ShareItemResponse {
+            share_id: share.share_id,
+            dfid: share.dfid,
+            recipient_user_id: share.recipient_user_id,
+            shared_at: share.shared_at.timestamp(),
+        })),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to share item: {}", e)})))),
+    }
+}
+
+async fn check_item_shared_with_user(
+    State(state): State<Arc<AppState>>,
+    Path((dfid, user_id)): Path<(String, String)>,
+) -> Result<Json<SharedWithCheckResponse>, (StatusCode, Json<Value>)> {
+    let engine = state.items_engine.lock().unwrap();
+
+    match engine.is_item_shared_with_user(&dfid, &user_id) {
+        Ok(is_shared) => {
+            if is_shared {
+                // Get the share details
+                if let Ok(shares) = engine.get_shares_for_item(&dfid) {
+                    if let Some(share) = shares.iter().find(|s| s.recipient_user_id == user_id) {
+                        return Ok(Json(SharedWithCheckResponse {
+                            is_shared: true,
+                            share_id: Some(share.share_id.clone()),
+                            shared_at: Some(share.shared_at.timestamp()),
+                        }));
+                    }
+                }
+            }
+            Ok(Json(SharedWithCheckResponse {
+                is_shared: false,
+                share_id: None,
+                shared_at: None,
+            }))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to check share status: {}", e)})))),
+    }
+}
+
+pub async fn get_shared_items_for_user(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Vec<SharedItemListResponse>>, (StatusCode, Json<Value>)> {
+    let engine = state.items_engine.lock().unwrap();
+
+    match engine.get_shares_for_user(&user_id) {
+        Ok(shared_items) => {
+            let response: Vec<SharedItemListResponse> = shared_items
+                .into_iter()
+                .map(|shared_item| SharedItemListResponse {
+                    share_id: shared_item.share_id,
+                    item: item_to_response(shared_item.item),
+                    shared_by: shared_item.shared_by,
+                    shared_at: shared_item.shared_at.timestamp(),
+                    permissions: shared_item.permissions,
+                })
+                .collect();
+            Ok(Json(response))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get shared items: {}", e)})))),
     }
 }

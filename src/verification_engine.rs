@@ -33,72 +33,14 @@ impl From<StorageError> for VerificationError {
     }
 }
 
-// Implement VerificationStorage for any StorageBackend
-impl<T: StorageBackend> VerificationStorage for T {
-    fn get_data_lake_entries(&self, status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError> {
-        self.get_data_lake_entries_by_status(status)
-    }
 
-    fn update_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError> {
-        self.update_data_lake_entry(entry)
-    }
-
-    fn get_identifier_mappings(&self, identifier: &Identifier) -> Result<Vec<IdentifierMapping>, StorageError> {
-        self.get_identifier_mappings(identifier)
-    }
-
-    fn store_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        self.store_identifier_mapping(mapping)
-    }
-
-    fn update_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        self.update_identifier_mapping(mapping)
-    }
-
-    fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError> {
-        self.get_item_by_dfid(dfid)
-    }
-
-    fn store_item(&mut self, item: &Item) -> Result<(), StorageError> {
-        self.store_item(item)
-    }
-
-    fn update_item(&mut self, item: &Item) -> Result<(), StorageError> {
-        self.update_item(item)
-    }
-
-    fn store_conflict_resolution(&mut self, conflict: &ConflictResolution) -> Result<(), StorageError> {
-        self.store_conflict_resolution(conflict)
-    }
-
-    fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError> {
-        self.get_pending_conflicts()
-    }
-}
-
-pub trait VerificationStorage {
-    fn get_data_lake_entries(&self, status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError>;
-    fn update_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError>;
-
-    fn get_identifier_mappings(&self, identifier: &Identifier) -> Result<Vec<IdentifierMapping>, StorageError>;
-    fn store_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError>;
-    fn update_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError>;
-
-    fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError>;
-    fn store_item(&mut self, item: &Item) -> Result<(), StorageError>;
-    fn update_item(&mut self, item: &Item) -> Result<(), StorageError>;
-
-    fn store_conflict_resolution(&mut self, conflict: &ConflictResolution) -> Result<(), StorageError>;
-    fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError>;
-}
-
-pub struct VerificationEngine<S: VerificationStorage> {
+pub struct VerificationEngine<S: StorageBackend> {
     storage: S,
     dfid_engine: DfidEngine,
     logger: LoggingEngine,
 }
 
-impl<S: VerificationStorage> VerificationEngine<S> {
+impl<S: StorageBackend> VerificationEngine<S> {
     pub fn new(storage: S, dfid_engine: DfidEngine) -> Self {
         let mut logger = LoggingEngine::new();
         logger.info("VerificationEngine", "initialization", "Verification engine initialized");
@@ -111,7 +53,7 @@ impl<S: VerificationStorage> VerificationEngine<S> {
     }
 
     pub fn process_pending_entries(&mut self) -> Result<Vec<VerificationResult>, VerificationError> {
-        let pending_entries = self.storage.get_data_lake_entries(ProcessingStatus::Pending)?;
+        let pending_entries = self.storage.get_data_lake_entries_by_status(ProcessingStatus::Pending)?;
         let mut results = Vec::new();
 
         self.logger.info("VerificationEngine", "batch_processing", "Processing pending data lake entries")
@@ -376,14 +318,7 @@ mod tests {
         }
     }
 
-    impl VerificationStorage for MockVerificationStorage {
-        fn get_data_lake_entries(&self, status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError> {
-            Ok(self.data_lake_entries
-                .values()
-                .filter(|entry| matches!(entry.status, ProcessingStatus::Pending) == matches!(status, ProcessingStatus::Pending))
-                .cloned()
-                .collect())
-        }
+    impl StorageBackend for MockVerificationStorage {
 
         fn update_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError> {
             self.data_lake_entries.insert(entry.entry_id, entry.clone());
@@ -431,6 +366,105 @@ mod tests {
             Ok(self.conflicts
                 .iter()
                 .filter(|c| c.requires_manual_review)
+                .cloned()
+                .collect())
+        }
+
+        // Add all missing StorageBackend methods for testing
+        fn store_circuit(&mut self, _circuit: &crate::types::Circuit) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_circuit_by_id(&self, _circuit_id: &str) -> Result<Option<crate::types::Circuit>, StorageError> {
+            Ok(None)
+        }
+        fn update_circuit(&mut self, _circuit: &crate::types::Circuit) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn list_circuits(&self) -> Result<Vec<crate::types::Circuit>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_circuits_for_user(&self, _user_id: &str) -> Result<Vec<crate::types::Circuit>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn delete_circuit(&mut self, _circuit_id: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn store_circuit_item(&mut self, _circuit_item: &crate::types::CircuitItem) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_circuit_items(&self, _circuit_id: &str) -> Result<Vec<crate::types::CircuitItem>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_circuit_item(&self, _circuit_id: &str, _dfid: &str) -> Result<Option<crate::types::CircuitItem>, StorageError> {
+            Ok(None)
+        }
+        fn update_circuit_item(&mut self, _circuit_item: &crate::types::CircuitItem) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove_circuit_item(&mut self, _circuit_id: &str, _dfid: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn store_activity(&mut self, _activity: &crate::types::Activity) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_activity_by_id(&self, _activity_id: &str) -> Result<Option<crate::types::Activity>, StorageError> {
+            Ok(None)
+        }
+        fn get_all_activities(&self) -> Result<Vec<crate::types::Activity>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_activities_for_user(&self, _user_id: &str) -> Result<Vec<crate::types::Activity>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_activities_for_circuit(&self, _circuit_id: &str) -> Result<Vec<crate::types::Activity>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn list_items(&self) -> Result<Vec<Item>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn find_items_by_identifier(&self, _identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn find_items_by_status(&self, _status: crate::types::ItemStatus) -> Result<Vec<Item>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn delete_item(&mut self, _dfid: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn store_item_share(&mut self, _share: &crate::types::ItemShare) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_item_share(&self, _share_id: &str) -> Result<Option<crate::types::ItemShare>, StorageError> {
+            Ok(None)
+        }
+        fn get_shares_for_user(&self, _user_id: &str) -> Result<Vec<crate::types::ItemShare>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_shares_for_item(&self, _dfid: &str) -> Result<Vec<crate::types::ItemShare>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn is_item_shared_with_user(&self, _dfid: &str, _user_id: &str) -> Result<bool, StorageError> {
+            Ok(false)
+        }
+        fn delete_item_share(&mut self, _share_id: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_conflict_resolution(&self, _conflict_id: &uuid::Uuid) -> Result<Option<ConflictResolution>, StorageError> {
+            Ok(None)
+        }
+        fn update_conflict_resolution(&mut self, _conflict: &ConflictResolution) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn store_data_lake_entry(&mut self, _entry: &DataLakeEntry) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_data_lake_entry_by_id(&self, _entry_id: &uuid::Uuid) -> Result<Option<DataLakeEntry>, StorageError> {
+            Ok(None)
+        }
+        fn get_data_lake_entries_by_status(&self, status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError> {
+            Ok(self.data_lake_entries
+                .values()
+                .filter(|entry| matches!(entry.status, ProcessingStatus::Pending) == matches!(status, ProcessingStatus::Pending))
                 .cloned()
                 .collect())
         }

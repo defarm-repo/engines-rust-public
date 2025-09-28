@@ -1,8 +1,8 @@
 use crate::logging::LogEntry;
 use crate::types::{
-    Identifier, Receipt, DataLakeEntry, Item, IdentifierMapping, ConflictResolution,
+    Activity, CircuitItem, Identifier, Receipt, DataLakeEntry, Item, IdentifierMapping, ConflictResolution,
     ProcessingStatus, ItemStatus, Event, EventType, EventVisibility,
-    Circuit, CircuitOperation
+    Circuit, CircuitOperation, ItemShare
 };
 use chrono::{DateTime, Utc};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -130,6 +131,25 @@ pub trait StorageBackend {
     fn get_circuit_operation(&self, operation_id: &Uuid) -> Result<Option<CircuitOperation>, StorageError>;
     fn update_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError>;
     fn get_circuit_operations(&self, circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, StorageError>;
+
+    // Item Share operations
+    fn store_item_share(&mut self, share: &ItemShare) -> Result<(), StorageError>;
+    fn get_item_share(&self, share_id: &str) -> Result<Option<ItemShare>, StorageError>;
+    fn get_shares_for_user(&self, user_id: &str) -> Result<Vec<ItemShare>, StorageError>;
+    fn get_shares_for_item(&self, dfid: &str) -> Result<Vec<ItemShare>, StorageError>;
+    fn is_item_shared_with_user(&self, dfid: &str, user_id: &str) -> Result<bool, StorageError>;
+    fn delete_item_share(&mut self, share_id: &str) -> Result<(), StorageError>;
+
+    // Activity operations
+    fn store_activity(&mut self, activity: &Activity) -> Result<(), StorageError>;
+    fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, StorageError>;
+    fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError>;
+    fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError>;
+
+    // Circuit Items operations
+    fn store_circuit_item(&mut self, circuit_item: &CircuitItem) -> Result<(), StorageError>;
+    fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError>;
+    fn remove_circuit_item(&mut self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError>;
 }
 
 pub struct InMemoryStorage {
@@ -143,6 +163,9 @@ pub struct InMemoryStorage {
     events: HashMap<Uuid, Event>,
     circuits: HashMap<Uuid, Circuit>,
     circuit_operations: HashMap<Uuid, CircuitOperation>,
+    item_shares: HashMap<String, ItemShare>,
+    activities: HashMap<String, Activity>,
+    circuit_items: HashMap<(Uuid, String), CircuitItem>,
 }
 
 impl InMemoryStorage {
@@ -158,6 +181,9 @@ impl InMemoryStorage {
             events: HashMap::new(),
             circuits: HashMap::new(),
             circuit_operations: HashMap::new(),
+            item_shares: HashMap::new(),
+            activities: HashMap::new(),
+            circuit_items: HashMap::new(),
         }
     }
 }
@@ -425,6 +451,88 @@ impl StorageBackend for InMemoryStorage {
             .filter(|operation| operation.circuit_id == *circuit_id)
             .cloned()
             .collect())
+    }
+
+    // Item Share operations
+    fn store_item_share(&mut self, share: &ItemShare) -> Result<(), StorageError> {
+        self.item_shares.insert(share.share_id.clone(), share.clone());
+        Ok(())
+    }
+
+    fn get_item_share(&self, share_id: &str) -> Result<Option<ItemShare>, StorageError> {
+        Ok(self.item_shares.get(share_id).cloned())
+    }
+
+    fn get_shares_for_user(&self, user_id: &str) -> Result<Vec<ItemShare>, StorageError> {
+        Ok(self.item_shares
+            .values()
+            .filter(|share| share.recipient_user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    fn get_shares_for_item(&self, dfid: &str) -> Result<Vec<ItemShare>, StorageError> {
+        Ok(self.item_shares
+            .values()
+            .filter(|share| share.dfid == dfid)
+            .cloned()
+            .collect())
+    }
+
+    fn is_item_shared_with_user(&self, dfid: &str, user_id: &str) -> Result<bool, StorageError> {
+        Ok(self.item_shares
+            .values()
+            .any(|share| share.dfid == dfid && share.recipient_user_id == user_id))
+    }
+
+    fn delete_item_share(&mut self, share_id: &str) -> Result<(), StorageError> {
+        self.item_shares.remove(share_id);
+        Ok(())
+    }
+
+    fn store_activity(&mut self, activity: &Activity) -> Result<(), StorageError> {
+        self.activities.insert(activity.activity_id.clone(), activity.clone());
+        Ok(())
+    }
+
+    fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, StorageError> {
+        Ok(self.activities
+            .values()
+            .filter(|activity| activity.user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
+        Ok(self.activities
+            .values()
+            .filter(|activity| activity.circuit_id == *circuit_id)
+            .cloned()
+            .collect())
+    }
+
+    fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError> {
+        Ok(self.activities.values().cloned().collect())
+    }
+
+    fn store_circuit_item(&mut self, circuit_item: &CircuitItem) -> Result<(), StorageError> {
+        let key = (circuit_item.circuit_id, circuit_item.dfid.clone());
+        self.circuit_items.insert(key, circuit_item.clone());
+        Ok(())
+    }
+
+    fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
+        Ok(self.circuit_items
+            .values()
+            .filter(|item| item.circuit_id == *circuit_id)
+            .cloned()
+            .collect())
+    }
+
+    fn remove_circuit_item(&mut self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
+        let key = (*circuit_id, dfid.to_string());
+        self.circuit_items.remove(&key);
+        Ok(())
     }
 }
 
@@ -780,4 +888,286 @@ impl StorageBackend for EncryptedFileStorage {
     fn get_circuit_operations(&self, _circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, StorageError> {
         Ok(Vec::new())
     }
+
+    // Item Share operations - Not implemented for EncryptedFileStorage yet
+    fn store_item_share(&mut self, _share: &ItemShare) -> Result<(), StorageError> {
+        Err(StorageError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Item share operations not yet implemented for EncryptedFileStorage"
+        )))
+    }
+
+    fn get_item_share(&self, _share_id: &str) -> Result<Option<ItemShare>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_shares_for_user(&self, _user_id: &str) -> Result<Vec<ItemShare>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_shares_for_item(&self, _dfid: &str) -> Result<Vec<ItemShare>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn is_item_shared_with_user(&self, _dfid: &str, _user_id: &str) -> Result<bool, StorageError> {
+        Ok(false)
+    }
+
+    fn delete_item_share(&mut self, _share_id: &str) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn store_activity(&mut self, _activity: &Activity) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn get_activities_for_user(&self, _user_id: &str) -> Result<Vec<Activity>, StorageError> {
+        Ok(vec![])
+    }
+
+    fn get_activities_for_circuit(&self, _circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
+        Ok(vec![])
+    }
+
+    fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError> {
+        Ok(vec![])
+    }
+
+    fn store_circuit_item(&mut self, _circuit_item: &CircuitItem) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn get_circuit_items(&self, _circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
+        Ok(vec![])
+    }
+
+    fn remove_circuit_item(&mut self, _circuit_id: &Uuid, _dfid: &str) -> Result<(), StorageError> {
+        Ok(())
+    }
 }
+
+// Implementation of StorageBackend for Arc<Mutex<InMemoryStorage>>
+// This enables shared storage across multiple engines
+impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
+    fn store_receipt(&mut self, receipt: &Receipt) -> Result<(), StorageError> {
+        self.lock().unwrap().store_receipt(receipt)
+    }
+
+    fn get_receipt(&self, id: &Uuid) -> Result<Option<Receipt>, StorageError> {
+        self.lock().unwrap().get_receipt(id)
+    }
+
+    fn find_receipts_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Receipt>, StorageError> {
+        self.lock().unwrap().find_receipts_by_identifier(identifier)
+    }
+
+    fn list_receipts(&self) -> Result<Vec<Receipt>, StorageError> {
+        self.lock().unwrap().list_receipts()
+    }
+
+    fn store_log(&mut self, log: &LogEntry) -> Result<(), StorageError> {
+        self.lock().unwrap().store_log(log)
+    }
+
+    fn get_logs(&self) -> Result<Vec<LogEntry>, StorageError> {
+        self.lock().unwrap().get_logs()
+    }
+
+    fn store_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError> {
+        self.lock().unwrap().store_data_lake_entry(entry)
+    }
+
+    fn get_data_lake_entry(&self, entry_id: &Uuid) -> Result<Option<DataLakeEntry>, StorageError> {
+        self.lock().unwrap().get_data_lake_entry(entry_id)
+    }
+
+    fn update_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError> {
+        self.lock().unwrap().update_data_lake_entry(entry)
+    }
+
+    fn get_data_lake_entries_by_status(&self, status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError> {
+        self.lock().unwrap().get_data_lake_entries_by_status(status)
+    }
+
+    fn list_data_lake_entries(&self) -> Result<Vec<DataLakeEntry>, StorageError> {
+        self.lock().unwrap().list_data_lake_entries()
+    }
+
+    fn store_item(&mut self, item: &Item) -> Result<(), StorageError> {
+        self.lock().unwrap().store_item(item)
+    }
+
+    fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError> {
+        self.lock().unwrap().get_item_by_dfid(dfid)
+    }
+
+    fn update_item(&mut self, item: &Item) -> Result<(), StorageError> {
+        self.lock().unwrap().update_item(item)
+    }
+
+    fn list_items(&self) -> Result<Vec<Item>, StorageError> {
+        self.lock().unwrap().list_items()
+    }
+
+    fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
+        self.lock().unwrap().find_items_by_identifier(identifier)
+    }
+
+    fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError> {
+        self.lock().unwrap().find_items_by_status(status)
+    }
+
+    fn delete_item(&mut self, dfid: &str) -> Result<(), StorageError> {
+        self.lock().unwrap().delete_item(dfid)
+    }
+
+    fn store_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
+        self.lock().unwrap().store_identifier_mapping(mapping)
+    }
+
+    fn get_identifier_mappings(&self, from_id: &Identifier) -> Result<Vec<IdentifierMapping>, StorageError> {
+        self.lock().unwrap().get_identifier_mappings(from_id)
+    }
+
+    fn update_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
+        self.lock().unwrap().update_identifier_mapping(mapping)
+    }
+
+    fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError> {
+        self.lock().unwrap().list_identifier_mappings()
+    }
+
+    fn store_conflict_resolution(&mut self, resolution: &ConflictResolution) -> Result<(), StorageError> {
+        self.lock().unwrap().store_conflict_resolution(resolution)
+    }
+
+    fn get_conflict_resolution(&self, conflict_id: &Uuid) -> Result<Option<ConflictResolution>, StorageError> {
+        self.lock().unwrap().get_conflict_resolution(conflict_id)
+    }
+
+    fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError> {
+        self.lock().unwrap().get_pending_conflicts()
+    }
+
+    fn store_event(&mut self, event: &Event) -> Result<(), StorageError> {
+        self.lock().unwrap().store_event(event)
+    }
+
+    fn get_event(&self, id: &Uuid) -> Result<Option<Event>, StorageError> {
+        self.lock().unwrap().get_event(id)
+    }
+
+    fn list_events(&self) -> Result<Vec<Event>, StorageError> {
+        self.lock().unwrap().list_events()
+    }
+
+    fn update_event(&mut self, event: &Event) -> Result<(), StorageError> {
+        self.lock().unwrap().update_event(event)
+    }
+
+    fn get_events_by_dfid(&self, dfid: &str) -> Result<Vec<Event>, StorageError> {
+        self.lock().unwrap().get_events_by_dfid(dfid)
+    }
+
+    fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, StorageError> {
+        self.lock().unwrap().get_events_by_type(event_type)
+    }
+
+    fn get_events_by_visibility(&self, visibility: EventVisibility) -> Result<Vec<Event>, StorageError> {
+        self.lock().unwrap().get_events_by_visibility(visibility)
+    }
+
+    fn get_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<Event>, StorageError> {
+        self.lock().unwrap().get_events_in_time_range(start, end)
+    }
+
+    fn store_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
+        self.lock().unwrap().store_circuit(circuit)
+    }
+
+    fn get_circuit(&self, id: &Uuid) -> Result<Option<Circuit>, StorageError> {
+        self.lock().unwrap().get_circuit(id)
+    }
+
+    fn update_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
+        self.lock().unwrap().update_circuit(circuit)
+    }
+
+    fn list_circuits(&self) -> Result<Vec<Circuit>, StorageError> {
+        self.lock().unwrap().list_circuits()
+    }
+
+    fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, StorageError> {
+        self.lock().unwrap().get_circuits_for_member(member_id)
+    }
+
+    fn store_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError> {
+        self.lock().unwrap().store_circuit_operation(operation)
+    }
+
+    fn get_circuit_operation(&self, id: &Uuid) -> Result<Option<CircuitOperation>, StorageError> {
+        self.lock().unwrap().get_circuit_operation(id)
+    }
+
+    fn update_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError> {
+        self.lock().unwrap().update_circuit_operation(operation)
+    }
+
+    fn get_circuit_operations(&self, circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, StorageError> {
+        self.lock().unwrap().get_circuit_operations(circuit_id)
+    }
+
+
+    fn store_activity(&mut self, activity: &Activity) -> Result<(), StorageError> {
+        self.lock().unwrap().store_activity(activity)
+    }
+
+    fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, StorageError> {
+        self.lock().unwrap().get_activities_for_user(user_id)
+    }
+
+    fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
+        self.lock().unwrap().get_activities_for_circuit(circuit_id)
+    }
+
+    fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError> {
+        self.lock().unwrap().get_all_activities()
+    }
+
+    fn store_item_share(&mut self, share: &ItemShare) -> Result<(), StorageError> {
+        self.lock().unwrap().store_item_share(share)
+    }
+
+    fn get_shares_for_item(&self, dfid: &str) -> Result<Vec<ItemShare>, StorageError> {
+        self.lock().unwrap().get_shares_for_item(dfid)
+    }
+
+    fn get_shares_for_user(&self, user_id: &str) -> Result<Vec<ItemShare>, StorageError> {
+        self.lock().unwrap().get_shares_for_user(user_id)
+    }
+
+    fn is_item_shared_with_user(&self, dfid: &str, user_id: &str) -> Result<bool, StorageError> {
+        self.lock().unwrap().is_item_shared_with_user(dfid, user_id)
+    }
+
+    fn store_circuit_item(&mut self, circuit_item: &CircuitItem) -> Result<(), StorageError> {
+        self.lock().unwrap().store_circuit_item(circuit_item)
+    }
+
+    fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
+        self.lock().unwrap().get_circuit_items(circuit_id)
+    }
+
+    fn get_item_share(&self, share_id: &str) -> Result<Option<ItemShare>, StorageError> {
+        self.lock().unwrap().get_item_share(share_id)
+    }
+
+    fn delete_item_share(&mut self, share_id: &str) -> Result<(), StorageError> {
+        self.lock().unwrap().delete_item_share(share_id)
+    }
+
+    fn remove_circuit_item(&mut self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
+        self.lock().unwrap().remove_circuit_item(circuit_id, dfid)
+    }
+}
+

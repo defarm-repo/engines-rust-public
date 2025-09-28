@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::{CircuitsEngine, InMemoryStorage, MemberRole, Circuit, CircuitOperation};
-use crate::types::{CircuitPermissions, Permission, CustomRole};
+use crate::types::{Activity, BatchPushResult, CircuitItem, CircuitPermissions, Permission, CustomRole};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitRequest {
@@ -188,6 +188,46 @@ pub struct PublicJoinResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ActivityResponse {
+    pub activity_id: String,
+    pub activity_type: String,
+    pub circuit_id: String,
+    pub circuit_name: String,
+    pub item_dfids: Vec<String>,
+    pub user_id: String,
+    pub timestamp: i64,
+    pub status: String,
+    pub details: ActivityDetailsResponse,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActivityDetailsResponse {
+    pub items_count: usize,
+    pub success_count: usize,
+    pub failed_items: Vec<String>,
+    pub enrichment_matches: Vec<String>,
+    pub permissions: Option<Vec<String>>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CircuitItemResponse {
+    pub dfid: String,
+    pub circuit_id: String,
+    pub circuit_name: String,
+    pub pushed_by: String,
+    pub pushed_at: i64,
+    pub permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BatchPushRequest {
+    pub dfids: Vec<String>,
+    pub requester_id: String,
+    pub permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct CircuitOperationResponse {
     pub operation_id: String,
     pub circuit_id: String,
@@ -212,9 +252,9 @@ impl CircuitState {
     }
 }
 
-pub fn circuit_routes() -> Router {
-    let state = Arc::new(CircuitState::new());
+use super::shared_state::AppState;
 
+pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", post(create_circuit))
         .route("/", get(list_circuits))
@@ -238,9 +278,12 @@ pub fn circuit_routes() -> Router {
         .route("/:id/public-settings", put(update_public_settings))
         .route("/:id/public", get(get_public_circuit))
         .route("/:id/public/join", post(join_public_circuit))
+        .route("/:id/activities", get(get_circuit_activities))
+        .route("/:id/items", get(get_circuit_items))
+        .route("/:id/push/batch", post(batch_push_items))
         .route("/list", get(list_circuits))
         .route("/member/:member_id", get(get_circuits_for_member))
-        .with_state(state)
+        .with_state(app_state)
 }
 
 fn parse_member_role(role_str: &str) -> Result<MemberRole, String> {
@@ -348,11 +391,43 @@ fn operation_to_response(operation: CircuitOperation) -> CircuitOperationRespons
     }
 }
 
+pub fn activity_to_response(activity: Activity) -> ActivityResponse {
+    ActivityResponse {
+        activity_id: activity.activity_id,
+        activity_type: format!("{:?}", activity.activity_type),
+        circuit_id: activity.circuit_id.to_string(),
+        circuit_name: activity.circuit_name,
+        item_dfids: activity.item_dfids,
+        user_id: activity.user_id,
+        timestamp: activity.timestamp.timestamp(),
+        status: format!("{:?}", activity.status),
+        details: ActivityDetailsResponse {
+            items_count: activity.details.items_affected,
+            success_count: activity.details.items_affected,
+            failed_items: Vec::new(),
+            enrichment_matches: Vec::new(),
+            permissions: None,
+            error_message: activity.details.error_message,
+        },
+    }
+}
+
+fn circuit_item_to_response(item: CircuitItem) -> CircuitItemResponse {
+    CircuitItemResponse {
+        dfid: item.dfid,
+        circuit_id: item.circuit_id.to_string(),
+        circuit_name: format!("Circuit {}", item.circuit_id), // Placeholder since we don't have circuit name
+        pushed_by: item.pushed_by,
+        pushed_at: item.pushed_at.timestamp(),
+        permissions: Some(item.permissions),
+    }
+}
+
 async fn create_circuit(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.create_circuit(payload.name, payload.description, payload.owner_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
@@ -361,13 +436,13 @@ async fn create_circuit(
 }
 
 async fn get_circuit(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let engine = state.engine.lock().unwrap();
+    let engine = state.circuits_engine.lock().unwrap();
 
     match engine.get_circuit(&circuit_id) {
         Ok(Some(circuit)) => Ok(Json(circuit_to_response(circuit))),
@@ -377,7 +452,7 @@ async fn get_circuit(
 }
 
 async fn add_member(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(payload): Json<AddMemberRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
@@ -387,7 +462,7 @@ async fn add_member(
     let role = parse_member_role(&payload.role)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.add_member_to_circuit(&circuit_id, payload.member_id, role, &payload.requester_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
@@ -396,14 +471,14 @@ async fn add_member(
 }
 
 async fn push_item(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path((id, dfid)): Path<(String, String)>,
     Json(payload): Json<CircuitOperationRequest>,
 ) -> Result<Json<CircuitOperationResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.push_item_to_circuit(&dfid, &circuit_id, &payload.requester_id) {
         Ok(operation) => Ok(Json(operation_to_response(operation))),
@@ -412,14 +487,14 @@ async fn push_item(
 }
 
 async fn pull_item(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path((id, dfid)): Path<(String, String)>,
     Json(payload): Json<CircuitOperationRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.pull_item_from_circuit(&dfid, &circuit_id, &payload.requester_id) {
         Ok((item, operation)) => {
@@ -442,13 +517,13 @@ async fn pull_item(
 }
 
 async fn get_circuit_operations(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<CircuitOperationResponse>>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let engine = state.engine.lock().unwrap();
+    let engine = state.circuits_engine.lock().unwrap();
 
     match engine.get_circuit_operations(&circuit_id) {
         Ok(operations) => {
@@ -463,13 +538,13 @@ async fn get_circuit_operations(
 }
 
 async fn get_pending_operations(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<CircuitOperationResponse>>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let engine = state.engine.lock().unwrap();
+    let engine = state.circuits_engine.lock().unwrap();
 
     match engine.get_pending_operations(&circuit_id) {
         Ok(operations) => {
@@ -484,14 +559,14 @@ async fn get_pending_operations(
 }
 
 async fn approve_operation(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(operation_id): Path<String>,
     Json(payload): Json<ApproveOperationRequest>,
 ) -> Result<Json<CircuitOperationResponse>, (StatusCode, Json<Value>)> {
     let operation_uuid = Uuid::parse_str(&operation_id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid operation ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.approve_operation(&operation_uuid, &payload.approver_id) {
         Ok(operation) => Ok(Json(operation_to_response(operation))),
@@ -500,14 +575,14 @@ async fn approve_operation(
 }
 
 async fn deactivate_circuit(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(payload): Json<CircuitOperationRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.deactivate_circuit(&circuit_id, &payload.requester_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
@@ -516,10 +591,10 @@ async fn deactivate_circuit(
 }
 
 async fn list_circuits(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<CircuitListQuery>,
 ) -> Result<Json<Vec<CircuitResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.circuits_engine.lock().unwrap();
 
     match engine.list_circuits() {
         Ok(mut circuits) => {
@@ -563,10 +638,10 @@ async fn list_circuits(
 }
 
 async fn get_circuits_for_member(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(member_id): Path<String>,
 ) -> Result<Json<Vec<CircuitResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.circuits_engine.lock().unwrap();
 
     match engine.get_circuits_for_member(&member_id) {
         Ok(circuits) => {
@@ -581,14 +656,14 @@ async fn get_circuits_for_member(
 }
 
 async fn request_to_join_circuit(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(payload): Json<JoinCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.request_to_join_circuit(&circuit_id, &payload.requester_id, payload.message) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
@@ -597,13 +672,13 @@ async fn request_to_join_circuit(
 }
 
 async fn get_pending_join_requests(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<JoinRequestResponse>>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let engine = state.engine.lock().unwrap();
+    let engine = state.circuits_engine.lock().unwrap();
 
     match engine.get_pending_join_requests(&circuit_id) {
         Ok(requests) => {
@@ -623,7 +698,7 @@ async fn get_pending_join_requests(
 }
 
 async fn approve_join_request(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path((id, requester_id)): Path<(String, String)>,
     Json(payload): Json<ApproveJoinRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
@@ -633,7 +708,7 @@ async fn approve_join_request(
     let role = parse_member_role(&payload.role)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.approve_join_request(&circuit_id, &requester_id, &payload.admin_id, role) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
@@ -642,14 +717,14 @@ async fn approve_join_request(
 }
 
 async fn reject_join_request(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path((id, requester_id)): Path<(String, String)>,
     Json(payload): Json<RejectJoinRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.reject_join_request(&circuit_id, &requester_id, &payload.admin_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
@@ -658,14 +733,14 @@ async fn reject_join_request(
 }
 
 async fn update_circuit(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(payload): Json<UpdateCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     // Get current circuit to preserve existing values
     let current_circuit = engine.get_circuit(&circuit_id)
@@ -692,7 +767,7 @@ async fn update_circuit(
 }
 
 async fn create_custom_role(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(payload): Json<CreateCustomRoleRequest>,
 ) -> Result<Json<CustomRoleResponse>, (StatusCode, Json<Value>)> {
@@ -708,7 +783,7 @@ async fn create_custom_role(
     let permissions = permissions
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.create_custom_role(&circuit_id, payload.role_name, permissions, payload.description, payload.color, &payload.requester_id) {
         Ok(custom_role) => {
@@ -725,13 +800,13 @@ async fn create_custom_role(
 }
 
 async fn get_custom_roles(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<CustomRoleResponse>>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let engine = state.engine.lock().unwrap();
+    let engine = state.circuits_engine.lock().unwrap();
 
     match engine.get_custom_roles(&circuit_id) {
         Ok(roles) => {
@@ -756,14 +831,14 @@ async fn get_custom_roles(
 }
 
 async fn assign_member_role(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path((id, user_id)): Path<(String, String)>,
     Json(payload): Json<AssignRoleRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
 
     // If a custom role is specified, assign it
     let role_name = payload.custom_role_name.unwrap_or(payload.role);
@@ -775,7 +850,7 @@ async fn assign_member_role(
 }
 
 async fn update_public_settings(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(payload): Json<UpdatePublicSettingsRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -828,7 +903,7 @@ async fn update_public_settings(
         export_permissions,
     };
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
     match engine.update_public_settings(&circuit_id, public_settings, &payload.requester_id) {
         Ok(circuit) => Ok(Json(json!({
             "success": true,
@@ -839,13 +914,13 @@ async fn update_public_settings(
 }
 
 async fn get_public_circuit(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let engine = state.engine.lock().unwrap();
+    let engine = state.circuits_engine.lock().unwrap();
     match engine.get_public_circuit_info(&circuit_id) {
         Ok(Some(public_info)) => Ok(Json(json!({
             "success": true,
@@ -869,14 +944,14 @@ async fn get_public_circuit(
 }
 
 async fn join_public_circuit(
-    State(state): State<Arc<CircuitState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(payload): Json<JoinPublicCircuitRequest>,
 ) -> Result<Json<PublicJoinResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.circuits_engine.lock().unwrap();
     match engine.join_public_circuit(&circuit_id, &payload.requester_id, payload.access_password, payload.message) {
         Ok((requires_approval, message)) => Ok(Json(PublicJoinResponse {
             success: true,
@@ -884,5 +959,69 @@ async fn join_public_circuit(
             requires_approval,
         })),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to join circuit: {}", e)})))),
+    }
+}
+
+async fn get_circuit_activities(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ActivityResponse>>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let engine = state.circuits_engine.lock().unwrap();
+
+    match engine.get_activities_for_circuit(&circuit_id) {
+        Ok(activities) => {
+            let response: Vec<ActivityResponse> = activities
+                .into_iter()
+                .map(activity_to_response)
+                .collect();
+            Ok(Json(response))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get activities: {}", e)})))),
+    }
+}
+
+async fn get_circuit_items(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<CircuitItemResponse>>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let engine = state.circuits_engine.lock().unwrap();
+
+    match engine.get_circuit_items(&circuit_id) {
+        Ok(items) => {
+            let response: Vec<CircuitItemResponse> = items
+                .into_iter()
+                .map(circuit_item_to_response)
+                .collect();
+            Ok(Json(response))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit items: {}", e)})))),
+    }
+}
+
+async fn batch_push_items(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<BatchPushRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let mut engine = state.circuits_engine.lock().unwrap();
+
+    match engine.batch_push_items(&payload.dfids, &circuit_id, &payload.requester_id, payload.permissions) {
+        Ok(result) => {
+            Ok(Json(json!({
+                "success_count": result.success_count,
+                "failed_count": result.failed_count,
+                "results": result.results
+            })))
+        }
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to batch push items: {}", e)})))),
     }
 }

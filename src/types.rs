@@ -817,6 +817,40 @@ pub enum RoleType {
     Custom(String),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemShare {
+    pub share_id: String,
+    pub dfid: String,
+    pub shared_by: String,
+    pub recipient_user_id: String,
+    pub shared_at: DateTime<Utc>,
+    pub permissions: Option<Vec<String>>,
+    pub source_entry: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SharedItemResponse {
+    pub share_id: String,
+    pub item: Item,
+    pub shared_by: String,
+    pub shared_at: DateTime<Utc>,
+    pub permissions: Option<Vec<String>>,
+}
+
+impl ItemShare {
+    pub fn new(dfid: String, shared_by: String, recipient_user_id: String, permissions: Option<Vec<String>>) -> Self {
+        Self {
+            share_id: format!("SHARE-{}-{}", Utc::now().format("%Y%m%d%H%M%S"), Uuid::new_v4().to_string()[0..8].to_uppercase()),
+            dfid,
+            shared_by,
+            recipient_user_id,
+            shared_at: Utc::now(),
+            permissions,
+            source_entry: Uuid::new_v4(),
+        }
+    }
+}
+
 impl CustomRole {
     pub fn new(circuit_id: Uuid, role_name: String, permissions: Vec<Permission>, description: String, created_by: String) -> Self {
         Self {
@@ -873,4 +907,115 @@ impl CustomRole {
     pub fn set_color(&mut self, color: String) {
         self.color = Some(color);
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ActivityType {
+    Push,
+    Pull,
+    Enrich,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ActivityStatus {
+    Success,
+    Partial,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityDetails {
+    pub items_affected: usize,
+    pub enrichments_made: Option<usize>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Activity {
+    pub activity_id: String,
+    pub activity_type: ActivityType,
+    pub circuit_id: Uuid,
+    pub circuit_name: String,
+    pub item_dfids: Vec<String>,
+    pub user_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub status: ActivityStatus,
+    pub details: ActivityDetails,
+}
+
+impl Activity {
+    pub fn new(
+        activity_type: ActivityType,
+        circuit_id: Uuid,
+        circuit_name: String,
+        item_dfids: Vec<String>,
+        user_id: String,
+        status: ActivityStatus,
+        details: ActivityDetails,
+    ) -> Self {
+        Self {
+            activity_id: format!("ACTIVITY-{}-{}",
+                Utc::now().format("%Y%m%d%H%M%S"),
+                Uuid::new_v4().to_string().split('-').nth(0).unwrap().to_uppercase()
+            ),
+            activity_type,
+            circuit_id,
+            circuit_name,
+            item_dfids,
+            user_id,
+            timestamp: Utc::now(),
+            status,
+            details,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitItem {
+    pub dfid: String,
+    pub circuit_id: Uuid,
+    pub pushed_by: String,
+    pub pushed_at: DateTime<Utc>,
+    pub permissions: Vec<String>,
+}
+
+impl CircuitItem {
+    pub fn new(dfid: String, circuit_id: Uuid, pushed_by: String, permissions: Vec<String>) -> Self {
+        Self {
+            dfid,
+            circuit_id,
+            pushed_by,
+            pushed_at: Utc::now(),
+            permissions,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitStats {
+    pub total_items: usize,
+    pub unique_identifiers: usize,
+    pub enrichable_fields: Vec<String>,
+    pub last_activity: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnrichmentMatch {
+    pub item_dfid: String,
+    pub enrichments_available: Vec<String>,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchPushResult {
+    pub success_count: usize,
+    pub failed_count: usize,
+    pub results: Vec<BatchPushItemResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchPushItemResult {
+    pub dfid: String,
+    pub success: bool,
+    pub error_message: Option<String>,
 }

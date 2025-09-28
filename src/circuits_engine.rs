@@ -2,7 +2,8 @@ use crate::events_engine::EventsEngine;
 use crate::logging::LoggingEngine;
 use crate::storage::StorageBackend;
 use crate::types::{
-    Circuit, CircuitOperation, CircuitStatus, EventVisibility,
+    Activity, ActivityDetails, ActivityStatus, ActivityType, BatchPushResult, BatchPushItemResult,
+    Circuit, CircuitItem, CircuitOperation, CircuitStatus, EventVisibility,
     Item, MemberRole, OperationStatus, OperationType, Permission, CustomRole,
 };
 use std::sync::Arc;
@@ -148,6 +149,34 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         } else {
             operation.approve();
             operation.complete();
+
+            // Store circuit item and log activity
+            let circuit_item = CircuitItem::new(
+                dfid.to_string(),
+                *circuit_id,
+                requester_id.to_string(),
+                vec!["read".to_string(), "verify".to_string()],
+            );
+            storage
+                .store_circuit_item(&circuit_item)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+            let activity = Activity::new(
+                ActivityType::Push,
+                *circuit_id,
+                circuit.name.clone(),
+                vec![dfid.to_string()],
+                requester_id.to_string(),
+                ActivityStatus::Success,
+                ActivityDetails {
+                    items_affected: 1,
+                    enrichments_made: None,
+                    error_message: None,
+                },
+            );
+            storage
+                .store_activity(&activity)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
         }
 
         storage
@@ -215,6 +244,24 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         } else {
             operation.approve();
             operation.complete();
+
+            // Log pull activity
+            let activity = Activity::new(
+                ActivityType::Pull,
+                *circuit_id,
+                circuit.name.clone(),
+                vec![dfid.to_string()],
+                requester_id.to_string(),
+                ActivityStatus::Success,
+                ActivityDetails {
+                    items_affected: 1,
+                    enrichments_made: None,
+                    error_message: None,
+                },
+            );
+            storage
+                .store_activity(&activity)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
         }
 
         storage
@@ -744,6 +791,73 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
             Ok((true, "Join request submitted".to_string()))
         }
+    }
+
+    pub fn batch_push_items(
+        &mut self,
+        dfids: &[String],
+        circuit_id: &Uuid,
+        requester_id: &str,
+        permissions: Option<Vec<String>>,
+    ) -> Result<BatchPushResult, CircuitsError> {
+        let mut results = Vec::new();
+        let mut success_count = 0;
+        let mut failed_count = 0;
+
+        for dfid in dfids {
+            match self.push_item_to_circuit(dfid, circuit_id, requester_id) {
+                Ok(_) => {
+                    success_count += 1;
+                    results.push(BatchPushItemResult {
+                        dfid: dfid.clone(),
+                        success: true,
+                        error_message: None,
+                    });
+                }
+                Err(e) => {
+                    failed_count += 1;
+                    results.push(BatchPushItemResult {
+                        dfid: dfid.clone(),
+                        success: false,
+                        error_message: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(BatchPushResult {
+            success_count,
+            failed_count,
+            results,
+        })
+    }
+
+    pub fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, CircuitsError> {
+        let storage = self.storage.lock().unwrap();
+        storage
+            .get_circuit_items(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))
+    }
+
+    pub fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, CircuitsError> {
+        let storage = self.storage.lock().unwrap();
+        storage
+            .get_activities_for_user(user_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))
+    }
+
+    pub fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, CircuitsError> {
+        let storage = self.storage.lock().unwrap();
+        storage
+            .get_activities_for_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))
+    }
+
+    pub fn get_all_activities(&self) -> Result<Vec<Activity>, CircuitsError> {
+        let storage = self.storage.lock().unwrap();
+        storage
+            .get_all_activities()
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
 }
 
