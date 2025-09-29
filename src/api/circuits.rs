@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::{CircuitsEngine, InMemoryStorage, MemberRole, Circuit, CircuitOperation};
-use crate::types::{Activity, BatchPushResult, CircuitItem, CircuitPermissions, Permission, CustomRole};
+use crate::types::{Activity, BatchPushResult, CircuitItem, CircuitPermissions, Permission, CustomRole, PublicSettings};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitRequest {
@@ -129,6 +129,7 @@ pub struct CircuitResponse {
     pub status: String,
     pub pending_requests: Vec<JoinRequestResponse>,
     pub custom_roles: Vec<CustomRoleResponse>,
+    pub public_settings: Option<PublicSettings>,
 }
 
 #[derive(Debug, Serialize)]
@@ -358,6 +359,7 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
                 custom_role_to_response(role, member_count)
             })
             .collect(),
+        public_settings: circuit.public_settings,
     }
 }
 
@@ -934,7 +936,8 @@ async fn get_public_circuit(
                 "access_mode": format!("{:?}", public_info.access_mode).to_lowercase(),
                 "requires_password": public_info.requires_password,
                 "is_currently_accessible": public_info.is_currently_accessible,
-                "published_items": [],
+                "published_items": public_info.published_items,
+                "auto_publish_pushed_items": public_info.auto_publish_pushed_items,
                 "recent_activity": []
             }
         }))),

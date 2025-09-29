@@ -1,7 +1,8 @@
 use crate::dfid_engine::DfidEngine;
 use crate::logging::{LoggingEngine, LogEntry};
 use crate::storage::{StorageError, StorageBackend};
-use crate::types::{Item, Identifier, ItemStatus, ItemShare, SharedItemResponse};
+use crate::conflict_detection::ConflictDetectionEngine;
+use crate::types::{Item, Identifier, ItemStatus, ItemShare, SharedItemResponse, PendingItem, PendingReason};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -10,6 +11,7 @@ pub enum ItemsError {
     StorageError(StorageError),
     ItemNotFound(String),
     InvalidOperation(String),
+    ValidationError(String),
 }
 
 impl std::fmt::Display for ItemsError {
@@ -18,6 +20,7 @@ impl std::fmt::Display for ItemsError {
             ItemsError::StorageError(e) => write!(f, "Storage error: {}", e),
             ItemsError::ItemNotFound(dfid) => write!(f, "Item not found: {}", dfid),
             ItemsError::InvalidOperation(msg) => write!(f, "Invalid operation: {}", msg),
+            ItemsError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
         }
     }
 }
@@ -70,6 +73,22 @@ impl<S: StorageBackend> ItemsEngine<S> {
     }
 
     pub fn create_item_with_generated_dfid(&mut self, identifiers: Vec<Identifier>, source_entry: Uuid, enriched_data: Option<HashMap<String, serde_json::Value>>) -> Result<Item, ItemsError> {
+        // Step 0: Check for conflicts and handle them
+        if let Some(pending_reason) = self.detect_conflicts(&identifiers, &enriched_data, source_entry)? {
+            // Store as pending item
+            let pending_item = PendingItem::new(identifiers, source_entry, pending_reason, enriched_data);
+            self.storage.store_pending_item(&pending_item)?;
+
+            self.logger.info("ItemsEngine", "pending_item_created", "Item stored as pending due to conflicts")
+                .with_context("pending_id", pending_item.id.to_string())
+                .with_context("reason", format!("{:?}", pending_item.reason))
+                .with_context("source_entry", source_entry.to_string());
+
+            // For now, we'll return an error to maintain API compatibility
+            // Later we can modify the API to return a "pending" result
+            return Err(ItemsError::ValidationError(format!("Item stored as pending: {:?}", pending_item.reason)));
+        }
+
         // Step 1: Check if any identifier matches existing items (entity resolution)
         for identifier in &identifiers {
             if let Ok(existing_items) = self.find_items_by_identifier(identifier) {
@@ -370,6 +389,142 @@ impl<S: StorageBackend> ItemsEngine<S> {
 
         self.storage.delete_item_share(share_id).map_err(ItemsError::from)
     }
+
+    // Conflict Detection
+    fn detect_conflicts(
+        &self,
+        identifiers: &[Identifier],
+        enriched_data: &Option<HashMap<String, serde_json::Value>>,
+        source_entry: Uuid,
+    ) -> Result<Option<PendingReason>, ItemsError> {
+        // Check for empty identifiers
+        if identifiers.is_empty() {
+            return Ok(Some(PendingReason::NoIdentifiers));
+        }
+
+        // Check for invalid identifiers (basic validation)
+        for identifier in identifiers {
+            if identifier.key.trim().is_empty() || identifier.value.trim().is_empty() {
+                return Ok(Some(PendingReason::InvalidIdentifiers(
+                    format!("Invalid identifier: {}:{}", identifier.key, identifier.value)
+                )));
+            }
+        }
+
+        // Check for conflicting DFIDs (when same identifier maps to multiple different DFIDs)
+        for identifier in identifiers {
+            if let Ok(existing_items) = self.find_items_by_identifier(identifier) {
+                if existing_items.len() > 1 {
+                    let mut conflicting_dfids: Vec<String> = existing_items.iter()
+                        .map(|item| item.dfid.clone())
+                        .collect();
+                    conflicting_dfids.sort();
+                    conflicting_dfids.dedup();
+
+                    if conflicting_dfids.len() > 1 {
+                        return Ok(Some(PendingReason::ConflictingDFIDs {
+                            identifier: identifier.clone(),
+                            conflicting_dfids,
+                            confidence_scores: None,
+                        }));
+                    }
+                }
+            }
+        }
+
+        // Check for data quality issues
+        if let Some(data) = enriched_data {
+            for (key, value) in data {
+                // Basic data quality checks
+                if key.trim().is_empty() {
+                    return Ok(Some(PendingReason::DataQualityIssue {
+                        issue_type: "empty_key".to_string(),
+                        severity: crate::types::QualitySeverity::Medium,
+                        details: "Empty data key detected".to_string(),
+                    }));
+                }
+
+                if value.is_null() {
+                    return Ok(Some(PendingReason::DataQualityIssue {
+                        issue_type: "null_value".to_string(),
+                        severity: crate::types::QualitySeverity::Low,
+                        details: format!("Null value for key: {}", key),
+                    }));
+                }
+            }
+        }
+
+        // No conflicts detected
+        Ok(None)
+    }
+
+    // Pending items management
+    pub fn get_pending_items(&self) -> Result<Vec<PendingItem>, ItemsError> {
+        self.storage.list_pending_items().map_err(ItemsError::from)
+    }
+
+    pub fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, ItemsError> {
+        self.storage.get_pending_item(pending_id).map_err(ItemsError::from)
+    }
+
+    pub fn resolve_pending_item(&mut self, pending_id: &Uuid, resolution_action: ResolutionAction) -> Result<Option<Item>, ItemsError> {
+        let pending_item = self.storage.get_pending_item(pending_id)?
+            .ok_or_else(|| ItemsError::ItemNotFound(format!("Pending item not found: {}", pending_id)))?;
+
+        match resolution_action {
+            ResolutionAction::Approve => {
+                // Try to create the item with the pending data
+                let result = self.create_item_with_generated_dfid(
+                    pending_item.identifiers,
+                    pending_item.source_entry,
+                    pending_item.enriched_data,
+                );
+
+                match result {
+                    Ok(item) => {
+                        // Successfully created, remove from pending
+                        self.storage.delete_pending_item(pending_id)?;
+                        Ok(Some(item))
+                    },
+                    Err(_) => {
+                        // Still has conflicts, update priority and keep pending
+                        let mut updated_pending = pending_item;
+                        updated_pending.priority += 1; // Increase priority
+                        self.storage.update_pending_item(&updated_pending)?;
+                        Ok(None)
+                    }
+                }
+            },
+            ResolutionAction::Reject => {
+                // Simply remove from pending
+                self.storage.delete_pending_item(pending_id)?;
+                Ok(None)
+            },
+            ResolutionAction::Modify(new_identifiers, new_data) => {
+                // Update the pending item with new data
+                let mut updated_pending = pending_item;
+                updated_pending.identifiers = new_identifiers;
+                updated_pending.enriched_data = new_data;
+                self.storage.update_pending_item(&updated_pending)?;
+                Ok(None)
+            },
+        }
+    }
+
+    pub fn get_pending_items_by_reason(&self, reason: &str) -> Result<Vec<PendingItem>, ItemsError> {
+        let all_pending = self.get_pending_items()?;
+        let filtered: Vec<PendingItem> = all_pending.into_iter()
+            .filter(|item| format!("{:?}", item.reason).contains(reason))
+            .collect();
+        Ok(filtered)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ResolutionAction {
+    Approve,
+    Reject,
+    Modify(Vec<Identifier>, Option<HashMap<String, serde_json::Value>>),
 }
 
 #[derive(Debug, Clone)]

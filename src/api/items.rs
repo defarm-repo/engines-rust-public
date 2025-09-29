@@ -10,7 +10,9 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::{ItemsEngine, InMemoryStorage, Item, ItemStatus, Identifier, ItemShare, SharedItemResponse};
+use crate::{ItemsEngine, InMemoryStorage, Item, ItemStatus, Identifier, ItemShare, SharedItemResponse, PendingItem, PendingReason};
+use crate::items_engine::ResolutionAction;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdentifierRequest {
@@ -23,6 +25,11 @@ pub struct CreateItemRequest {
     pub identifiers: Vec<IdentifierRequest>,
     pub enriched_data: Option<HashMap<String, serde_json::Value>>,
     pub source_entry: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateItemsBatchRequest {
+    pub items: Vec<CreateItemRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,6 +69,20 @@ pub struct ItemResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CreateItemsBatchResponse {
+    pub success_count: usize,
+    pub failed_count: usize,
+    pub results: Vec<BatchItemResult>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchItemResult {
+    pub success: bool,
+    pub item: Option<ItemResponse>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ItemStatsResponse {
     pub total_items: usize,
     pub active_items: usize,
@@ -75,6 +96,40 @@ pub struct ItemStatsResponse {
 pub struct ShareItemRequest {
     pub recipient_user_id: String,
     pub permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingItemResponse {
+    pub id: String,
+    pub identifiers: Vec<IdentifierRequest>,
+    pub enriched_data: Option<HashMap<String, serde_json::Value>>,
+    pub source_entry: String,
+    pub reason: String,
+    pub reason_details: Option<String>,
+    pub priority: u32,
+    pub created_at: i64,
+    pub metadata: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResolvePendingItemRequest {
+    pub action: String, // "approve", "reject", or "modify"
+    pub new_identifiers: Option<Vec<IdentifierRequest>>,
+    pub new_enriched_data: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResolvePendingItemResponse {
+    pub success: bool,
+    pub item: Option<ItemResponse>,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PendingItemQueryParams {
+    pub reason: Option<String>,
+    pub priority_min: Option<u32>,
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -119,6 +174,7 @@ use super::shared_state::AppState;
 pub fn item_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", post(create_item))
+        .route("/batch", post(create_items_batch))
         .route("/", get(list_items))
         .route("/:dfid", get(get_item))
         .route("/:dfid", put(update_item))
@@ -132,6 +188,9 @@ pub fn item_routes(app_state: Arc<AppState>) -> Router {
         .route("/stats", get(get_item_stats))
         .route("/identifier/:key/:value", get(get_items_by_identifier))
         .route("/shared-to/:user_id", get(get_shared_items_for_user))
+        .route("/pending", get(list_pending_items))
+        .route("/pending/:id", get(get_pending_item))
+        .route("/pending/:id/resolve", post(resolve_pending_item))
         .with_state(app_state)
 }
 
@@ -181,6 +240,61 @@ async fn create_item(
         Ok(item) => Ok(Json(item_to_response(item))),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to create item: {}", e)})))),
     }
+}
+
+async fn create_items_batch(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateItemsBatchRequest>,
+) -> Result<Json<CreateItemsBatchResponse>, (StatusCode, Json<Value>)> {
+    let mut engine = state.items_engine.lock().unwrap();
+    let mut results = Vec::new();
+    let mut success_count = 0;
+    let mut failed_count = 0;
+
+    for item_request in payload.items {
+        let result = match uuid::Uuid::parse_str(&item_request.source_entry) {
+            Ok(source_entry) => {
+                let identifiers: Vec<Identifier> = item_request.identifiers
+                    .into_iter()
+                    .map(|id| Identifier::new(id.key, id.value))
+                    .collect();
+
+                match engine.create_item_with_generated_dfid(identifiers, source_entry, item_request.enriched_data) {
+                    Ok(item) => {
+                        success_count += 1;
+                        BatchItemResult {
+                            success: true,
+                            item: Some(item_to_response(item)),
+                            error: None,
+                        }
+                    }
+                    Err(e) => {
+                        failed_count += 1;
+                        BatchItemResult {
+                            success: false,
+                            item: None,
+                            error: Some(format!("Failed to create item: {}", e)),
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                failed_count += 1;
+                BatchItemResult {
+                    success: false,
+                    item: None,
+                    error: Some("Invalid source entry UUID".to_string()),
+                }
+            }
+        };
+        results.push(result);
+    }
+
+    Ok(Json(CreateItemsBatchResponse {
+        success_count,
+        failed_count,
+        results,
+    }))
 }
 
 async fn get_item(
@@ -463,5 +577,129 @@ pub async fn get_shared_items_for_user(
             Ok(Json(response))
         }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get shared items: {}", e)})))),
+    }
+}
+
+// Pending Items Handlers
+async fn list_pending_items(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<PendingItemQueryParams>,
+) -> Result<Json<Vec<PendingItemResponse>>, (StatusCode, Json<Value>)> {
+    let engine = state.items_engine.lock().unwrap();
+
+    match engine.get_pending_items() {
+        Ok(pending_items) => {
+            let mut filtered_items = pending_items;
+
+            // Apply filters
+            if let Some(reason_filter) = &params.reason {
+                filtered_items.retain(|item| format!("{:?}", item.reason).contains(reason_filter));
+            }
+
+            if let Some(priority_min) = params.priority_min {
+                filtered_items.retain(|item| item.priority >= priority_min);
+            }
+
+            // Sort by priority (descending)
+            filtered_items.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+            // Apply limit
+            if let Some(limit) = params.limit {
+                filtered_items.truncate(limit);
+            }
+
+            let response: Vec<PendingItemResponse> = filtered_items
+                .into_iter()
+                .map(pending_item_to_response)
+                .collect();
+
+            Ok(Json(response))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to list pending items: {}", e)})))),
+    }
+}
+
+async fn get_pending_item(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<PendingItemResponse>, (StatusCode, Json<Value>)> {
+    let engine = state.items_engine.lock().unwrap();
+
+    let pending_id = match Uuid::parse_str(&id) {
+        Ok(uuid) => uuid,
+        Err(_) => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid pending item ID format"})))),
+    };
+
+    match engine.get_pending_item(&pending_id) {
+        Ok(Some(pending_item)) => Ok(Json(pending_item_to_response(pending_item))),
+        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Pending item not found"})))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get pending item: {}", e)})))),
+    }
+}
+
+async fn resolve_pending_item(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<ResolvePendingItemRequest>,
+) -> Result<Json<ResolvePendingItemResponse>, (StatusCode, Json<Value>)> {
+    let mut engine = state.items_engine.lock().unwrap();
+
+    let pending_id = match Uuid::parse_str(&id) {
+        Ok(uuid) => uuid,
+        Err(_) => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid pending item ID format"})))),
+    };
+
+    let resolution_action = match payload.action.as_str() {
+        "approve" => ResolutionAction::Approve,
+        "reject" => ResolutionAction::Reject,
+        "modify" => {
+            let identifiers = payload.new_identifiers
+                .unwrap_or_default()
+                .into_iter()
+                .map(|req| Identifier::new(&req.key, &req.value))
+                .collect();
+            ResolutionAction::Modify(identifiers, payload.new_enriched_data)
+        },
+        _ => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid action. Must be 'approve', 'reject', or 'modify'"})))),
+    };
+
+    match engine.resolve_pending_item(&pending_id, resolution_action) {
+        Ok(Some(item)) => Ok(Json(ResolvePendingItemResponse {
+            success: true,
+            item: Some(item_to_response(item)),
+            message: "Pending item resolved and created successfully".to_string(),
+        })),
+        Ok(None) => Ok(Json(ResolvePendingItemResponse {
+            success: true,
+            item: None,
+            message: "Pending item resolved but not created (rejected or still pending)".to_string(),
+        })),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to resolve pending item: {}", e)})))),
+    }
+}
+
+// Utility function for converting PendingItem to response format
+fn pending_item_to_response(pending_item: PendingItem) -> PendingItemResponse {
+    PendingItemResponse {
+        id: pending_item.id.to_string(),
+        identifiers: pending_item.identifiers
+            .into_iter()
+            .map(|id| IdentifierRequest { key: id.key, value: id.value })
+            .collect(),
+        enriched_data: pending_item.enriched_data,
+        source_entry: pending_item.source_entry.to_string(),
+        reason: format!("{:?}", pending_item.reason),
+        reason_details: match &pending_item.reason {
+            PendingReason::InvalidIdentifiers(details) => Some(details.clone()),
+            PendingReason::ConflictingDFIDs { identifier, conflicting_dfids, .. } => {
+                Some(format!("Identifier {}:{} maps to DFIDs: {}",
+                    identifier.key, identifier.value, conflicting_dfids.join(", ")))
+            },
+            PendingReason::DataQualityIssue { details, .. } => Some(details.clone()),
+            _ => None,
+        },
+        priority: pending_item.priority,
+        created_at: pending_item.created_at.timestamp(),
+        metadata: pending_item.metadata,
     }
 }

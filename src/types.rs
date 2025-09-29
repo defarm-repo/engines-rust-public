@@ -104,6 +104,10 @@ pub enum ResolutionStrategy {
     ManualReview,
     Split,
     Merge,
+    AutoMerge,
+    SkipProcessing,
+    CreateSeparate,
+    MatchBest,
 }
 
 impl DataLakeEntry {
@@ -244,6 +248,309 @@ pub enum EventVisibility {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum QualitySeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PendingPriority {
+    Low,
+    Normal,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuggestedAction {
+    pub action_type: String,
+    pub description: String,
+    pub confidence: f64,
+    pub automated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingItem {
+    pub pending_id: Uuid,
+    pub identifiers: Vec<Identifier>,
+    pub enriched_data: Option<HashMap<String, serde_json::Value>>,
+    pub source_entry: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub last_updated: DateTime<Utc>,
+    pub reason: PendingReason,
+    pub priority: PendingPriority,
+    pub user_id: Option<String>,
+    pub workspace_id: Option<String>,
+    pub retry_count: u32,
+    pub manual_review_required: bool,
+    pub suggested_actions: Vec<SuggestedAction>,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingEvent {
+    pub pending_id: Uuid,
+    pub identifiers: Vec<Identifier>,
+    pub enriched_data: Option<HashMap<String, serde_json::Value>>,
+    pub source_entry: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub reason: PendingReason,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PendingReason {
+    NoIdentifiers,
+    InvalidIdentifiers(String),
+    ConflictingDFIDs {
+        identifier: Identifier,
+        conflicting_dfids: Vec<String>,
+        confidence_scores: Option<Vec<f64>>,
+    },
+    IdentifierMappingConflict {
+        conflicting_mappings: Vec<String>,
+        resolution_strategy: Option<ResolutionStrategy>,
+    },
+    DataQualityIssue {
+        issue_type: String,
+        severity: QualitySeverity,
+        details: String,
+    },
+    ProcessingError(String),
+    ValidationError(String),
+    DuplicateDetectionAmbiguous {
+        potential_matches: Vec<String>,
+        similarity_scores: Vec<f64>,
+    },
+    CrossSystemConflict {
+        external_system: String,
+        conflict_type: String,
+    },
+}
+
+impl PendingEvent {
+    pub fn new(
+        identifiers: Vec<Identifier>,
+        enriched_data: Option<HashMap<String, serde_json::Value>>,
+        source_entry: Uuid,
+        reason: PendingReason
+    ) -> Self {
+        Self {
+            pending_id: Uuid::new_v4(),
+            identifiers,
+            enriched_data,
+            source_entry,
+            created_at: Utc::now(),
+            reason,
+        }
+    }
+}
+
+impl PendingItem {
+    pub fn new(
+        identifiers: Vec<Identifier>,
+        enriched_data: Option<HashMap<String, serde_json::Value>>,
+        source_entry: Uuid,
+        reason: PendingReason,
+        user_id: Option<String>,
+        workspace_id: Option<String>,
+    ) -> Self {
+        let priority = Self::calculate_priority(&reason);
+        let manual_review_required = reason.requires_manual_review();
+        let suggested_actions = Self::generate_suggested_actions(&reason);
+
+        Self {
+            pending_id: Uuid::new_v4(),
+            identifiers,
+            enriched_data,
+            source_entry,
+            created_at: Utc::now(),
+            last_updated: Utc::now(),
+            reason,
+            priority,
+            user_id,
+            workspace_id,
+            retry_count: 0,
+            manual_review_required,
+            suggested_actions,
+            metadata: HashMap::new(),
+        }
+    }
+
+    pub fn update_last_modified(&mut self) {
+        self.last_updated = Utc::now();
+    }
+
+    pub fn increment_retry_count(&mut self) {
+        self.retry_count += 1;
+        self.update_last_modified();
+    }
+
+    pub fn add_metadata(&mut self, key: String, value: serde_json::Value) {
+        self.metadata.insert(key, value);
+        self.update_last_modified();
+    }
+
+    pub fn update_priority(&mut self, priority: PendingPriority) {
+        self.priority = priority;
+        self.update_last_modified();
+    }
+
+    pub fn add_suggested_action(&mut self, action: SuggestedAction) {
+        self.suggested_actions.push(action);
+        self.update_last_modified();
+    }
+
+    fn calculate_priority(reason: &PendingReason) -> PendingPriority {
+        match reason {
+            PendingReason::NoIdentifiers => PendingPriority::High,
+            PendingReason::ConflictingDFIDs { .. } => PendingPriority::Critical,
+            PendingReason::DataQualityIssue { severity, .. } => {
+                match severity {
+                    QualitySeverity::Critical => PendingPriority::Critical,
+                    QualitySeverity::High => PendingPriority::High,
+                    QualitySeverity::Medium => PendingPriority::Normal,
+                    QualitySeverity::Low => PendingPriority::Low,
+                }
+            }
+            PendingReason::IdentifierMappingConflict { .. } => PendingPriority::High,
+            PendingReason::DuplicateDetectionAmbiguous { .. } => PendingPriority::Normal,
+            PendingReason::CrossSystemConflict { .. } => PendingPriority::High,
+            PendingReason::ValidationError(_) => PendingPriority::Normal,
+            PendingReason::InvalidIdentifiers(_) => PendingPriority::Normal,
+            PendingReason::ProcessingError(_) => PendingPriority::Low,
+        }
+    }
+
+    fn generate_suggested_actions(reason: &PendingReason) -> Vec<SuggestedAction> {
+        match reason {
+            PendingReason::NoIdentifiers => vec![
+                SuggestedAction {
+                    action_type: "add_identifiers".to_string(),
+                    description: "Add one or more identifiers to enable processing".to_string(),
+                    confidence: 0.9,
+                    automated: false,
+                },
+                SuggestedAction {
+                    action_type: "generate_dfid".to_string(),
+                    description: "Generate a new DFID for this item".to_string(),
+                    confidence: 0.8,
+                    automated: true,
+                },
+            ],
+            PendingReason::ConflictingDFIDs { .. } => vec![
+                SuggestedAction {
+                    action_type: "manual_merge".to_string(),
+                    description: "Manually review and merge conflicting identities".to_string(),
+                    confidence: 0.7,
+                    automated: false,
+                },
+                SuggestedAction {
+                    action_type: "create_separate".to_string(),
+                    description: "Create as separate item with new DFID".to_string(),
+                    confidence: 0.6,
+                    automated: true,
+                },
+            ],
+            PendingReason::DuplicateDetectionAmbiguous { .. } => vec![
+                SuggestedAction {
+                    action_type: "review_duplicates".to_string(),
+                    description: "Review potential duplicate matches".to_string(),
+                    confidence: 0.8,
+                    automated: false,
+                },
+            ],
+            _ => vec![
+                SuggestedAction {
+                    action_type: "manual_review".to_string(),
+                    description: "Requires manual review for resolution".to_string(),
+                    confidence: 0.7,
+                    automated: false,
+                },
+            ],
+        }
+    }
+}
+
+impl PendingReason {
+    pub fn requires_manual_review(&self) -> bool {
+        match self {
+            PendingReason::ConflictingDFIDs { .. } => true,
+            PendingReason::DataQualityIssue { severity, .. } => {
+                matches!(severity, QualitySeverity::High | QualitySeverity::Critical)
+            }
+            PendingReason::IdentifierMappingConflict { .. } => true,
+            PendingReason::DuplicateDetectionAmbiguous { .. } => true,
+            PendingReason::CrossSystemConflict { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_description(&self) -> String {
+        match self {
+            PendingReason::NoIdentifiers => "Item has no identifiers for entity resolution".to_string(),
+            PendingReason::InvalidIdentifiers(details) => format!("Invalid identifiers: {}", details),
+            PendingReason::ConflictingDFIDs { identifier, conflicting_dfids, .. } => {
+                format!("Identifier {:?} maps to multiple DFIDs: {:?}", identifier, conflicting_dfids)
+            }
+            PendingReason::IdentifierMappingConflict { conflicting_mappings, .. } => {
+                format!("Conflicting identifier mappings: {:?}", conflicting_mappings)
+            }
+            PendingReason::DataQualityIssue { issue_type, details, .. } => {
+                format!("Data quality issue ({}): {}", issue_type, details)
+            }
+            PendingReason::ProcessingError(error) => format!("Processing error: {}", error),
+            PendingReason::ValidationError(error) => format!("Validation error: {}", error),
+            PendingReason::DuplicateDetectionAmbiguous { potential_matches, .. } => {
+                format!("Ambiguous duplicate detection: {} potential matches", potential_matches.len())
+            }
+            PendingReason::CrossSystemConflict { external_system, conflict_type } => {
+                format!("Conflict with external system {}: {}", external_system, conflict_type)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConflictInfo {
+    pub conflict_type: ConflictType,
+    pub severity: ConflictSeverity,
+    pub description: String,
+    pub affected_identifiers: Vec<Identifier>,
+    pub suggested_resolution: Option<ResolutionStrategy>,
+    pub confidence: f64,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConflictType {
+    IdentifierDFIDMapping,
+    DuplicateDetection,
+    DataQuality,
+    CrossSystem,
+    ValidationFailure,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConflictSeverity {
+    None,
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConflictAnalysisResult {
+    pub conflicts: Vec<ConflictInfo>,
+    pub severity: ConflictSeverity,
+    pub can_auto_resolve: bool,
+    pub suggested_actions: Vec<SuggestedAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Circuit {
     pub circuit_id: Uuid,
     pub name: String,
@@ -317,6 +624,8 @@ pub struct PublicCircuitInfo {
     pub access_mode: PublicAccessMode,
     pub requires_password: bool,
     pub is_currently_accessible: bool,
+    pub published_items: Vec<String>,
+    pub auto_publish_pushed_items: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -736,6 +1045,8 @@ impl Circuit {
                 Some(PublicAccessMode::Protected)
             ),
             is_currently_accessible: self.is_publicly_accessible(),
+            published_items: settings.map(|s| s.published_items.clone()).unwrap_or_else(Vec::new),
+            auto_publish_pushed_items: settings.map(|s| s.auto_publish_pushed_items).unwrap_or(false),
         })
     }
 
@@ -763,7 +1074,7 @@ impl Default for CircuitPermissions {
         Self {
             default_push: false,
             default_pull: true,
-            require_approval_for_push: true,
+            require_approval_for_push: false,
             require_approval_for_pull: false,
             allow_public_visibility: false,
         }

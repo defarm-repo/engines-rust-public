@@ -49,6 +49,42 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Self { storage, logger: std::cell::RefCell::new(logger), events_engine }
     }
 
+    fn handle_auto_publish(
+        &self,
+        circuit: &Circuit,
+        dfid: &str,
+        circuit_id: &Uuid,
+        storage: &mut std::sync::MutexGuard<S>,
+    ) -> Result<(), CircuitsError> {
+        println!("DEBUG AUTO-PUBLISH: Checking auto-publish for circuit {}", circuit_id);
+        if let Some(ref public_settings) = circuit.public_settings {
+            println!("DEBUG AUTO-PUBLISH: Circuit has public_settings, auto_publish_pushed_items: {}", public_settings.auto_publish_pushed_items);
+            if public_settings.auto_publish_pushed_items {
+                println!("DEBUG AUTO-PUBLISH: Auto-publish is enabled, adding {} to published_items", dfid);
+                let mut updated_circuit = circuit.clone();
+                if let Some(ref mut settings) = updated_circuit.public_settings {
+                    if !settings.published_items.contains(&dfid.to_string()) {
+                        println!("DEBUG AUTO-PUBLISH: Adding {} to published_items (not already present)", dfid);
+                        settings.published_items.push(dfid.to_string());
+                        storage
+                            .store_circuit(&updated_circuit)
+                            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+                        println!("DEBUG AUTO-PUBLISH: Successfully added {} to published_items", dfid);
+                    } else {
+                        println!("DEBUG AUTO-PUBLISH: {} already in published_items", dfid);
+                    }
+                } else {
+                    println!("DEBUG AUTO-PUBLISH: No public_settings found in updated_circuit");
+                }
+            } else {
+                println!("DEBUG AUTO-PUBLISH: Auto-publish is disabled");
+            }
+        } else {
+            println!("DEBUG AUTO-PUBLISH: Circuit has no public_settings");
+        }
+        Ok(())
+    }
+
     pub fn create_circuit(
         &mut self,
         name: String,
@@ -119,6 +155,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         circuit_id: &Uuid,
         requester_id: &str,
     ) -> Result<CircuitOperation, CircuitsError> {
+        println!("DEBUG PUSH: Attempting to push item {} to circuit {} by user {}", dfid, circuit_id, requester_id);
+
         let mut storage = self.storage.lock().unwrap();
 
         let _item = storage
@@ -128,8 +166,16 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         let circuit = storage
             .get_circuit(circuit_id)
-            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
-            .ok_or(CircuitsError::CircuitNotFound)?;
+            .map_err(|e| {
+                println!("DEBUG PUSH: Storage error while getting circuit {}: {}", circuit_id, e);
+                CircuitsError::StorageError(e.to_string())
+            })?
+            .ok_or_else(|| {
+                println!("DEBUG PUSH: Circuit {} not found in storage", circuit_id);
+                CircuitsError::CircuitNotFound
+            })?;
+
+        println!("DEBUG PUSH: Circuit {} found with name '{}', checking permissions...", circuit_id, circuit.name);
 
         if !circuit.has_permission(requester_id, &Permission::Push) {
             return Err(CircuitsError::PermissionDenied(
@@ -177,6 +223,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             storage
                 .store_activity(&activity)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        }
+
+        // Handle auto-publish for immediate pushes (not requiring approval)
+        if !circuit.permissions.require_approval_for_push {
+            self.handle_auto_publish(&circuit, dfid, circuit_id, &mut storage)?;
         }
 
         storage
@@ -317,6 +369,51 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         operation.approve();
         operation.complete();
+
+        // If this is a push operation, store the circuit item and log activity
+        if matches!(operation.operation_type, OperationType::Push) {
+            let circuit_item = CircuitItem::new(
+                operation.dfid.clone(),
+                operation.circuit_id,
+                operation.requester_id.clone(),
+                vec!["read".to_string(), "verify".to_string()],
+            );
+            storage
+                .store_circuit_item(&circuit_item)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+            let activity = Activity::new(
+                ActivityType::Push,
+                operation.circuit_id,
+                circuit.name.clone(),
+                vec![operation.dfid.clone()],
+                operation.requester_id.clone(),
+                ActivityStatus::Success,
+                ActivityDetails {
+                    items_affected: 1,
+                    enrichments_made: None,
+                    error_message: None,
+                },
+            );
+            storage
+                .store_activity(&activity)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+            // Handle auto-publish if enabled
+            if let Some(ref public_settings) = circuit.public_settings {
+                if public_settings.auto_publish_pushed_items {
+                    let mut updated_circuit = circuit.clone();
+                    if let Some(ref mut settings) = updated_circuit.public_settings {
+                        if !settings.published_items.contains(&operation.dfid) {
+                            settings.published_items.push(operation.dfid.clone());
+                            storage
+                                .store_circuit(&updated_circuit)
+                                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+                        }
+                    }
+                }
+            }
+        }
 
         storage
             .update_circuit_operation(&operation)

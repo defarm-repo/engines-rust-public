@@ -2,7 +2,7 @@ use crate::logging::LogEntry;
 use crate::types::{
     Activity, CircuitItem, Identifier, Receipt, DataLakeEntry, Item, IdentifierMapping, ConflictResolution,
     ProcessingStatus, ItemStatus, Event, EventType, EventVisibility,
-    Circuit, CircuitOperation, ItemShare
+    Circuit, CircuitOperation, ItemShare, PendingItem, PendingReason, PendingPriority
 };
 use chrono::{DateTime, Utc};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -150,6 +150,18 @@ pub trait StorageBackend {
     fn store_circuit_item(&mut self, circuit_item: &CircuitItem) -> Result<(), StorageError>;
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError>;
     fn remove_circuit_item(&mut self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError>;
+
+    // Pending Items operations
+    fn store_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError>;
+    fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError>;
+    fn list_pending_items(&self) -> Result<Vec<PendingItem>, StorageError>;
+    fn get_pending_items_by_reason(&self, reason_type: &str) -> Result<Vec<PendingItem>, StorageError>;
+    fn get_pending_items_by_user(&self, user_id: &str) -> Result<Vec<PendingItem>, StorageError>;
+    fn get_pending_items_by_workspace(&self, workspace_id: &str) -> Result<Vec<PendingItem>, StorageError>;
+    fn get_pending_items_by_priority(&self, priority: PendingPriority) -> Result<Vec<PendingItem>, StorageError>;
+    fn update_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError>;
+    fn delete_pending_item(&mut self, pending_id: &Uuid) -> Result<(), StorageError>;
+    fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError>;
 }
 
 pub struct InMemoryStorage {
@@ -166,6 +178,7 @@ pub struct InMemoryStorage {
     item_shares: HashMap<String, ItemShare>,
     activities: HashMap<String, Activity>,
     circuit_items: HashMap<(Uuid, String), CircuitItem>,
+    pending_items: HashMap<Uuid, PendingItem>,
 }
 
 impl InMemoryStorage {
@@ -184,6 +197,7 @@ impl InMemoryStorage {
             item_shares: HashMap::new(),
             activities: HashMap::new(),
             circuit_items: HashMap::new(),
+            pending_items: HashMap::new(),
         }
     }
 }
@@ -533,6 +547,87 @@ impl StorageBackend for InMemoryStorage {
         let key = (*circuit_id, dfid.to_string());
         self.circuit_items.remove(&key);
         Ok(())
+    }
+
+    // Pending Items operations
+    fn store_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError> {
+        self.pending_items.insert(item.pending_id, item.clone());
+        Ok(())
+    }
+
+    fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError> {
+        Ok(self.pending_items.get(pending_id).cloned())
+    }
+
+    fn list_pending_items(&self) -> Result<Vec<PendingItem>, StorageError> {
+        Ok(self.pending_items.values().cloned().collect())
+    }
+
+    fn get_pending_items_by_reason(&self, reason_type: &str) -> Result<Vec<PendingItem>, StorageError> {
+        let items = self.pending_items
+            .values()
+            .filter(|item| {
+                match &item.reason {
+                    PendingReason::NoIdentifiers => reason_type == "NoIdentifiers",
+                    PendingReason::InvalidIdentifiers(_) => reason_type == "InvalidIdentifiers",
+                    PendingReason::ConflictingDFIDs { .. } => reason_type == "ConflictingDFIDs",
+                    PendingReason::IdentifierMappingConflict { .. } => reason_type == "IdentifierMappingConflict",
+                    PendingReason::DataQualityIssue { .. } => reason_type == "DataQualityIssue",
+                    PendingReason::ProcessingError(_) => reason_type == "ProcessingError",
+                    PendingReason::ValidationError(_) => reason_type == "ValidationError",
+                    PendingReason::DuplicateDetectionAmbiguous { .. } => reason_type == "DuplicateDetectionAmbiguous",
+                    PendingReason::CrossSystemConflict { .. } => reason_type == "CrossSystemConflict",
+                }
+            })
+            .cloned()
+            .collect();
+        Ok(items)
+    }
+
+    fn get_pending_items_by_user(&self, user_id: &str) -> Result<Vec<PendingItem>, StorageError> {
+        let items = self.pending_items
+            .values()
+            .filter(|item| item.user_id.as_ref().map_or(false, |id| id == user_id))
+            .cloned()
+            .collect();
+        Ok(items)
+    }
+
+    fn get_pending_items_by_workspace(&self, workspace_id: &str) -> Result<Vec<PendingItem>, StorageError> {
+        let items = self.pending_items
+            .values()
+            .filter(|item| item.workspace_id.as_ref().map_or(false, |id| id == workspace_id))
+            .cloned()
+            .collect();
+        Ok(items)
+    }
+
+    fn get_pending_items_by_priority(&self, priority: PendingPriority) -> Result<Vec<PendingItem>, StorageError> {
+        let items = self.pending_items
+            .values()
+            .filter(|item| std::mem::discriminant(&item.priority) == std::mem::discriminant(&priority))
+            .cloned()
+            .collect();
+        Ok(items)
+    }
+
+    fn update_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError> {
+        self.pending_items.insert(item.pending_id, item.clone());
+        Ok(())
+    }
+
+    fn delete_pending_item(&mut self, pending_id: &Uuid) -> Result<(), StorageError> {
+        self.pending_items.remove(pending_id);
+        Ok(())
+    }
+
+    fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
+        let items = self.pending_items
+            .values()
+            .filter(|item| item.manual_review_required)
+            .cloned()
+            .collect();
+        Ok(items)
     }
 }
 
@@ -944,6 +1039,56 @@ impl StorageBackend for EncryptedFileStorage {
     fn remove_circuit_item(&mut self, _circuit_id: &Uuid, _dfid: &str) -> Result<(), StorageError> {
         Ok(())
     }
+
+    // Pending Items operations - placeholder implementations
+    fn store_pending_item(&mut self, _item: &PendingItem) -> Result<(), StorageError> {
+        Err(StorageError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Pending item operations not yet implemented for EncryptedFileStorage"
+        )))
+    }
+
+    fn get_pending_item(&self, _pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError> {
+        Ok(None)
+    }
+
+    fn list_pending_items(&self) -> Result<Vec<PendingItem>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_pending_items_by_reason(&self, _reason_type: &str) -> Result<Vec<PendingItem>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_pending_items_by_user(&self, _user_id: &str) -> Result<Vec<PendingItem>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_pending_items_by_workspace(&self, _workspace_id: &str) -> Result<Vec<PendingItem>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_pending_items_by_priority(&self, _priority: PendingPriority) -> Result<Vec<PendingItem>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_pending_item(&mut self, _item: &PendingItem) -> Result<(), StorageError> {
+        Err(StorageError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Pending item operations not yet implemented for EncryptedFileStorage"
+        )))
+    }
+
+    fn delete_pending_item(&mut self, _pending_id: &Uuid) -> Result<(), StorageError> {
+        Err(StorageError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Pending item operations not yet implemented for EncryptedFileStorage"
+        )))
+    }
+
+    fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
+        Ok(Vec::new())
+    }
 }
 
 // Implementation of StorageBackend for Arc<Mutex<InMemoryStorage>>
@@ -1168,6 +1313,47 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
 
     fn remove_circuit_item(&mut self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
         self.lock().unwrap().remove_circuit_item(circuit_id, dfid)
+    }
+
+    // Pending Items operations - delegate to underlying InMemoryStorage
+    fn store_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError> {
+        self.lock().unwrap().store_pending_item(item)
+    }
+
+    fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError> {
+        self.lock().unwrap().get_pending_item(pending_id)
+    }
+
+    fn list_pending_items(&self) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock().unwrap().list_pending_items()
+    }
+
+    fn get_pending_items_by_reason(&self, reason_type: &str) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock().unwrap().get_pending_items_by_reason(reason_type)
+    }
+
+    fn get_pending_items_by_user(&self, user_id: &str) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock().unwrap().get_pending_items_by_user(user_id)
+    }
+
+    fn get_pending_items_by_workspace(&self, workspace_id: &str) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock().unwrap().get_pending_items_by_workspace(workspace_id)
+    }
+
+    fn get_pending_items_by_priority(&self, priority: PendingPriority) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock().unwrap().get_pending_items_by_priority(priority)
+    }
+
+    fn update_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError> {
+        self.lock().unwrap().update_pending_item(item)
+    }
+
+    fn delete_pending_item(&mut self, pending_id: &Uuid) -> Result<(), StorageError> {
+        self.lock().unwrap().delete_pending_item(pending_id)
+    }
+
+    fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock().unwrap().get_pending_items_requiring_manual_review()
     }
 }
 
