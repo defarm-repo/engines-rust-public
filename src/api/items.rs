@@ -681,7 +681,7 @@ async fn resolve_pending_item(
 // Utility function for converting PendingItem to response format
 fn pending_item_to_response(pending_item: PendingItem) -> PendingItemResponse {
     PendingItemResponse {
-        id: pending_item.id.to_string(),
+        id: pending_item.pending_id.to_string(),
         identifiers: pending_item.identifiers
             .into_iter()
             .map(|id| IdentifierRequest { key: id.key, value: id.value })
@@ -698,8 +698,8 @@ fn pending_item_to_response(pending_item: PendingItem) -> PendingItemResponse {
             PendingReason::DataQualityIssue { details, .. } => Some(details.clone()),
             _ => None,
         },
-        priority: pending_item.priority,
+        priority: pending_item.priority as u32,
         created_at: pending_item.created_at.timestamp(),
-        metadata: pending_item.metadata,
+        metadata: pending_item.metadata.into_iter().map(|(k, v)| (k, v.to_string())).collect(),
     }
 }

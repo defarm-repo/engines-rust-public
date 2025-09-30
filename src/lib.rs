@@ -7,6 +7,10 @@ pub mod verification_engine;
 pub mod items_engine;
 pub mod events_engine;
 pub mod circuits_engine;
+pub mod conflict_detection;
+pub mod audit_engine;
+pub mod zk_proof_engine;
+pub mod adapters;
 pub mod api;
 
 pub use types::*;
@@ -18,3 +22,6 @@ pub use verification_engine::*;
 pub use items_engine::*;
 pub use events_engine::*;
 pub use circuits_engine::*;
+pub use conflict_detection::*;
+pub use audit_engine::*;
+pub use zk_proof_engine::*;

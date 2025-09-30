@@ -256,12 +256,35 @@ pub enum QualitySeverity {
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PendingPriority {
-    Low,
-    Normal,
-    High,
-    Critical,
+    Low = 1,
+    Normal = 2,
+    High = 3,
+    Critical = 4,
+}
+
+impl std::ops::AddAssign<u32> for PendingPriority {
+    fn add_assign(&mut self, rhs: u32) {
+        *self = match (*self as u32) + rhs {
+            1 => PendingPriority::Low,
+            2 => PendingPriority::Normal,
+            3 => PendingPriority::High,
+            _ => PendingPriority::Critical,
+        };
+    }
+}
+
+impl PartialOrd<u32> for PendingPriority {
+    fn partial_cmp(&self, other: &u32) -> Option<std::cmp::Ordering> {
+        (*self as u32).partial_cmp(other)
+    }
+}
+
+impl PartialEq<u32> for PendingPriority {
+    fn eq(&self, other: &u32) -> bool {
+        (*self as u32).eq(other)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1329,4 +1352,572 @@ pub struct BatchPushItemResult {
     pub dfid: String,
     pub success: bool,
     pub error_message: Option<String>,
+}
+
+// ============================================================================
+// AUDIT SYSTEM TYPES
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub event_id: Uuid,
+    pub user_id: String,
+    pub event_type: AuditEventType,
+    pub action: String,
+    pub resource: String,
+    pub resource_id: Option<String>,
+    pub outcome: AuditOutcome,
+    pub severity: AuditSeverity,
+    pub timestamp: DateTime<Utc>,
+    pub details: HashMap<String, serde_json::Value>,
+    pub metadata: AuditEventMetadata,
+    pub signature: Option<String>,
+    pub compliance: ComplianceInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuditEventType {
+    Security,
+    Data,
+    Access,
+    Compliance,
+    System,
+    User,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuditOutcome {
+    Success,
+    Failure,
+    Warning,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuditSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEventMetadata {
+    pub user_agent: Option<String>,
+    pub ip_address: Option<String>,
+    pub location: Option<String>,
+    pub device_id: Option<String>,
+    pub session_duration: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceInfo {
+    pub gdpr: Option<bool>,
+    pub ccpa: Option<bool>,
+    pub hipaa: Option<bool>,
+    pub sox: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityIncident {
+    pub incident_id: Uuid,
+    pub title: String,
+    pub description: String,
+    pub severity: AuditSeverity,
+    pub category: IncidentCategory,
+    pub status: IncidentStatus,
+    pub affected_users: Vec<String>,
+    pub affected_resources: Vec<String>,
+    pub related_event_ids: Vec<Uuid>,
+    pub confidential: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub assigned_to: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IncidentCategory {
+    UnauthorizedAccess,
+    DataBreach,
+    SystemCompromise,
+    PolicyViolation,
+    DenialOfService,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IncidentStatus {
+    Open,
+    InProgress,
+    Resolved,
+    Closed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceReport {
+    pub report_id: Uuid,
+    pub report_type: ComplianceReportType,
+    pub period_start: DateTime<Utc>,
+    pub period_end: DateTime<Utc>,
+    pub scope: ComplianceScope,
+    pub export_format: ExportFormat,
+    pub include_evidence: bool,
+    pub status: ReportStatus,
+    pub generated_at: Option<DateTime<Utc>>,
+    pub file_path: Option<String>,
+    pub findings: Vec<ComplianceFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ComplianceReportType {
+    GdprDataSubject,
+    CcpaConsumer,
+    SoxFinancial,
+    AuditTrail,
+    SecurityIncident,
+    FoodSafety,
+    GDPR,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ExportFormat {
+    Json,
+    Csv,
+    Pdf,
+    Xml,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ReportStatus {
+    Pending,
+    Generating,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceScope {
+    pub user_id: Option<String>,
+    pub resource_types: Vec<String>,
+    pub event_types: Vec<AuditEventType>,
+    pub regulations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceFinding {
+    pub finding_id: Uuid,
+    pub finding_type: String,
+    pub description: String,
+    pub severity: AuditSeverity,
+    pub evidence: Vec<Uuid>, // Event IDs
+    pub recommendation: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditDashboardMetrics {
+    pub total_events: u64,
+    pub events_last_24h: u64,
+    pub events_last_7d: u64,
+    pub security_incidents: SecurityIncidentSummary,
+    pub compliance_status: ComplianceStatus,
+    pub top_users: Vec<UserRiskProfile>,
+    pub anomalies: Vec<SecurityAnomaly>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityIncidentSummary {
+    pub open: u64,
+    pub critical: u64,
+    pub resolved: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceStatus {
+    pub gdpr_events: u64,
+    pub ccpa_events: u64,
+    pub hipaa_events: u64,
+    pub sox_events: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserRiskProfile {
+    pub user_id: String,
+    pub event_count: u64,
+    pub risk_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityAnomaly {
+    pub anomaly_type: String,
+    pub description: String,
+    pub severity: AuditSeverity,
+    pub detected_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditQuery {
+    pub user_id: Option<String>,
+    pub event_types: Option<Vec<AuditEventType>>,
+    pub actions: Option<Vec<String>>,
+    pub resources: Option<Vec<String>>,
+    pub outcomes: Option<Vec<AuditOutcome>>,
+    pub severities: Option<Vec<AuditSeverity>>,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub compliance: Option<ComplianceInfo>,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub sort_by: Option<AuditSortBy>,
+    pub sort_order: Option<SortOrder>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuditSortBy {
+    Timestamp,
+    Severity,
+    EventType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SortOrder {
+    Asc,
+    Desc,
+}
+
+// Implementation blocks for audit types
+impl AuditEvent {
+    pub fn new(
+        user_id: String,
+        event_type: AuditEventType,
+        action: String,
+        resource: String,
+        outcome: AuditOutcome,
+        severity: AuditSeverity,
+    ) -> Self {
+        Self {
+            event_id: Uuid::new_v4(),
+            user_id,
+            event_type,
+            action,
+            resource,
+            resource_id: None,
+            outcome,
+            severity,
+            timestamp: Utc::now(),
+            details: HashMap::new(),
+            metadata: AuditEventMetadata::default(),
+            signature: None,
+            compliance: ComplianceInfo::default(),
+        }
+    }
+
+    pub fn with_resource_id(mut self, resource_id: String) -> Self {
+        self.resource_id = Some(resource_id);
+        self
+    }
+
+    pub fn with_details(mut self, details: HashMap<String, serde_json::Value>) -> Self {
+        self.details = details;
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: AuditEventMetadata) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    pub fn with_compliance(mut self, compliance: ComplianceInfo) -> Self {
+        self.compliance = compliance;
+        self
+    }
+
+    pub fn add_detail(&mut self, key: String, value: serde_json::Value) {
+        self.details.insert(key, value);
+    }
+}
+
+impl Default for AuditEventMetadata {
+    fn default() -> Self {
+        Self {
+            user_agent: None,
+            ip_address: None,
+            location: None,
+            device_id: None,
+            session_duration: None,
+        }
+    }
+}
+
+impl Default for ComplianceInfo {
+    fn default() -> Self {
+        Self {
+            gdpr: None,
+            ccpa: None,
+            hipaa: None,
+            sox: None,
+        }
+    }
+}
+
+impl SecurityIncident {
+    pub fn new(
+        title: String,
+        description: String,
+        severity: AuditSeverity,
+        category: IncidentCategory,
+    ) -> Self {
+        Self {
+            incident_id: Uuid::new_v4(),
+            title,
+            description,
+            severity,
+            category,
+            status: IncidentStatus::Open,
+            affected_users: Vec::new(),
+            affected_resources: Vec::new(),
+            related_event_ids: Vec::new(),
+            confidential: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            assigned_to: None,
+        }
+    }
+
+    pub fn add_affected_user(&mut self, user_id: String) {
+        if !self.affected_users.contains(&user_id) {
+            self.affected_users.push(user_id);
+        }
+        self.updated_at = Utc::now();
+    }
+
+    pub fn add_affected_resource(&mut self, resource: String) {
+        if !self.affected_resources.contains(&resource) {
+            self.affected_resources.push(resource);
+        }
+        self.updated_at = Utc::now();
+    }
+
+    pub fn add_related_event(&mut self, event_id: Uuid) {
+        if !self.related_event_ids.contains(&event_id) {
+            self.related_event_ids.push(event_id);
+        }
+        self.updated_at = Utc::now();
+    }
+
+    pub fn assign_to(&mut self, assignee: String) {
+        self.assigned_to = Some(assignee);
+        self.status = IncidentStatus::InProgress;
+        self.updated_at = Utc::now();
+    }
+
+    pub fn resolve(&mut self) {
+        self.status = IncidentStatus::Resolved;
+        self.updated_at = Utc::now();
+    }
+
+    pub fn close(&mut self) {
+        self.status = IncidentStatus::Closed;
+        self.updated_at = Utc::now();
+    }
+}
+
+impl ComplianceReport {
+    pub fn new(
+        report_type: ComplianceReportType,
+        period_start: DateTime<Utc>,
+        period_end: DateTime<Utc>,
+        scope: ComplianceScope,
+        export_format: ExportFormat,
+    ) -> Self {
+        Self {
+            report_id: Uuid::new_v4(),
+            report_type,
+            period_start,
+            period_end,
+            scope,
+            export_format,
+            include_evidence: false,
+            status: ReportStatus::Pending,
+            generated_at: None,
+            file_path: None,
+            findings: Vec::new(),
+        }
+    }
+
+    pub fn start_generation(&mut self) {
+        self.status = ReportStatus::Generating;
+    }
+
+    pub fn complete_generation(&mut self, file_path: String) {
+        self.status = ReportStatus::Completed;
+        self.generated_at = Some(Utc::now());
+        self.file_path = Some(file_path);
+    }
+
+    pub fn fail_generation(&mut self) {
+        self.status = ReportStatus::Failed;
+    }
+
+    pub fn add_finding(&mut self, finding: ComplianceFinding) {
+        self.findings.push(finding);
+    }
+}
+
+// ============================================================================
+// ZK PROOF TYPES
+// ============================================================================
+
+// Re-export ZK proof types from the engine module
+pub use crate::zk_proof_engine::{
+    ZkProof, ProofStatus, CircuitType, VerificationResult,
+    CircuitTemplate, CircuitInput, AgriculturalContext, ZkProofError
+};
+
+// ============================================================================
+// ADAPTER TYPES
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum AdapterType {
+    LocalLocal,
+    IpfsIpfs,
+    StellarTestnetIpfs,
+    StellarMainnetIpfs,
+    LocalIpfs,
+    StellarMainnetStellarMainnet,
+    EthereumGoerliIpfs,
+    PolygonArweave,
+    Custom(String),
+}
+
+impl std::fmt::Display for AdapterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AdapterType::LocalLocal => write!(f, "local-local"),
+            AdapterType::IpfsIpfs => write!(f, "ipfs-ipfs"),
+            AdapterType::StellarTestnetIpfs => write!(f, "stellar_testnet-ipfs"),
+            AdapterType::StellarMainnetIpfs => write!(f, "stellar_mainnet-ipfs"),
+            AdapterType::LocalIpfs => write!(f, "local-ipfs"),
+            AdapterType::StellarMainnetStellarMainnet => write!(f, "stellar_mainnet-stellar_mainnet"),
+            AdapterType::EthereumGoerliIpfs => write!(f, "ethereum_goerli-ipfs"),
+            AdapterType::PolygonArweave => write!(f, "polygon-arweave"),
+            AdapterType::Custom(name) => write!(f, "custom-{}", name),
+        }
+    }
+}
+
+impl AdapterType {
+    pub fn from_string(s: &str) -> Result<Self, String> {
+        match s {
+            "local-local" => Ok(AdapterType::LocalLocal),
+            "ipfs-ipfs" => Ok(AdapterType::IpfsIpfs),
+            "stellar_testnet-ipfs" => Ok(AdapterType::StellarTestnetIpfs),
+            "stellar_mainnet-ipfs" => Ok(AdapterType::StellarMainnetIpfs),
+            "local-ipfs" => Ok(AdapterType::LocalIpfs),
+            "stellar_mainnet-stellar_mainnet" => Ok(AdapterType::StellarMainnetStellarMainnet),
+            "ethereum_goerli-ipfs" => Ok(AdapterType::EthereumGoerliIpfs),
+            "polygon-arweave" => Ok(AdapterType::PolygonArweave),
+            custom if custom.starts_with("custom-") => {
+                Ok(AdapterType::Custom(custom[7..].to_string()))
+            },
+            _ => Err(format!("Unknown adapter type: {}", s)),
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            AdapterType::LocalLocal => "Local storage only - for development and testing",
+            AdapterType::IpfsIpfs => "Full IPFS storage - decentralized with no blockchain",
+            AdapterType::StellarTestnetIpfs => "Stellar testnet NFTs + IPFS events - for testing blockchain integration",
+            AdapterType::StellarMainnetIpfs => "Stellar mainnet NFTs + IPFS events - production blockchain + IPFS",
+            AdapterType::LocalIpfs => "Local item storage + IPFS events - hybrid approach",
+            AdapterType::StellarMainnetStellarMainnet => "Full Stellar mainnet storage - complete on-chain solution",
+            AdapterType::EthereumGoerliIpfs => "Ethereum Goerli testnet + IPFS - Ethereum ecosystem testing",
+            AdapterType::PolygonArweave => "Polygon NFTs + Arweave permanent storage - low cost + permanence",
+            AdapterType::Custom(_) => "Custom adapter configuration",
+        }
+    }
+
+    pub fn requires_blockchain(&self) -> bool {
+        match self {
+            AdapterType::LocalLocal | AdapterType::IpfsIpfs | AdapterType::LocalIpfs => false,
+            _ => true,
+        }
+    }
+
+    pub fn storage_locations(&self) -> (StorageBackendType, StorageBackendType) {
+        match self {
+            AdapterType::LocalLocal => (StorageBackendType::Local, StorageBackendType::Local),
+            AdapterType::IpfsIpfs => (StorageBackendType::IPFS, StorageBackendType::IPFS),
+            AdapterType::StellarTestnetIpfs => (StorageBackendType::StellarTestnet, StorageBackendType::IPFS),
+            AdapterType::StellarMainnetIpfs => (StorageBackendType::StellarMainnet, StorageBackendType::IPFS),
+            AdapterType::LocalIpfs => (StorageBackendType::Local, StorageBackendType::IPFS),
+            AdapterType::StellarMainnetStellarMainnet => (StorageBackendType::StellarMainnet, StorageBackendType::StellarMainnet),
+            AdapterType::EthereumGoerliIpfs => (StorageBackendType::EthereumGoerli, StorageBackendType::IPFS),
+            AdapterType::PolygonArweave => (StorageBackendType::Polygon, StorageBackendType::Arweave),
+            AdapterType::Custom(_) => (StorageBackendType::Custom, StorageBackendType::Custom),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum StorageBackendType {
+    Local,
+    IPFS,
+    StellarTestnet,
+    StellarMainnet,
+    EthereumMainnet,
+    EthereumGoerli,
+    Polygon,
+    Arweave,
+    Custom,
+}
+
+// Storage History Tracking System
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemStorageHistory {
+    pub dfid: String,
+    pub storage_records: Vec<StorageRecord>,
+    pub current_primary: Option<crate::adapters::StorageLocation>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageRecord {
+    pub adapter_type: AdapterType,
+    pub storage_location: crate::adapters::StorageLocation,
+    pub stored_at: DateTime<Utc>,
+    pub triggered_by: String, // "item_creation", "circuit_push", "migration"
+    pub triggered_by_id: Option<String>, // circuit_id, user_id, etc.
+    pub events_range: Option<(DateTime<Utc>, Option<DateTime<Utc>>)>, // Which events are in this storage
+    pub is_active: bool,
+    pub metadata: HashMap<String, serde_json::Value>, // Additional storage-specific metadata
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemWithHistory {
+    pub item: Item,
+    pub events: Vec<Event>,
+    pub storage_history: ItemStorageHistory,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitAdapterConfig {
+    pub circuit_id: Uuid,
+    pub adapter_type: Option<AdapterType>, // None = use client default
+    pub configured_by: String,
+    pub configured_at: DateTime<Utc>,
+    pub requires_approval: bool,
+    pub auto_migrate_existing: bool, // Whether to migrate existing items when circuit adapter changes
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientAdapterConfig {
+    pub client_id: String,
+    pub default_adapter: AdapterType,
+    pub available_adapters: Vec<AdapterType>, // Based on tier
+    pub circuit_overrides: HashMap<Uuid, AdapterType>,
+    pub tier: String, // "basic", "professional", "enterprise"
+    pub updated_at: DateTime<Utc>,
 }

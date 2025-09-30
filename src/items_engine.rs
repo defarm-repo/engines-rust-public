@@ -40,7 +40,7 @@ pub struct ItemsEngine<S: StorageBackend> {
     dfid_engine: DfidEngine,
 }
 
-impl<S: StorageBackend> ItemsEngine<S> {
+impl<S: StorageBackend + 'static> ItemsEngine<S> {
     pub fn new(storage: S) -> Self {
         let mut logger = LoggingEngine::new();
         logger.info("ItemsEngine", "initialization", "Items engine initialized");
@@ -67,7 +67,8 @@ impl<S: StorageBackend> ItemsEngine<S> {
         self.storage.store_item(&item)?;
 
         self.logger.info("ItemsEngine", "item_created", "Item created successfully")
-            .with_context("dfid", dfid);
+            .with_context("dfid", dfid.clone());
+
 
         Ok(item)
     }
@@ -76,11 +77,11 @@ impl<S: StorageBackend> ItemsEngine<S> {
         // Step 0: Check for conflicts and handle them
         if let Some(pending_reason) = self.detect_conflicts(&identifiers, &enriched_data, source_entry)? {
             // Store as pending item
-            let pending_item = PendingItem::new(identifiers, source_entry, pending_reason, enriched_data);
+            let pending_item = PendingItem::new(identifiers, enriched_data, source_entry, pending_reason, None, None);
             self.storage.store_pending_item(&pending_item)?;
 
             self.logger.info("ItemsEngine", "pending_item_created", "Item stored as pending due to conflicts")
-                .with_context("pending_id", pending_item.id.to_string())
+                .with_context("pending_id", pending_item.pending_id.to_string())
                 .with_context("reason", format!("{:?}", pending_item.reason))
                 .with_context("source_entry", source_entry.to_string());
 
@@ -475,9 +476,9 @@ impl<S: StorageBackend> ItemsEngine<S> {
             ResolutionAction::Approve => {
                 // Try to create the item with the pending data
                 let result = self.create_item_with_generated_dfid(
-                    pending_item.identifiers,
+                    pending_item.identifiers.clone(),
                     pending_item.source_entry,
-                    pending_item.enriched_data,
+                    pending_item.enriched_data.clone(),
                 );
 
                 match result {
@@ -518,6 +519,7 @@ impl<S: StorageBackend> ItemsEngine<S> {
             .collect();
         Ok(filtered)
     }
+
 }
 
 #[derive(Debug, Clone)]

@@ -38,3 +38,4 @@ dotenv = "0.15"
 
 # Utilities
 base64 = "0.22"
+async-trait = "0.1.89"

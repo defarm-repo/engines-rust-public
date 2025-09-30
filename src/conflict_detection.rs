@@ -224,31 +224,31 @@ impl<S: StorageBackend> ConflictDetectionEngine<S> {
         let mut issues = Vec::new();
 
         // Check for empty or malformed identifiers
-        match identifier {
-            Identifier::DFID(value) => {
-                if value.is_empty() {
+        match identifier.key.as_str() {
+            "dfid" => {
+                if identifier.value.is_empty() {
                     issues.push(("empty_dfid".to_string(), QualitySeverity::Critical, "DFID cannot be empty".to_string()));
-                } else if value.len() < 10 {
+                } else if identifier.value.len() < 10 {
                     issues.push(("short_dfid".to_string(), QualitySeverity::Medium, "DFID appears to be too short".to_string()));
                 }
             }
-            Identifier::Email(email) => {
-                if !email.contains('@') || !email.contains('.') {
+            "email" => {
+                if !identifier.value.contains('@') || !identifier.value.contains('.') {
                     issues.push(("invalid_email".to_string(), QualitySeverity::High, "Email format appears invalid".to_string()));
                 }
             }
-            Identifier::Phone(phone) => {
-                if phone.len() < 7 {
+            "phone" => {
+                if identifier.value.len() < 7 {
                     issues.push(("short_phone".to_string(), QualitySeverity::Medium, "Phone number appears too short".to_string()));
                 }
             }
-            Identifier::SSN(ssn) => {
-                if ssn.len() != 11 && ssn.len() != 9 { // 111-11-1111 or 111111111
+            "ssn" => {
+                if identifier.value.len() != 11 && identifier.value.len() != 9 { // 111-11-1111 or 111111111
                     issues.push(("invalid_ssn_length".to_string(), QualitySeverity::High, "SSN has invalid length".to_string()));
                 }
             }
-            Identifier::Custom { name, value } => {
-                if name.is_empty() || value.is_empty() {
+            _ => {
+                if identifier.key.is_empty() || identifier.value.is_empty() {
                     issues.push(("empty_custom_identifier".to_string(), QualitySeverity::High, "Custom identifier has empty name or value".to_string()));
                 }
             }

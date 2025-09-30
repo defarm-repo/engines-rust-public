@@ -2,7 +2,10 @@ use crate::logging::LogEntry;
 use crate::types::{
     Activity, CircuitItem, Identifier, Receipt, DataLakeEntry, Item, IdentifierMapping, ConflictResolution,
     ProcessingStatus, ItemStatus, Event, EventType, EventVisibility,
-    Circuit, CircuitOperation, ItemShare, PendingItem, PendingReason, PendingPriority
+    Circuit, CircuitOperation, ItemShare, PendingItem, PendingReason, PendingPriority,
+    AuditEvent, AuditEventType, AuditOutcome, AuditSeverity, AuditQuery,
+    SecurityIncident, ComplianceReport, AuditDashboardMetrics, SecurityIncidentSummary, ComplianceStatus, UserRiskProfile, SecurityAnomaly,
+    CircuitType
 };
 use chrono::{DateTime, Utc};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -17,15 +20,16 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub enum StorageError {
-    IoError(std::io::Error),
+    IoError(String),
     SerializationError(serde_json::Error),
     EncryptionError(String),
     NotFound,
+    NotImplemented(String),
 }
 
 impl From<std::io::Error> for StorageError {
     fn from(err: std::io::Error) -> Self {
-        StorageError::IoError(err)
+        StorageError::IoError(err.to_string())
     }
 }
 
@@ -42,6 +46,7 @@ impl std::fmt::Display for StorageError {
             StorageError::SerializationError(e) => write!(f, "Serialization error: {}", e),
             StorageError::EncryptionError(e) => write!(f, "Encryption error: {}", e),
             StorageError::NotFound => write!(f, "Record not found"),
+            StorageError::NotImplemented(e) => write!(f, "Not implemented: {}", e),
         }
     }
 }
@@ -151,6 +156,38 @@ pub trait StorageBackend {
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError>;
     fn remove_circuit_item(&mut self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError>;
 
+    // Audit Event operations
+    fn store_audit_event(&mut self, event: &AuditEvent) -> Result<(), StorageError>;
+    fn get_audit_event(&self, event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError>;
+    fn query_audit_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError>;
+    fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError>;
+    fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError>;
+    fn get_audit_events_by_type(&self, event_type: AuditEventType) -> Result<Vec<AuditEvent>, StorageError>;
+    fn get_audit_events_by_severity(&self, severity: AuditSeverity) -> Result<Vec<AuditEvent>, StorageError>;
+    fn get_audit_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<AuditEvent>, StorageError>;
+    fn sync_audit_events(&mut self, events: Vec<AuditEvent>) -> Result<(), StorageError>;
+
+    // Security Incident operations
+    fn store_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError>;
+    fn get_security_incident(&self, incident_id: &Uuid) -> Result<Option<SecurityIncident>, StorageError>;
+    fn update_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError>;
+    fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError>;
+    fn get_incidents_by_severity(&self, severity: AuditSeverity) -> Result<Vec<SecurityIncident>, StorageError>;
+    fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError>;
+    fn get_incidents_by_assignee(&self, assignee: &str) -> Result<Vec<SecurityIncident>, StorageError>;
+
+    // Compliance Report operations
+    fn store_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError>;
+    fn get_compliance_report(&self, report_id: &Uuid) -> Result<Option<ComplianceReport>, StorageError>;
+    fn update_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError>;
+    fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError>;
+    fn get_reports_by_type(&self, report_type: &str) -> Result<Vec<ComplianceReport>, StorageError>;
+    fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError>;
+
+    // Audit Dashboard operations
+    fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError>;
+    fn get_event_count_by_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<u64, StorageError>;
+
     // Pending Items operations
     fn store_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError>;
     fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError>;
@@ -162,6 +199,18 @@ pub trait StorageBackend {
     fn update_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError>;
     fn delete_pending_item(&mut self, pending_id: &Uuid) -> Result<(), StorageError>;
     fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError>;
+
+    // ZK Proof operations
+    fn store_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError>;
+    fn get_zk_proof(&self, proof_id: &Uuid) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn update_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError>;
+    fn query_zk_proofs(&self, query: &crate::api::zk_proofs::ZkProofQuery) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn get_zk_proofs_by_user(&self, user_id: &str) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn get_zk_proofs_by_circuit_type(&self, circuit_type: CircuitType) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn get_zk_proofs_by_status(&self, status: crate::zk_proof_engine::ProofStatus) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError>;
+    fn delete_zk_proof(&mut self, proof_id: &Uuid) -> Result<(), StorageError>;
 }
 
 pub struct InMemoryStorage {
@@ -179,6 +228,10 @@ pub struct InMemoryStorage {
     activities: HashMap<String, Activity>,
     circuit_items: HashMap<(Uuid, String), CircuitItem>,
     pending_items: HashMap<Uuid, PendingItem>,
+    audit_events: HashMap<Uuid, AuditEvent>,
+    security_incidents: HashMap<Uuid, SecurityIncident>,
+    compliance_reports: HashMap<Uuid, ComplianceReport>,
+    zk_proofs: HashMap<Uuid, crate::zk_proof_engine::ZkProof>,
 }
 
 impl InMemoryStorage {
@@ -198,6 +251,10 @@ impl InMemoryStorage {
             activities: HashMap::new(),
             circuit_items: HashMap::new(),
             pending_items: HashMap::new(),
+            audit_events: HashMap::new(),
+            security_incidents: HashMap::new(),
+            compliance_reports: HashMap::new(),
+            zk_proofs: HashMap::new(),
         }
     }
 }
@@ -629,6 +686,460 @@ impl StorageBackend for InMemoryStorage {
             .collect();
         Ok(items)
     }
+
+    // Audit Event operations
+    fn store_audit_event(&mut self, event: &AuditEvent) -> Result<(), StorageError> {
+        self.audit_events.insert(event.event_id, event.clone());
+        Ok(())
+    }
+
+    fn get_audit_event(&self, event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
+        Ok(self.audit_events.get(event_id).cloned())
+    }
+
+    fn query_audit_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError> {
+        let mut events: Vec<AuditEvent> = self.audit_events.values().cloned().collect();
+
+        // Apply filters
+        if let Some(user_id) = &query.user_id {
+            events.retain(|e| e.user_id == *user_id);
+        }
+
+        if let Some(event_types) = &query.event_types {
+            events.retain(|e| event_types.iter().any(|t| std::mem::discriminant(t) == std::mem::discriminant(&e.event_type)));
+        }
+
+        if let Some(actions) = &query.actions {
+            events.retain(|e| actions.contains(&e.action));
+        }
+
+        if let Some(resources) = &query.resources {
+            events.retain(|e| resources.contains(&e.resource));
+        }
+
+        if let Some(outcomes) = &query.outcomes {
+            events.retain(|e| outcomes.iter().any(|o| std::mem::discriminant(o) == std::mem::discriminant(&e.outcome)));
+        }
+
+        if let Some(severities) = &query.severities {
+            events.retain(|e| severities.iter().any(|s| std::mem::discriminant(s) == std::mem::discriminant(&e.severity)));
+        }
+
+        if let Some(start_date) = query.start_date {
+            events.retain(|e| e.timestamp >= start_date);
+        }
+
+        if let Some(end_date) = query.end_date {
+            events.retain(|e| e.timestamp <= end_date);
+        }
+
+        // Apply sorting
+        if let Some(sort_by) = &query.sort_by {
+            match sort_by {
+                crate::types::AuditSortBy::Timestamp => {
+                    events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+                }
+                crate::types::AuditSortBy::Severity => {
+                    events.sort_by(|a, b| {
+                        let severity_order = |s: &AuditSeverity| match s {
+                            AuditSeverity::Low => 0,
+                            AuditSeverity::Medium => 1,
+                            AuditSeverity::High => 2,
+                            AuditSeverity::Critical => 3,
+                        };
+                        severity_order(&a.severity).cmp(&severity_order(&b.severity))
+                    });
+                }
+                crate::types::AuditSortBy::EventType => {
+                    events.sort_by(|a, b| {
+                        let type_order = |t: &AuditEventType| match t {
+                            AuditEventType::System => 0,
+                            AuditEventType::User => 1,
+                            AuditEventType::Data => 2,
+                            AuditEventType::Access => 3,
+                            AuditEventType::Compliance => 4,
+                            AuditEventType::Security => 5,
+                        };
+                        type_order(&a.event_type).cmp(&type_order(&b.event_type))
+                    });
+                }
+            }
+
+            if let Some(sort_order) = &query.sort_order {
+                if matches!(sort_order, crate::types::SortOrder::Desc) {
+                    events.reverse();
+                }
+            }
+        }
+
+        // Apply pagination
+        let offset = query.offset.unwrap_or(0) as usize;
+        let limit = query.limit.unwrap_or(100) as usize;
+
+        events = events.into_iter().skip(offset).take(limit).collect();
+
+        Ok(events)
+    }
+
+    fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(self.audit_events.values().cloned().collect())
+    }
+
+    fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(self.audit_events
+            .values()
+            .filter(|event| event.user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    fn get_audit_events_by_type(&self, event_type: AuditEventType) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(self.audit_events
+            .values()
+            .filter(|event| std::mem::discriminant(&event.event_type) == std::mem::discriminant(&event_type))
+            .cloned()
+            .collect())
+    }
+
+    fn get_audit_events_by_severity(&self, severity: AuditSeverity) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(self.audit_events
+            .values()
+            .filter(|event| std::mem::discriminant(&event.severity) == std::mem::discriminant(&severity))
+            .cloned()
+            .collect())
+    }
+
+    fn get_audit_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(self.audit_events
+            .values()
+            .filter(|event| event.timestamp >= start && event.timestamp <= end)
+            .cloned()
+            .collect())
+    }
+
+    fn sync_audit_events(&mut self, events: Vec<AuditEvent>) -> Result<(), StorageError> {
+        for event in events {
+            self.audit_events.insert(event.event_id, event);
+        }
+        Ok(())
+    }
+
+    // Security Incident operations
+    fn store_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError> {
+        self.security_incidents.insert(incident.incident_id, incident.clone());
+        Ok(())
+    }
+
+    fn get_security_incident(&self, incident_id: &Uuid) -> Result<Option<SecurityIncident>, StorageError> {
+        Ok(self.security_incidents.get(incident_id).cloned())
+    }
+
+    fn update_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError> {
+        self.security_incidents.insert(incident.incident_id, incident.clone());
+        Ok(())
+    }
+
+    fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(self.security_incidents.values().cloned().collect())
+    }
+
+    fn get_incidents_by_severity(&self, severity: AuditSeverity) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(self.security_incidents
+            .values()
+            .filter(|incident| std::mem::discriminant(&incident.severity) == std::mem::discriminant(&severity))
+            .cloned()
+            .collect())
+    }
+
+    fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(self.security_incidents
+            .values()
+            .filter(|incident| matches!(incident.status, crate::types::IncidentStatus::Open | crate::types::IncidentStatus::InProgress))
+            .cloned()
+            .collect())
+    }
+
+    fn get_incidents_by_assignee(&self, assignee: &str) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(self.security_incidents
+            .values()
+            .filter(|incident| incident.assigned_to.as_ref().map_or(false, |a| a == assignee))
+            .cloned()
+            .collect())
+    }
+
+    // Compliance Report operations
+    fn store_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
+        self.compliance_reports.insert(report.report_id, report.clone());
+        Ok(())
+    }
+
+    fn get_compliance_report(&self, report_id: &Uuid) -> Result<Option<ComplianceReport>, StorageError> {
+        Ok(self.compliance_reports.get(report_id).cloned())
+    }
+
+    fn update_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
+        self.compliance_reports.insert(report.report_id, report.clone());
+        Ok(())
+    }
+
+    fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
+        Ok(self.compliance_reports.values().cloned().collect())
+    }
+
+    fn get_reports_by_type(&self, report_type: &str) -> Result<Vec<ComplianceReport>, StorageError> {
+        Ok(self.compliance_reports
+            .values()
+            .filter(|report| {
+                match &report.report_type {
+                    crate::types::ComplianceReportType::GdprDataSubject => report_type == "gdpr-data-subject",
+                    crate::types::ComplianceReportType::CcpaConsumer => report_type == "ccpa-consumer",
+                    crate::types::ComplianceReportType::SoxFinancial => report_type == "sox-financial",
+                    crate::types::ComplianceReportType::AuditTrail => report_type == "audit-trail",
+                    crate::types::ComplianceReportType::SecurityIncident => report_type == "security-incident",
+                    crate::types::ComplianceReportType::FoodSafety => report_type == "food-safety",
+                    crate::types::ComplianceReportType::GDPR => report_type == "gdpr",
+                }
+            })
+            .cloned()
+            .collect())
+    }
+
+    fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
+        Ok(self.compliance_reports
+            .values()
+            .filter(|report| matches!(report.status, crate::types::ReportStatus::Pending | crate::types::ReportStatus::Generating))
+            .cloned()
+            .collect())
+    }
+
+    // Audit Dashboard operations
+    fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError> {
+        use crate::types::*;
+        let now = Utc::now();
+        let twenty_four_hours_ago = now - chrono::Duration::hours(24);
+        let seven_days_ago = now - chrono::Duration::days(7);
+
+        let total_events = self.audit_events.len() as u64;
+        let events_last_24h = self.audit_events
+            .values()
+            .filter(|e| e.timestamp >= twenty_four_hours_ago)
+            .count() as u64;
+        let events_last_7d = self.audit_events
+            .values()
+            .filter(|e| e.timestamp >= seven_days_ago)
+            .count() as u64;
+
+        let open_incidents = self.security_incidents
+            .values()
+            .filter(|i| matches!(i.status, IncidentStatus::Open | IncidentStatus::InProgress))
+            .count() as u64;
+        let critical_incidents = self.security_incidents
+            .values()
+            .filter(|i| matches!(i.severity, AuditSeverity::Critical))
+            .count() as u64;
+        let resolved_incidents = self.security_incidents
+            .values()
+            .filter(|i| matches!(i.status, IncidentStatus::Resolved | IncidentStatus::Closed))
+            .count() as u64;
+
+        let gdpr_events = self.audit_events
+            .values()
+            .filter(|e| e.compliance.gdpr.unwrap_or(false))
+            .count() as u64;
+        let ccpa_events = self.audit_events
+            .values()
+            .filter(|e| e.compliance.ccpa.unwrap_or(false))
+            .count() as u64;
+        let hipaa_events = self.audit_events
+            .values()
+            .filter(|e| e.compliance.hipaa.unwrap_or(false))
+            .count() as u64;
+        let sox_events = self.audit_events
+            .values()
+            .filter(|e| e.compliance.sox.unwrap_or(false))
+            .count() as u64;
+
+        // Calculate user risk profiles
+        let mut user_event_counts = HashMap::new();
+        for event in self.audit_events.values() {
+            *user_event_counts.entry(event.user_id.clone()).or_insert(0u64) += 1;
+        }
+
+        let mut top_users: Vec<UserRiskProfile> = user_event_counts
+            .into_iter()
+            .map(|(user_id, event_count)| {
+                // Simple risk score calculation based on event count and severity
+                let risk_score = event_count as f64 * 0.1; // Basic calculation
+                UserRiskProfile {
+                    user_id,
+                    event_count,
+                    risk_score,
+                }
+            })
+            .collect();
+
+        top_users.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+        top_users.truncate(10); // Top 10 users
+
+        // Generate some basic anomalies (placeholder implementation)
+        let anomalies = vec![
+            SecurityAnomaly {
+                anomaly_type: "unusual_access_pattern".to_string(),
+                description: "Detected unusual access patterns in last 24 hours".to_string(),
+                severity: AuditSeverity::Medium,
+                detected_at: now,
+            }
+        ];
+
+        Ok(AuditDashboardMetrics {
+            total_events,
+            events_last_24h,
+            events_last_7d,
+            security_incidents: SecurityIncidentSummary {
+                open: open_incidents,
+                critical: critical_incidents,
+                resolved: resolved_incidents,
+            },
+            compliance_status: ComplianceStatus {
+                gdpr_events,
+                ccpa_events,
+                hipaa_events,
+                sox_events,
+            },
+            top_users,
+            anomalies,
+        })
+    }
+
+    fn get_event_count_by_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<u64, StorageError> {
+        let count = self.audit_events
+            .values()
+            .filter(|event| event.timestamp >= start && event.timestamp <= end)
+            .count() as u64;
+        Ok(count)
+    }
+
+    // ZK Proof operations
+    fn store_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+        self.zk_proofs.insert(proof.proof_id, proof.clone());
+        Ok(())
+    }
+
+    fn get_zk_proof(&self, proof_id: &Uuid) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(self.zk_proofs.get(proof_id).cloned())
+    }
+
+    fn update_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+        self.zk_proofs.insert(proof.proof_id, proof.clone());
+        Ok(())
+    }
+
+    fn query_zk_proofs(&self, query: &crate::api::zk_proofs::ZkProofQuery) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        let mut proofs: Vec<crate::zk_proof_engine::ZkProof> = self.zk_proofs.values().cloned().collect();
+
+        // Apply filters
+        if let Some(prover_id) = &query.prover_id {
+            proofs.retain(|p| p.prover_id == *prover_id);
+        }
+
+        if let Some(circuit_types) = &query.circuit_types {
+            proofs.retain(|p| circuit_types.iter().any(|t| std::mem::discriminant(t) == std::mem::discriminant(&p.circuit_type)));
+        }
+
+        if let Some(statuses) = &query.statuses {
+            proofs.retain(|p| statuses.iter().any(|s| std::mem::discriminant(s) == std::mem::discriminant(&p.status)));
+        }
+
+        if let Some(start_date) = query.start_date {
+            proofs.retain(|p| p.created_at >= start_date);
+        }
+
+        if let Some(end_date) = query.end_date {
+            proofs.retain(|p| p.created_at <= end_date);
+        }
+
+        // Apply sorting by creation date (default)
+        proofs.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        // Apply pagination
+        let offset = query.offset.unwrap_or(0) as usize;
+        let limit = query.limit.unwrap_or(100) as usize;
+
+        proofs = proofs.into_iter().skip(offset).take(limit).collect();
+
+        Ok(proofs)
+    }
+
+    fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(self.zk_proofs.values().cloned().collect())
+    }
+
+    fn get_zk_proofs_by_user(&self, user_id: &str) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(self.zk_proofs
+            .values()
+            .filter(|proof| proof.prover_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    fn get_zk_proofs_by_circuit_type(&self, circuit_type: CircuitType) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(self.zk_proofs
+            .values()
+            .filter(|proof| std::mem::discriminant(&proof.circuit_type) == std::mem::discriminant(&circuit_type))
+            .cloned()
+            .collect())
+    }
+
+    fn get_zk_proofs_by_status(&self, status: crate::zk_proof_engine::ProofStatus) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(self.zk_proofs
+            .values()
+            .filter(|proof| std::mem::discriminant(&proof.status) == std::mem::discriminant(&status))
+            .cloned()
+            .collect())
+    }
+
+    fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
+        let total_proofs = self.zk_proofs.len() as u64;
+        let verified_proofs = self.zk_proofs
+            .values()
+            .filter(|p| matches!(p.status, crate::zk_proof_engine::ProofStatus::Verified))
+            .count() as u64;
+        let failed_proofs = self.zk_proofs
+            .values()
+            .filter(|p| matches!(p.status, crate::zk_proof_engine::ProofStatus::Failed))
+            .count() as u64;
+        let pending_proofs = self.zk_proofs
+            .values()
+            .filter(|p| matches!(p.status, crate::zk_proof_engine::ProofStatus::Pending))
+            .count() as u64;
+
+        // Count by circuit type
+        let mut proof_types = std::collections::HashMap::new();
+        for proof in self.zk_proofs.values() {
+            let type_name = match &proof.circuit_type {
+                CircuitType::OrganicCertification => "organic_certification",
+                CircuitType::PesticideThreshold => "pesticide_threshold",
+                CircuitType::QualityGrade => "quality_grade",
+                CircuitType::OwnershipProof => "ownership_proof",
+                CircuitType::TimestampFreshness => "timestamp_freshness",
+                CircuitType::Custom(name) => name,
+            };
+            *proof_types.entry(type_name.to_string()).or_insert(0u64) += 1;
+        }
+
+        Ok(crate::api::zk_proofs::ZkProofStatistics {
+            total_proofs,
+            verified_proofs,
+            failed_proofs,
+            pending_proofs,
+            proof_types,
+        })
+    }
+
+    fn delete_zk_proof(&mut self, proof_id: &Uuid) -> Result<(), StorageError> {
+        self.zk_proofs.remove(proof_id);
+        Ok(())
+    }
 }
 
 impl Default for InMemoryStorage {
@@ -799,10 +1310,7 @@ impl StorageBackend for EncryptedFileStorage {
     // In a real implementation, these would be properly encrypted and stored to files
 
     fn store_data_lake_entry(&mut self, _entry: &DataLakeEntry) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Data lake operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Data lake operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_data_lake_entry(&self, _entry_id: &Uuid) -> Result<Option<DataLakeEntry>, StorageError> {
@@ -810,10 +1318,7 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_data_lake_entry(&mut self, _entry: &DataLakeEntry) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Data lake operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Data lake operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_data_lake_entries_by_status(&self, _status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError> {
@@ -825,10 +1330,7 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn store_item(&mut self, _item: &Item) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Item operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Item operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_item_by_dfid(&self, _dfid: &str) -> Result<Option<Item>, StorageError> {
@@ -836,10 +1338,7 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_item(&mut self, _item: &Item) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Item operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Item operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn list_items(&self) -> Result<Vec<Item>, StorageError> {
@@ -859,10 +1358,7 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn store_identifier_mapping(&mut self, _mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Identifier mapping operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Identifier mapping operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_identifier_mappings(&self, _identifier: &Identifier) -> Result<Vec<IdentifierMapping>, StorageError> {
@@ -870,10 +1366,7 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_identifier_mapping(&mut self, _mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Identifier mapping operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Identifier mapping operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError> {
@@ -881,10 +1374,7 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn store_conflict_resolution(&mut self, _conflict: &ConflictResolution) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Conflict resolution operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Conflict resolution operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_conflict_resolution(&self, _conflict_id: &Uuid) -> Result<Option<ConflictResolution>, StorageError> {
@@ -897,10 +1387,7 @@ impl StorageBackend for EncryptedFileStorage {
 
     // Event operations - placeholder implementations
     fn store_event(&mut self, _event: &Event) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Event operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Event operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_event(&self, _event_id: &Uuid) -> Result<Option<Event>, StorageError> {
@@ -908,10 +1395,7 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_event(&mut self, _event: &Event) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Event operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Event operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn list_events(&self) -> Result<Vec<Event>, StorageError> {
@@ -936,10 +1420,7 @@ impl StorageBackend for EncryptedFileStorage {
 
     // Circuit operations - placeholder implementations
     fn store_circuit(&mut self, _circuit: &Circuit) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Circuit operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Circuit operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_circuit(&self, _circuit_id: &Uuid) -> Result<Option<Circuit>, StorageError> {
@@ -947,10 +1428,7 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_circuit(&mut self, _circuit: &Circuit) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Circuit operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Circuit operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn list_circuits(&self) -> Result<Vec<Circuit>, StorageError> {
@@ -963,10 +1441,7 @@ impl StorageBackend for EncryptedFileStorage {
 
     // Circuit Operation operations - placeholder implementations
     fn store_circuit_operation(&mut self, _operation: &CircuitOperation) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Circuit operation operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Circuit operation operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_circuit_operation(&self, _operation_id: &Uuid) -> Result<Option<CircuitOperation>, StorageError> {
@@ -974,10 +1449,7 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_circuit_operation(&mut self, _operation: &CircuitOperation) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Circuit operation operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Circuit operation operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_circuit_operations(&self, _circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, StorageError> {
@@ -986,10 +1458,7 @@ impl StorageBackend for EncryptedFileStorage {
 
     // Item Share operations - Not implemented for EncryptedFileStorage yet
     fn store_item_share(&mut self, _share: &ItemShare) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Item share operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Item share operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_item_share(&self, _share_id: &str) -> Result<Option<ItemShare>, StorageError> {
@@ -1042,10 +1511,7 @@ impl StorageBackend for EncryptedFileStorage {
 
     // Pending Items operations - placeholder implementations
     fn store_pending_item(&mut self, _item: &PendingItem) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Pending item operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Pending item operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_pending_item(&self, _pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError> {
@@ -1073,21 +1539,176 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_pending_item(&mut self, _item: &PendingItem) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Pending item operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Pending item operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn delete_pending_item(&mut self, _pending_id: &Uuid) -> Result<(), StorageError> {
-        Err(StorageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Pending item operations not yet implemented for EncryptedFileStorage"
-        )))
+        Err(StorageError::IoError("Pending item operations not yet implemented for EncryptedFileStorage".to_string()))
     }
 
     fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
         Ok(Vec::new())
+    }
+
+    // Audit methods - not yet implemented for EncryptedFileStorage
+    fn store_audit_event(&mut self, _event: &AuditEvent) -> Result<(), StorageError> {
+        Err(StorageError::IoError("Audit operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn get_audit_event(&self, _event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
+        Ok(None)
+    }
+
+    fn query_audit_events(&self, _query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_audit_events_by_user(&self, _user_id: &str) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_audit_events_by_type(&self, _event_type: AuditEventType) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_audit_events_by_severity(&self, _severity: AuditSeverity) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_audit_events_in_time_range(&self, _start: DateTime<Utc>, _end: DateTime<Utc>) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn sync_audit_events(&mut self, _events: Vec<AuditEvent>) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn store_security_incident(&mut self, _incident: &SecurityIncident) -> Result<(), StorageError> {
+        Err(StorageError::IoError("Security incident operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn get_security_incident(&self, _incident_id: &Uuid) -> Result<Option<SecurityIncident>, StorageError> {
+        Ok(None)
+    }
+
+    fn update_security_incident(&mut self, _incident: &SecurityIncident) -> Result<(), StorageError> {
+        Err(StorageError::IoError("Security incident operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_incidents_by_severity(&self, _severity: AuditSeverity) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_incidents_by_assignee(&self, _assignee: &str) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn store_compliance_report(&mut self, _report: &ComplianceReport) -> Result<(), StorageError> {
+        Err(StorageError::IoError("Compliance report operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn get_compliance_report(&self, _report_id: &Uuid) -> Result<Option<ComplianceReport>, StorageError> {
+        Ok(None)
+    }
+
+    fn update_compliance_report(&mut self, _report: &ComplianceReport) -> Result<(), StorageError> {
+        Err(StorageError::IoError("Compliance report operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_reports_by_type(&self, _report_type: &str) -> Result<Vec<ComplianceReport>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError> {
+        Ok(AuditDashboardMetrics {
+            total_events: 0,
+            events_last_24h: 0,
+            events_last_7d: 0,
+            security_incidents: SecurityIncidentSummary {
+                open: 0,
+                critical: 0,
+                resolved: 0,
+            },
+            compliance_status: ComplianceStatus {
+                gdpr_events: 0,
+                ccpa_events: 0,
+                hipaa_events: 0,
+                sox_events: 0,
+            },
+            top_users: Vec::new(),
+            anomalies: Vec::new(),
+        })
+    }
+
+    fn get_event_count_by_time_range(&self, _start: DateTime<Utc>, _end: DateTime<Utc>) -> Result<u64, StorageError> {
+        Ok(0)
+    }
+
+    // ZK Proof operations - placeholder implementations
+    fn store_zk_proof(&mut self, _proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+        Err(StorageError::IoError("ZK proof operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn get_zk_proof(&self, _proof_id: &Uuid) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(None)
+    }
+
+    fn update_zk_proof(&mut self, _proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+        Err(StorageError::IoError("ZK proof operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn query_zk_proofs(&self, _query: &crate::api::zk_proofs::ZkProofQuery) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_zk_proofs_by_user(&self, _user_id: &str) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_zk_proofs_by_circuit_type(&self, _circuit_type: CircuitType) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_zk_proofs_by_status(&self, _status: crate::zk_proof_engine::ProofStatus) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
+        Ok(crate::api::zk_proofs::ZkProofStatistics {
+            total_proofs: 0,
+            verified_proofs: 0,
+            failed_proofs: 0,
+            pending_proofs: 0,
+            proof_types: std::collections::HashMap::new(),
+        })
+    }
+
+    fn delete_zk_proof(&mut self, _proof_id: &Uuid) -> Result<(), StorageError> {
+        Ok(())
     }
 }
 
@@ -1354,6 +1975,147 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
 
     fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
         self.lock().unwrap().get_pending_items_requiring_manual_review()
+    }
+
+    // Audit Event operations - delegate to underlying InMemoryStorage
+    fn store_audit_event(&mut self, event: &AuditEvent) -> Result<(), StorageError> {
+        self.lock().unwrap().store_audit_event(event)
+    }
+
+    fn get_audit_event(&self, event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
+        self.lock().unwrap().get_audit_event(event_id)
+    }
+
+    fn query_audit_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock().unwrap().query_audit_events(query)
+    }
+
+    fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock().unwrap().list_audit_events()
+    }
+
+    fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock().unwrap().get_audit_events_by_user(user_id)
+    }
+
+    fn get_audit_events_by_type(&self, event_type: AuditEventType) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock().unwrap().get_audit_events_by_type(event_type)
+    }
+
+    fn get_audit_events_by_severity(&self, severity: AuditSeverity) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock().unwrap().get_audit_events_by_severity(severity)
+    }
+
+    fn get_audit_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock().unwrap().get_audit_events_in_time_range(start, end)
+    }
+
+    fn sync_audit_events(&mut self, events: Vec<AuditEvent>) -> Result<(), StorageError> {
+        self.lock().unwrap().sync_audit_events(events)
+    }
+
+    // Security Incident operations - delegate to underlying InMemoryStorage
+    fn store_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError> {
+        self.lock().unwrap().store_security_incident(incident)
+    }
+
+    fn get_security_incident(&self, incident_id: &Uuid) -> Result<Option<SecurityIncident>, StorageError> {
+        self.lock().unwrap().get_security_incident(incident_id)
+    }
+
+    fn update_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError> {
+        self.lock().unwrap().update_security_incident(incident)
+    }
+
+    fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock().unwrap().list_security_incidents()
+    }
+
+    fn get_incidents_by_severity(&self, severity: AuditSeverity) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock().unwrap().get_incidents_by_severity(severity)
+    }
+
+    fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock().unwrap().get_open_incidents()
+    }
+
+    fn get_incidents_by_assignee(&self, assignee: &str) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock().unwrap().get_incidents_by_assignee(assignee)
+    }
+
+    // Compliance Report operations - delegate to underlying InMemoryStorage
+    fn store_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
+        self.lock().unwrap().store_compliance_report(report)
+    }
+
+    fn get_compliance_report(&self, report_id: &Uuid) -> Result<Option<ComplianceReport>, StorageError> {
+        self.lock().unwrap().get_compliance_report(report_id)
+    }
+
+    fn update_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
+        self.lock().unwrap().update_compliance_report(report)
+    }
+
+    fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
+        self.lock().unwrap().list_compliance_reports()
+    }
+
+    fn get_reports_by_type(&self, report_type: &str) -> Result<Vec<ComplianceReport>, StorageError> {
+        self.lock().unwrap().get_reports_by_type(report_type)
+    }
+
+    fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
+        self.lock().unwrap().get_pending_reports()
+    }
+
+    // Audit Dashboard operations - delegate to underlying InMemoryStorage
+    fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError> {
+        self.lock().unwrap().get_audit_dashboard_metrics()
+    }
+
+    fn get_event_count_by_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<u64, StorageError> {
+        self.lock().unwrap().get_event_count_by_time_range(start, end)
+    }
+
+    // ZK Proof operations - delegate to underlying InMemoryStorage
+    fn store_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+        self.lock().unwrap().store_zk_proof(proof)
+    }
+
+    fn get_zk_proof(&self, proof_id: &Uuid) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock().unwrap().get_zk_proof(proof_id)
+    }
+
+    fn update_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+        self.lock().unwrap().update_zk_proof(proof)
+    }
+
+    fn query_zk_proofs(&self, query: &crate::api::zk_proofs::ZkProofQuery) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock().unwrap().query_zk_proofs(query)
+    }
+
+    fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock().unwrap().list_zk_proofs()
+    }
+
+    fn get_zk_proofs_by_user(&self, user_id: &str) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock().unwrap().get_zk_proofs_by_user(user_id)
+    }
+
+    fn get_zk_proofs_by_circuit_type(&self, circuit_type: CircuitType) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock().unwrap().get_zk_proofs_by_circuit_type(circuit_type)
+    }
+
+    fn get_zk_proofs_by_status(&self, status: crate::zk_proof_engine::ProofStatus) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock().unwrap().get_zk_proofs_by_status(status)
+    }
+
+    fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
+        self.lock().unwrap().get_zk_proof_statistics()
+    }
+
+    fn delete_zk_proof(&mut self, proof_id: &Uuid) -> Result<(), StorageError> {
+        self.lock().unwrap().delete_zk_proof(proof_id)
     }
 }
 

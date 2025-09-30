@@ -11,7 +11,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber;
 
-use defarm_engine::api::{auth_routes, receipt_routes, event_routes, circuit_routes, item_routes, workspace_routes, activity_routes, shared_state::AppState};
+use defarm_engine::api::{auth_routes, receipt_routes, event_routes, circuit_routes, item_routes, workspace_routes, activity_routes, audit_routes, zk_proof_routes, adapter_routes, shared_state::AppState};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -38,6 +38,9 @@ async fn main() {
         .nest("/api/items", item_routes(app_state.clone()))
         .nest("/api/workspaces", workspace_routes())
         .nest("/api/activities", activity_routes(app_state.clone()))
+        .nest("/audit", audit_routes(app_state.clone()))
+        .nest("/api/proofs", zk_proof_routes(app_state.clone()))
+        .nest("/api/adapters", adapter_routes(app_state.clone()))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
 
@@ -59,7 +62,10 @@ async fn root() -> Json<Value> {
             "Circuits Engine - Permission-controlled sharing",
             "Items Engine - Canonical item management",
             "Verification Engine - Data deduplication",
-            "Storage Engine - Pluggable backend support"
+            "Storage Engine - Pluggable backend support",
+            "Audit Engine - Comprehensive audit trails and compliance reporting",
+            "ZK Proof Engine - Zero-knowledge agricultural certifications and privacy-preserving verification",
+            "Adapter Engine - Decentralized storage adapters for blockchain, IPFS, and hybrid solutions"
         ]
     }))
 }

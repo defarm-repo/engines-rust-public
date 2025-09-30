@@ -5,6 +5,9 @@ pub mod circuits;
 pub mod items;
 pub mod workspaces;
 pub mod activities;
+pub mod audit;
+pub mod zk_proofs;
+pub mod adapters;
 pub mod shared_state;
 
 pub use auth::auth_routes;
@@ -14,3 +17,6 @@ pub use circuits::circuit_routes;
 pub use items::item_routes;
 pub use workspaces::workspace_routes;
 pub use activities::activity_routes;
+pub use audit::audit_routes;
+pub use zk_proofs::zk_proof_routes;
+pub use adapters::adapter_routes;
