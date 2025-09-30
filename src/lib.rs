@@ -11,6 +11,7 @@ pub mod conflict_detection;
 pub mod audit_engine;
 pub mod zk_proof_engine;
 pub mod adapters;
+pub mod storage_history_manager;
 pub mod api;
 
 pub use types::*;
@@ -25,3 +26,4 @@ pub use circuits_engine::*;
 pub use conflict_detection::*;
 pub use audit_engine::*;
 pub use zk_proof_engine::*;
+pub use storage_history_manager::*;

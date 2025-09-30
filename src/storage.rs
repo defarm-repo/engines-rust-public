@@ -5,7 +5,7 @@ use crate::types::{
     Circuit, CircuitOperation, ItemShare, PendingItem, PendingReason, PendingPriority,
     AuditEvent, AuditEventType, AuditOutcome, AuditSeverity, AuditQuery,
     SecurityIncident, ComplianceReport, AuditDashboardMetrics, SecurityIncidentSummary, ComplianceStatus, UserRiskProfile, SecurityAnomaly,
-    CircuitType
+    CircuitType, ItemStorageHistory, StorageRecord, CircuitAdapterConfig
 };
 use chrono::{DateTime, Utc};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -211,6 +211,17 @@ pub trait StorageBackend {
     fn get_zk_proofs_by_status(&self, status: crate::zk_proof_engine::ProofStatus) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
     fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError>;
     fn delete_zk_proof(&mut self, proof_id: &Uuid) -> Result<(), StorageError>;
+
+    // Storage History operations
+    fn store_storage_history(&mut self, history: &ItemStorageHistory) -> Result<(), StorageError>;
+    fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError>;
+    fn add_storage_record(&mut self, dfid: &str, record: StorageRecord) -> Result<(), StorageError>;
+
+    // Circuit Adapter Configuration operations
+    fn store_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError>;
+    fn get_circuit_adapter_config(&self, circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError>;
+    fn update_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError>;
+    fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError>;
 }
 
 pub struct InMemoryStorage {
@@ -232,6 +243,8 @@ pub struct InMemoryStorage {
     security_incidents: HashMap<Uuid, SecurityIncident>,
     compliance_reports: HashMap<Uuid, ComplianceReport>,
     zk_proofs: HashMap<Uuid, crate::zk_proof_engine::ZkProof>,
+    storage_histories: HashMap<String, ItemStorageHistory>,
+    circuit_adapter_configs: HashMap<Uuid, CircuitAdapterConfig>,
 }
 
 impl InMemoryStorage {
@@ -255,6 +268,8 @@ impl InMemoryStorage {
             security_incidents: HashMap::new(),
             compliance_reports: HashMap::new(),
             zk_proofs: HashMap::new(),
+            storage_histories: HashMap::new(),
+            circuit_adapter_configs: HashMap::new(),
         }
     }
 }
@@ -1140,6 +1155,50 @@ impl StorageBackend for InMemoryStorage {
         self.zk_proofs.remove(proof_id);
         Ok(())
     }
+
+    fn store_storage_history(&mut self, history: &ItemStorageHistory) -> Result<(), StorageError> {
+        self.storage_histories.insert(history.dfid.clone(), history.clone());
+        Ok(())
+    }
+
+    fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
+        Ok(self.storage_histories.get(dfid).cloned())
+    }
+
+    fn add_storage_record(&mut self, dfid: &str, record: StorageRecord) -> Result<(), StorageError> {
+        if let Some(history) = self.storage_histories.get_mut(dfid) {
+            history.storage_records.push(record);
+            history.updated_at = chrono::Utc::now();
+        } else {
+            let history = ItemStorageHistory {
+                dfid: dfid.to_string(),
+                storage_records: vec![record],
+                current_primary: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            };
+            self.storage_histories.insert(dfid.to_string(), history);
+        }
+        Ok(())
+    }
+
+    fn store_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError> {
+        self.circuit_adapter_configs.insert(config.circuit_id, config.clone());
+        Ok(())
+    }
+
+    fn get_circuit_adapter_config(&self, circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError> {
+        Ok(self.circuit_adapter_configs.get(circuit_id).cloned())
+    }
+
+    fn update_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError> {
+        self.circuit_adapter_configs.insert(config.circuit_id, config.clone());
+        Ok(())
+    }
+
+    fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
+        Ok(self.circuit_adapter_configs.values().cloned().collect())
+    }
 }
 
 impl Default for InMemoryStorage {
@@ -1710,6 +1769,34 @@ impl StorageBackend for EncryptedFileStorage {
     fn delete_zk_proof(&mut self, _proof_id: &Uuid) -> Result<(), StorageError> {
         Ok(())
     }
+
+    fn store_storage_history(&mut self, _history: &ItemStorageHistory) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Storage history operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn get_storage_history(&self, _dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
+        Ok(None)
+    }
+
+    fn add_storage_record(&mut self, _dfid: &str, _record: StorageRecord) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Storage history operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn store_circuit_adapter_config(&mut self, _config: &CircuitAdapterConfig) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Circuit adapter config operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn get_circuit_adapter_config(&self, _circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError> {
+        Ok(None)
+    }
+
+    fn update_circuit_adapter_config(&mut self, _config: &CircuitAdapterConfig) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Circuit adapter config operations not yet implemented for EncryptedFileStorage".to_string()))
+    }
+
+    fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
+        Ok(Vec::new())
+    }
 }
 
 // Implementation of StorageBackend for Arc<Mutex<InMemoryStorage>>
@@ -2116,6 +2203,34 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
 
     fn delete_zk_proof(&mut self, proof_id: &Uuid) -> Result<(), StorageError> {
         self.lock().unwrap().delete_zk_proof(proof_id)
+    }
+
+    fn store_storage_history(&mut self, history: &ItemStorageHistory) -> Result<(), StorageError> {
+        self.lock().unwrap().store_storage_history(history)
+    }
+
+    fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
+        self.lock().unwrap().get_storage_history(dfid)
+    }
+
+    fn add_storage_record(&mut self, dfid: &str, record: StorageRecord) -> Result<(), StorageError> {
+        self.lock().unwrap().add_storage_record(dfid, record)
+    }
+
+    fn store_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError> {
+        self.lock().unwrap().store_circuit_adapter_config(config)
+    }
+
+    fn get_circuit_adapter_config(&self, circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError> {
+        self.lock().unwrap().get_circuit_adapter_config(circuit_id)
+    }
+
+    fn update_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError> {
+        self.lock().unwrap().update_circuit_adapter_config(config)
+    }
+
+    fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
+        self.lock().unwrap().list_circuit_adapter_configs()
     }
 }
 
