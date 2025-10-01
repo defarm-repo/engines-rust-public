@@ -12,6 +12,8 @@ pub mod audit_engine;
 pub mod zk_proof_engine;
 pub mod adapters;
 pub mod storage_history_manager;
+pub mod credit_manager;
+pub mod tier_permission_system;
 pub mod api;
 
 pub use types::*;

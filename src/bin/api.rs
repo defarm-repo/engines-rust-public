@@ -11,7 +11,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber;
 
-use defarm_engine::api::{auth_routes, receipt_routes, event_routes, circuit_routes, item_routes, workspace_routes, activity_routes, audit_routes, zk_proof_routes, adapter_routes, shared_state::AppState};
+use defarm_engine::api::{auth_routes, receipt_routes, event_routes, circuit_routes, item_routes, workspace_routes, activity_routes, audit_routes, zk_proof_routes, adapter_routes, storage_history_routes, shared_state::AppState};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -41,6 +41,7 @@ async fn main() {
         .nest("/audit", audit_routes(app_state.clone()))
         .nest("/api/proofs", zk_proof_routes(app_state.clone()))
         .nest("/api/adapters", adapter_routes(app_state.clone()))
+        .nest("/api/storage-history", storage_history_routes(app_state.clone()))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
 
@@ -65,7 +66,8 @@ async fn root() -> Json<Value> {
             "Storage Engine - Pluggable backend support",
             "Audit Engine - Comprehensive audit trails and compliance reporting",
             "ZK Proof Engine - Zero-knowledge agricultural certifications and privacy-preserving verification",
-            "Adapter Engine - Decentralized storage adapters for blockchain, IPFS, and hybrid solutions"
+            "Adapter Engine - Decentralized storage adapters for blockchain, IPFS, and hybrid solutions",
+            "Storage History Engine - Multi-storage location tracking with migration support"
         ]
     }))
 }

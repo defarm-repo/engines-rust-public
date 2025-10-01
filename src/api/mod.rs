@@ -8,6 +8,7 @@ pub mod activities;
 pub mod audit;
 pub mod zk_proofs;
 pub mod adapters;
+pub mod storage_history;
 pub mod shared_state;
 
 pub use auth::auth_routes;
@@ -20,3 +21,4 @@ pub use activities::activity_routes;
 pub use audit::audit_routes;
 pub use zk_proofs::zk_proof_routes;
 pub use adapters::adapter_routes;
+pub use storage_history::storage_history_routes;

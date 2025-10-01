@@ -3,7 +3,10 @@ use crate::logging::{LoggingEngine, LogEntry};
 use crate::storage::{StorageError, StorageBackend};
 use crate::conflict_detection::ConflictDetectionEngine;
 use crate::types::{Item, Identifier, ItemStatus, ItemShare, SharedItemResponse, PendingItem, PendingReason};
+use crate::storage_history_manager::StorageHistoryManager;
+use crate::adapters::{AdapterInstance, StorageLocation, StorageAdapter};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -38,6 +41,7 @@ pub struct ItemsEngine<S: StorageBackend> {
     storage: S,
     logger: LoggingEngine,
     dfid_engine: DfidEngine,
+    storage_history_manager: Option<StorageHistoryManager<S>>,
 }
 
 impl<S: StorageBackend + 'static> ItemsEngine<S> {
@@ -49,7 +53,13 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             storage,
             logger,
             dfid_engine: DfidEngine::new(),
+            storage_history_manager: None,
         }
+    }
+
+    pub fn with_storage_history_manager(mut self, storage_history_manager: StorageHistoryManager<S>) -> Self {
+        self.storage_history_manager = Some(storage_history_manager);
+        self
     }
 
     pub fn create_item(&mut self, dfid: String, identifiers: Vec<Identifier>, source_entry: Uuid) -> Result<Item, ItemsError> {
@@ -142,6 +152,54 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
 
     pub fn get_item(&self, dfid: &str) -> Result<Option<Item>, ItemsError> {
         self.storage.get_item_by_dfid(dfid).map_err(ItemsError::from)
+    }
+
+    pub async fn get_item_from_storage_locations(&self, dfid: &str) -> Result<Option<Item>, ItemsError> {
+        // First try local storage
+        if let Some(item) = self.get_item(dfid)? {
+            return Ok(Some(item));
+        }
+
+        // If storage history manager is available, try to retrieve from other locations
+        if let Some(ref history_manager) = self.storage_history_manager {
+            let storage_locations = history_manager.get_all_storage_locations(dfid).await
+                .map_err(|e| ItemsError::StorageError(e))?;
+
+            self.logger.info("ItemsEngine", "multi_storage_retrieval", "Attempting retrieval from multiple storage locations")
+                .with_context("dfid", dfid.to_string())
+                .with_context("locations_count", storage_locations.len().to_string());
+
+            // Try each storage location until we find the item
+            for location in storage_locations {
+                if let Ok(Some(item)) = self.retrieve_item_from_location(dfid, &location).await {
+                    self.logger.info("ItemsEngine", "item_found_remote", "Item retrieved from remote storage location")
+                        .with_context("dfid", dfid.to_string())
+                        .with_context("location_type", format!("{:?}", location));
+
+                    // Optionally cache the item locally for future access
+                    // Note: This would require mutable access to storage
+                    return Ok(Some(item));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn retrieve_item_from_location(&self, dfid: &str, location: &StorageLocation) -> Result<Option<Item>, ItemsError> {
+        // This method would use the appropriate adapter to retrieve the item
+        // For now, we'll return None since we need to implement adapter integration
+        // TODO: Create adapter instances and retrieve data from them
+
+        self.logger.info("ItemsEngine", "location_retrieval_attempt", "Attempting to retrieve item from storage location")
+            .with_context("dfid", dfid.to_string())
+            .with_context("location", format!("{:?}", location));
+
+        // Placeholder - in a full implementation, this would:
+        // 1. Create appropriate adapter instance based on location type
+        // 2. Use adapter to retrieve item data
+        // 3. Deserialize and return the item
+        Ok(None)
     }
 
     pub fn enrich_item(&mut self, dfid: &str, data: HashMap<String, serde_json::Value>, source_entry: Uuid) -> Result<Item, ItemsError> {

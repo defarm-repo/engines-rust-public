@@ -5,7 +5,7 @@ use crate::types::{
     Circuit, CircuitOperation, ItemShare, PendingItem, PendingReason, PendingPriority,
     AuditEvent, AuditEventType, AuditOutcome, AuditSeverity, AuditQuery,
     SecurityIncident, ComplianceReport, AuditDashboardMetrics, SecurityIncidentSummary, ComplianceStatus, UserRiskProfile, SecurityAnomaly,
-    CircuitType, ItemStorageHistory, StorageRecord, CircuitAdapterConfig
+    CircuitType, ItemStorageHistory, StorageRecord, CircuitAdapterConfig, UserAccount, CreditTransaction, AdminAction, SystemStatistics
 };
 use chrono::{DateTime, Utc};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -222,6 +222,30 @@ pub trait StorageBackend {
     fn get_circuit_adapter_config(&self, circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError>;
     fn update_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError>;
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError>;
+
+    // User Account operations
+    fn store_user_account(&mut self, user: &UserAccount) -> Result<(), StorageError>;
+    fn get_user_account(&self, user_id: &str) -> Result<Option<UserAccount>, StorageError>;
+    fn get_user_by_username(&self, username: &str) -> Result<Option<UserAccount>, StorageError>;
+    fn get_user_by_email(&self, email: &str) -> Result<Option<UserAccount>, StorageError>;
+    fn update_user_account(&mut self, user: &UserAccount) -> Result<(), StorageError>;
+    fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError>;
+    fn delete_user_account(&mut self, user_id: &str) -> Result<(), StorageError>;
+
+    // Credit Transaction operations
+    fn record_credit_transaction(&mut self, transaction: &CreditTransaction) -> Result<(), StorageError>;
+    fn get_credit_transaction(&self, transaction_id: &str) -> Result<Option<CreditTransaction>, StorageError>;
+    fn get_credit_transactions(&self, user_id: &str, limit: Option<usize>) -> Result<Vec<CreditTransaction>, StorageError>;
+    fn get_credit_transactions_by_operation(&self, operation_type: &str) -> Result<Vec<CreditTransaction>, StorageError>;
+
+    // Admin Action operations
+    fn record_admin_action(&mut self, action: &AdminAction) -> Result<(), StorageError>;
+    fn get_admin_actions(&self, admin_id: Option<&str>, limit: Option<usize>) -> Result<Vec<AdminAction>, StorageError>;
+    fn get_admin_actions_by_type(&self, action_type: &str) -> Result<Vec<AdminAction>, StorageError>;
+
+    // System Statistics operations
+    fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError>;
+    fn update_system_statistics(&mut self, stats: &SystemStatistics) -> Result<(), StorageError>;
 }
 
 pub struct InMemoryStorage {
@@ -245,6 +269,13 @@ pub struct InMemoryStorage {
     zk_proofs: HashMap<Uuid, crate::zk_proof_engine::ZkProof>,
     storage_histories: HashMap<String, ItemStorageHistory>,
     circuit_adapter_configs: HashMap<Uuid, CircuitAdapterConfig>,
+    user_accounts: HashMap<String, UserAccount>,
+    user_accounts_by_username: HashMap<String, String>, // username -> user_id
+    user_accounts_by_email: HashMap<String, String>, // email -> user_id
+    credit_transactions: HashMap<String, CreditTransaction>,
+    credit_transactions_by_user: HashMap<String, Vec<String>>, // user_id -> transaction_ids
+    admin_actions: HashMap<String, AdminAction>,
+    system_statistics: Option<SystemStatistics>,
 }
 
 impl InMemoryStorage {
@@ -270,6 +301,13 @@ impl InMemoryStorage {
             zk_proofs: HashMap::new(),
             storage_histories: HashMap::new(),
             circuit_adapter_configs: HashMap::new(),
+            user_accounts: HashMap::new(),
+            user_accounts_by_username: HashMap::new(),
+            user_accounts_by_email: HashMap::new(),
+            credit_transactions: HashMap::new(),
+            credit_transactions_by_user: HashMap::new(),
+            admin_actions: HashMap::new(),
+            system_statistics: None,
         }
     }
 }

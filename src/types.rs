@@ -1921,3 +1921,325 @@ pub struct ClientAdapterConfig {
     pub tier: String, // "basic", "professional", "enterprise"
     pub updated_at: DateTime<Utc>,
 }
+
+// ============================================================================
+// USER MANAGEMENT & TIER SYSTEM
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum UserTier {
+    Basic,
+    Professional,
+    Enterprise,
+    Admin,
+}
+
+impl UserTier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UserTier::Basic => "basic",
+            UserTier::Professional => "professional",
+            UserTier::Enterprise => "enterprise",
+            UserTier::Admin => "admin",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s.to_lowercase().as_str() {
+            "basic" => Ok(UserTier::Basic),
+            "professional" => Ok(UserTier::Professional),
+            "enterprise" => Ok(UserTier::Enterprise),
+            "admin" => Ok(UserTier::Admin),
+            _ => Err(format!("Invalid tier: {}", s)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AccountStatus {
+    Active,
+    Suspended,
+    Banned,
+    PendingVerification,
+    TrialExpired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserAccount {
+    pub user_id: String,
+    pub username: String,
+    pub email: String,
+    pub password_hash: String,
+    pub tier: UserTier,
+    pub status: AccountStatus,
+    pub credits: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub last_login: Option<DateTime<Utc>>,
+    pub subscription: Option<Subscription>,
+    pub limits: TierLimits,
+    pub is_admin: bool,
+    pub workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Subscription {
+    pub subscription_id: String,
+    pub plan_id: String,
+    pub status: SubscriptionStatus,
+    pub started_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub auto_renew: bool,
+    pub billing_cycle: BillingCycle,
+    pub price_per_cycle: i64, // in cents
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SubscriptionStatus {
+    Active,
+    Canceled,
+    PastDue,
+    Suspended,
+    Trial,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BillingCycle {
+    Monthly,
+    Yearly,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierLimits {
+    pub max_items_per_month: Option<i64>,
+    pub max_circuits: Option<i64>,
+    pub max_storage_locations: Option<i64>,
+    pub max_api_requests_per_hour: Option<i64>,
+    pub max_workspace_members: Option<i64>,
+    pub available_adapters: Vec<AdapterType>,
+    pub can_use_premium_adapters: bool,
+    pub max_audit_retention_days: i64,
+    pub priority_support: bool,
+}
+
+impl TierLimits {
+    pub fn for_tier(tier: &UserTier) -> Self {
+        match tier {
+            UserTier::Basic => TierLimits {
+                max_items_per_month: Some(1000),
+                max_circuits: Some(5),
+                max_storage_locations: Some(1),
+                max_api_requests_per_hour: Some(100),
+                max_workspace_members: Some(3),
+                available_adapters: vec![AdapterType::LocalLocal, AdapterType::LocalIpfs],
+                can_use_premium_adapters: false,
+                max_audit_retention_days: 30,
+                priority_support: false,
+            },
+            UserTier::Professional => TierLimits {
+                max_items_per_month: Some(10000),
+                max_circuits: Some(25),
+                max_storage_locations: Some(3),
+                max_api_requests_per_hour: Some(1000),
+                max_workspace_members: Some(10),
+                available_adapters: vec![
+                    AdapterType::LocalLocal,
+                    AdapterType::IpfsIpfs,
+                    AdapterType::StellarTestnetIpfs,
+                    AdapterType::LocalIpfs,
+                ],
+                can_use_premium_adapters: false,
+                max_audit_retention_days: 90,
+                priority_support: true,
+            },
+            UserTier::Enterprise => TierLimits {
+                max_items_per_month: None, // Unlimited
+                max_circuits: None,
+                max_storage_locations: None,
+                max_api_requests_per_hour: Some(10000),
+                max_workspace_members: None,
+                available_adapters: vec![
+                    AdapterType::LocalLocal,
+                    AdapterType::IpfsIpfs,
+                    AdapterType::StellarTestnetIpfs,
+                    AdapterType::StellarMainnetIpfs,
+                    AdapterType::LocalIpfs,
+                    AdapterType::StellarMainnetStellarMainnet,
+                ],
+                can_use_premium_adapters: true,
+                max_audit_retention_days: 365,
+                priority_support: true,
+            },
+            UserTier::Admin => TierLimits {
+                max_items_per_month: None,
+                max_circuits: None,
+                max_storage_locations: None,
+                max_api_requests_per_hour: None,
+                max_workspace_members: None,
+                available_adapters: vec![
+                    AdapterType::LocalLocal,
+                    AdapterType::IpfsIpfs,
+                    AdapterType::StellarTestnetIpfs,
+                    AdapterType::StellarMainnetIpfs,
+                    AdapterType::LocalIpfs,
+                    AdapterType::StellarMainnetStellarMainnet,
+                    AdapterType::EthereumGoerliIpfs,
+                    AdapterType::PolygonArweave,
+                ],
+                can_use_premium_adapters: true,
+                max_audit_retention_days: 3650, // 10 years
+                priority_support: true,
+            },
+        }
+    }
+}
+
+// ============================================================================
+// CREDIT SYSTEM
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreditTransaction {
+    pub transaction_id: String,
+    pub user_id: String,
+    pub amount: i64, // Positive for credits added, negative for credits consumed
+    pub transaction_type: CreditTransactionType,
+    pub description: String,
+    pub operation_type: Option<String>, // "item_creation", "circuit_push", etc.
+    pub operation_id: Option<String>, // Associated operation ID
+    pub timestamp: DateTime<Utc>,
+    pub balance_after: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CreditTransactionType {
+    Purchase,       // User bought credits
+    Grant,          // Admin granted credits
+    Consumption,    // Credits used for operations
+    Refund,         // Credits refunded
+    Subscription,   // Credits from subscription
+    Penalty,        // Credits deducted as penalty
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreditCosts {
+    pub item_creation: i64,
+    pub circuit_operation: i64,
+    pub storage_migration: i64,
+    pub audit_export: i64,
+    pub premium_adapter_usage: i64,
+    pub api_request: i64,
+}
+
+impl CreditCosts {
+    pub fn default() -> Self {
+        CreditCosts {
+            item_creation: 1,
+            circuit_operation: 2,
+            storage_migration: 5,
+            audit_export: 10,
+            premium_adapter_usage: 3,
+            api_request: 0, // Free tier gets some API requests
+        }
+    }
+
+    pub fn for_tier(tier: &UserTier) -> Self {
+        match tier {
+            UserTier::Basic => CreditCosts {
+                item_creation: 2,
+                circuit_operation: 3,
+                storage_migration: 10,
+                audit_export: 20,
+                premium_adapter_usage: 10, // Expensive for basic users
+                api_request: 1,
+            },
+            UserTier::Professional => CreditCosts {
+                item_creation: 1,
+                circuit_operation: 2,
+                storage_migration: 5,
+                audit_export: 10,
+                premium_adapter_usage: 5,
+                api_request: 0, // Free API requests
+            },
+            UserTier::Enterprise | UserTier::Admin => CreditCosts {
+                item_creation: 1,
+                circuit_operation: 1,
+                storage_migration: 3,
+                audit_export: 5,
+                premium_adapter_usage: 2,
+                api_request: 0,
+            },
+        }
+    }
+}
+
+// ============================================================================
+// USAGE TRACKING & ANALYTICS
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageMetrics {
+    pub user_id: String,
+    pub period_start: DateTime<Utc>,
+    pub period_end: DateTime<Utc>,
+    pub items_created: i64,
+    pub circuits_used: i64,
+    pub storage_operations: i64,
+    pub api_requests: i64,
+    pub credits_consumed: i64,
+    pub adapter_usage: HashMap<AdapterType, i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemStatistics {
+    pub total_users: i64,
+    pub active_users_24h: i64,
+    pub active_users_30d: i64,
+    pub total_items: i64,
+    pub total_circuits: i64,
+    pub total_storage_operations: i64,
+    pub credits_consumed_24h: i64,
+    pub tier_distribution: HashMap<UserTier, i64>,
+    pub adapter_usage_stats: HashMap<AdapterType, i64>,
+    pub generated_at: DateTime<Utc>,
+}
+
+// ============================================================================
+// ADMIN SYSTEM
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AdminRole {
+    SuperAdmin,    // Full system access
+    UserManager,   // User management only
+    ContentModerator, // Content oversight
+    SystemMonitor, // Read-only system access
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminAction {
+    pub action_id: String,
+    pub admin_user_id: String,
+    pub action_type: AdminActionType,
+    pub target_user_id: Option<String>,
+    pub target_resource_id: Option<String>,
+    pub details: HashMap<String, serde_json::Value>,
+    pub timestamp: DateTime<Utc>,
+    pub ip_address: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AdminActionType {
+    UserCreated,
+    UserSuspended,
+    UserBanned,
+    UserUnbanned,
+    TierChanged,
+    CreditsAdded,
+    CreditsRemoved,
+    SystemConfigChanged,
+    DataExported,
+    WorkspaceDeleted,
+    CircuitDeleted,
+    SecurityIncidentResolved,
+}

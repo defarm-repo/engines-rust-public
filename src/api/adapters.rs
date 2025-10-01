@@ -247,7 +247,7 @@ fn get_client_available_adapters(client_id: &str, tier: Option<&str>) -> Vec<Ada
     }
 }
 
-fn create_adapter_instance(adapter_type: &AdapterType) -> AdapterInstance {
+pub fn create_adapter_instance(adapter_type: &AdapterType) -> AdapterInstance {
     match adapter_type {
         AdapterType::LocalLocal => AdapterInstance::LocalLocal(LocalLocalAdapter::new()),
         AdapterType::IpfsIpfs => AdapterInstance::IpfsIpfs(IpfsIpfsAdapter::new()),

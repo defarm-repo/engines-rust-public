@@ -4,6 +4,7 @@ use crate::adapters::{StorageLocation, AdapterInstance, StorageAdapter};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use std::sync::Arc;
+use std::collections::HashMap;
 
 pub struct StorageHistoryManager<S: StorageBackend> {
     storage: Arc<std::sync::Mutex<S>>,
@@ -36,12 +37,14 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         };
 
         let record = StorageRecord {
+            adapter_type,
             storage_location,
             stored_at: Utc::now(),
-            circuit_id,
-            user_id: user_id.to_string(),
-            operation_type: "store_item".to_string(),
-            is_primary: true,
+            triggered_by: "store_item".to_string(),
+            triggered_by_id: Some(user_id.to_string()),
+            events_range: None,
+            is_active: true,
+            metadata: std::collections::HashMap::new(),
         };
 
         let mut storage = self.storage.lock().unwrap();
@@ -72,12 +75,14 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         };
 
         let record = StorageRecord {
+            adapter_type,
             storage_location,
             stored_at: Utc::now(),
-            circuit_id,
-            user_id: user_id.to_string(),
-            operation_type: format!("store_event:{}", event_id),
-            is_primary: false,
+            triggered_by: format!("store_event:{}", event_id),
+            triggered_by_id: Some(user_id.to_string()),
+            events_range: None,
+            is_active: false,
+            metadata: HashMap::new(),
         };
 
         let mut storage = self.storage.lock().unwrap();
@@ -142,12 +147,14 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
             };
 
             let migration_record = StorageRecord {
+                adapter_type,
                 storage_location,
                 stored_at: Utc::now(),
-                circuit_id: Some(circuit_id),
-                user_id: user_id.to_string(),
-                operation_type: "circuit_migration".to_string(),
-                is_primary: true,
+                triggered_by: "circuit_migration".to_string(),
+                triggered_by_id: Some(circuit_id.to_string()),
+                events_range: None,
+                is_active: true,
+                metadata: HashMap::new(),
             };
 
             let mut storage = self.storage.lock().unwrap();

@@ -1,10 +1,12 @@
 use crate::events_engine::EventsEngine;
 use crate::logging::LoggingEngine;
 use crate::storage::StorageBackend;
+use crate::storage_history_manager::StorageHistoryManager;
+use crate::api::adapters::create_adapter_instance;
 use crate::types::{
     Activity, ActivityDetails, ActivityStatus, ActivityType, BatchPushResult, BatchPushItemResult,
     Circuit, CircuitItem, CircuitOperation, CircuitStatus, EventVisibility,
-    Item, MemberRole, OperationStatus, OperationType, Permission, CustomRole,
+    Item, MemberRole, OperationStatus, OperationType, Permission, CustomRole, AdapterType,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -40,13 +42,24 @@ pub struct CircuitsEngine<S: StorageBackend> {
     storage: Arc<std::sync::Mutex<S>>,
     logger: std::cell::RefCell<LoggingEngine>,
     events_engine: EventsEngine<S>,
+    storage_history_manager: Option<StorageHistoryManager<S>>,
 }
 
 impl<S: StorageBackend> CircuitsEngine<S> {
     pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
         let logger = LoggingEngine::new();
         let events_engine = EventsEngine::new(Arc::clone(&storage));
-        Self { storage, logger: std::cell::RefCell::new(logger), events_engine }
+        Self {
+            storage,
+            logger: std::cell::RefCell::new(logger),
+            events_engine,
+            storage_history_manager: None,
+        }
+    }
+
+    pub fn with_storage_history_manager(mut self, storage_history_manager: StorageHistoryManager<S>) -> Self {
+        self.storage_history_manager = Some(storage_history_manager);
+        self
     }
 
     fn handle_auto_publish(
@@ -149,7 +162,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(circuit)
     }
 
-    pub fn push_item_to_circuit(
+    pub async fn push_item_to_circuit(
         &mut self,
         dfid: &str,
         circuit_id: &Uuid,
@@ -251,6 +264,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             visibility,
         ).map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
+        // Handle storage migration if circuit has a different adapter configuration
+        if !circuit.permissions.require_approval_for_push {
+            self.handle_storage_migration(dfid, &circuit, requester_id).await
+                .map_err(|e| CircuitsError::StorageError(format!("Storage migration failed: {}", e)))?;
+        }
+
         self.logger.borrow_mut().info("circuits_engine", "item_pushed", "Item pushed to circuit")
             .with_context("dfid", dfid.to_string())
             .with_context("circuit_id", circuit_id.to_string())
@@ -258,6 +277,46 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .with_context("operation_id", operation.operation_id.to_string());
 
         Ok(operation)
+    }
+
+    async fn handle_storage_migration(
+        &self,
+        dfid: &str,
+        circuit: &Circuit,
+        user_id: &str,
+    ) -> Result<(), String> {
+        // Check if storage history manager is available
+        if let Some(ref history_manager) = self.storage_history_manager {
+            // Check if circuit has adapter configuration
+            if let Some(ref adapter_config) = circuit.adapter_config {
+                self.logger.borrow_mut().info("circuits_engine", "storage_migration_start", "Starting storage migration for item")
+                    .with_context("dfid", dfid.to_string())
+                    .with_context("circuit_id", circuit.circuit_id.to_string())
+                    .with_context("target_adapter", format!("{:?}", adapter_config.adapter_type));
+
+                // Use the storage history manager to handle migration
+                history_manager.migrate_to_circuit_adapter(
+                    dfid,
+                    &create_adapter_instance(&adapter_config.adapter_type),
+                    circuit.circuit_id,
+                    user_id,
+                ).await.map_err(|e| e.to_string())?;
+
+                self.logger.borrow_mut().info("circuits_engine", "storage_migration_complete", "Storage migration completed successfully")
+                    .with_context("dfid", dfid.to_string())
+                    .with_context("circuit_id", circuit.circuit_id.to_string());
+            } else {
+                self.logger.borrow_mut().info("circuits_engine", "storage_migration_skipped", "No adapter configuration found for circuit")
+                    .with_context("dfid", dfid.to_string())
+                    .with_context("circuit_id", circuit.circuit_id.to_string());
+            }
+        } else {
+            self.logger.borrow_mut().warn("circuits_engine", "storage_migration_unavailable", "Storage history manager not available for migration")
+                .with_context("dfid", dfid.to_string())
+                .with_context("circuit_id", circuit.circuit_id.to_string());
+        }
+
+        Ok(())
     }
 
     pub fn pull_item_from_circuit(
