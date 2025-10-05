@@ -139,3 +139,71 @@ Every new feature or update must be documented by updating existing principles o
 2. Circuit permissions enable fine-grained access control
 3. Operation approval workflow prevents unauthorized access
 4. Circuit deactivation disables all operations while preserving data
+
+## API Key Engine Principles
+
+### API Key Generation
+1. API keys use format: dfm_{32-character-random-string}
+2. Keys are hashed using BLAKE3 before storage
+3. Only key prefix (first 8 characters) is stored for identification
+4. Full key is shown only once at creation time
+5. Keys are cryptographically random and globally unique
+
+### API Key Authentication
+1. Keys can be provided via X-API-Key header or Authorization Bearer token
+2. Keys are validated against hashed storage for security
+3. Inactive or expired keys are rejected immediately
+4. IP restrictions enforce additional access control when configured
+5. Endpoint restrictions limit key access to specific API routes
+
+### API Key Management
+1. Users can create multiple API keys with different permissions
+2. Keys support read, write, admin, and custom permissions
+3. Keys can be activated, deactivated, or deleted at any time
+4. Key expiration dates enable automatic lifecycle management
+5. Usage tracking records every request for audit and analytics
+
+## Rate Limiting Principles
+
+### Rate Limit Configuration
+1. Limits can be set per hour, minute, and day independently
+2. Each API key has its own rate limit configuration
+3. Burst limits allow temporary spikes in traffic
+4. Rate limits are tier-based and upgrade with subscription
+5. Limits reset on rolling window basis (not fixed intervals)
+
+### Rate Limit Enforcement
+1. Requests are tracked in-memory with timestamp precision
+2. Old requests are cleaned automatically from tracking windows
+3. Rate limit headers show remaining quota and reset time
+4. Exceeded limits return 429 status with retry-after seconds
+5. Rate limit state is isolated per API key for fairness
+
+### Rate Limit Response
+1. Response includes current limit, remaining quota, and reset time
+2. Retry-after header guides client backoff strategy
+3. Multiple window violations return the shortest retry period
+4. Rate limit errors suggest upgrade paths and backoff strategies
+
+## Error Handling Principles
+
+### Error Classification
+1. Errors are categorized by domain (API key, storage, validation, etc.)
+2. Each error type maps to appropriate HTTP status code
+3. Error responses include machine-readable error codes
+4. Human-readable messages explain what went wrong
+5. Recovery suggestions guide users toward resolution
+
+### Error Recovery
+1. Every error provides actionable recovery suggestions
+2. Suggestions are context-aware based on error type
+3. Rate limit errors suggest backoff and upgrade options
+4. Permission errors guide users to access request flows
+5. Validation errors reference documentation for correct format
+
+### Error Logging
+1. All errors are logged with full context for debugging
+2. Error logs include user ID, API key ID, and endpoint
+3. Internal errors are logged at Error level for alerting
+4. Client errors are logged at Warn level for monitoring
+5. Error patterns enable proactive issue detection

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::Json,
     routing::{get, post},
@@ -12,8 +12,10 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use crate::adapters::{AdapterRegistry, AdapterInstance, LocalLocalAdapter, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter, LocalIpfsAdapter, StellarMainnetStellarMainnetAdapter, StorageAdapter};
-use crate::types::{AdapterType, StorageBackendType};
+use crate::types::{AdapterType, StorageBackendType, UserTier};
 use crate::api::shared_state::AppState;
+use crate::api::auth::Claims;
+use crate::storage::StorageBackend;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdapterInfo {
@@ -46,14 +48,27 @@ pub struct AdapterQuery {
 }
 
 async fn list_available_adapters(
-    Query(params): Query<AdapterQuery>,
     State(app_state): State<Arc<AppState>>,
-) -> Result<Json<Value>, StatusCode> {
-    // TODO: In a real implementation, client_id would come from authentication
-    let client_id = params.client_id.unwrap_or_else(|| "default_client".to_string());
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Get user account to check adapter permissions
+    let storage = app_state.shared_storage.lock().unwrap();
+    let user = storage
+        .get_user_account(&claims.user_id)
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get user: {}", e)}))
+        ))?
+        .ok_or_else(|| (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"}))
+        ))?;
 
-    // Get available adapters based on client tier/permissions
-    let available_adapters = get_client_available_adapters(&client_id, params.tier.as_deref());
+    // Get available adapters based on user's custom config or tier defaults
+    let available_adapters = get_client_available_adapters(
+        user.available_adapters.clone(),
+        &user.tier
+    );
 
     let adapter_infos: Vec<AdapterInfo> = available_adapters.into_iter().map(|adapter_type| {
         let (item_storage, event_storage) = adapter_type.storage_locations();
@@ -71,36 +86,53 @@ async fn list_available_adapters(
     Ok(Json(json!({
         "success": true,
         "adapters": adapter_infos,
-        "client_id": client_id,
+        "user_id": claims.user_id,
+        "tier": format!("{:?}", user.tier),
+        "using_custom_adapters": user.available_adapters.is_some(),
         "count": adapter_infos.len()
     })))
 }
 
 async fn select_adapter(
-    Query(params): Query<AdapterQuery>,
     State(app_state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
     Json(request): Json<SelectAdapterRequest>,
-) -> Result<Json<Value>, StatusCode> {
-    let client_id = params.client_id.unwrap_or_else(|| "default_client".to_string());
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Get user account to check adapter permissions
+    let storage = app_state.shared_storage.lock().unwrap();
+    let user = storage
+        .get_user_account(&claims.user_id)
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get user: {}", e)}))
+        ))?
+        .ok_or_else(|| (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"}))
+        ))?;
 
-    // Validate that the client has access to this adapter
-    let available_adapters = get_client_available_adapters(&client_id, params.tier.as_deref());
+    // Validate that the user has access to this adapter
+    let available_adapters = get_client_available_adapters(
+        user.available_adapters.clone(),
+        &user.tier
+    );
 
     if !available_adapters.contains(&request.adapter_type) {
         return Ok(Json(json!({
             "success": false,
-            "error": "Adapter not available for this client tier",
-            "adapter_type": request.adapter_type
+            "error": "Adapter not available for your account",
+            "adapter_type": request.adapter_type,
+            "available_adapters": available_adapters
         })));
     }
 
-    // TODO: Store client adapter preference in database
+    // TODO: Store user's selected adapter preference in database
     // For now, just return success
 
     Ok(Json(json!({
         "success": true,
         "message": "Adapter selected successfully",
-        "client_id": client_id,
+        "user_id": claims.user_id,
         "adapter_type": request.adapter_type,
         "description": request.adapter_type.description(),
         "updated_at": Utc::now()
@@ -222,10 +254,18 @@ async fn get_adapter_templates() -> Result<Json<Value>, StatusCode> {
     })))
 }
 
-fn get_client_available_adapters(client_id: &str, tier: Option<&str>) -> Vec<AdapterType> {
-    // TODO: Implement proper client tier and permission system
+fn get_client_available_adapters(
+    user_adapters: Option<Vec<AdapterType>>,
+    tier: &UserTier
+) -> Vec<AdapterType> {
+    // If user has custom adapters configured, use those
+    if let Some(adapters) = user_adapters {
+        return adapters;
+    }
+
+    // Otherwise, fall back to tier defaults
     match tier {
-        Some("enterprise") => vec![
+        UserTier::Admin | UserTier::Enterprise => vec![
             AdapterType::LocalLocal,
             AdapterType::IpfsIpfs,
             AdapterType::StellarTestnetIpfs,
@@ -233,17 +273,16 @@ fn get_client_available_adapters(client_id: &str, tier: Option<&str>) -> Vec<Ada
             AdapterType::LocalIpfs,
             AdapterType::StellarMainnetStellarMainnet,
         ],
-        Some("professional") => vec![
+        UserTier::Professional => vec![
             AdapterType::LocalLocal,
             AdapterType::IpfsIpfs,
             AdapterType::StellarTestnetIpfs,
             AdapterType::LocalIpfs,
         ],
-        Some("basic") | None => vec![
+        UserTier::Basic => vec![
             AdapterType::LocalLocal,
             AdapterType::LocalIpfs,
         ],
-        _ => vec![AdapterType::LocalLocal],
     }
 }
 

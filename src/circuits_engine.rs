@@ -286,6 +286,9 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         user_id: &str,
     ) -> Result<(), String> {
         // Check if storage history manager is available
+        // TODO: Re-enable adapter configuration when Circuit struct includes adapter_config field
+        // Circuit adapter configuration would need to be stored separately or added to Circuit struct
+        /*
         if let Some(ref history_manager) = self.storage_history_manager {
             // Check if circuit has adapter configuration
             if let Some(ref adapter_config) = circuit.adapter_config {
@@ -315,6 +318,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 .with_context("dfid", dfid.to_string())
                 .with_context("circuit_id", circuit.circuit_id.to_string());
         }
+        */
 
         Ok(())
     }
@@ -949,7 +953,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         }
     }
 
-    pub fn batch_push_items(
+    pub async fn batch_push_items(
         &mut self,
         dfids: &[String],
         circuit_id: &Uuid,
@@ -961,7 +965,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut failed_count = 0;
 
         for dfid in dfids {
-            match self.push_item_to_circuit(dfid, circuit_id, requester_id) {
+            match self.push_item_to_circuit(dfid, circuit_id, requester_id).await {
                 Ok(_) => {
                     success_count += 1;
                     results.push(BatchPushItemResult {

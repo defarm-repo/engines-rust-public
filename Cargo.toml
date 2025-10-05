@@ -23,11 +23,13 @@ rand = "0.8"
 
 # Web server dependencies
 tokio = { version = "1.0", features = ["full"] }
-axum = { version = "0.7", features = ["json"] }
+axum = { version = "0.7", features = ["json", "ws"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
+futures = "0.3"
+tokio-stream = "0.1"
 
 # Authentication
 jsonwebtoken = "9.0"
@@ -39,3 +41,4 @@ dotenv = "0.15"
 # Utilities
 base64 = "0.22"
 async-trait = "0.1.89"
+thiserror = "1.0"

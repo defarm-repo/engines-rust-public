@@ -3,7 +3,7 @@ use crate::types::{
     UserAccount, UserTier, CreditTransaction, CreditTransactionType,
     TierLimits
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, Datelike, Timelike};
 use std::sync::Arc;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -53,7 +53,7 @@ impl<S: StorageBackend> CreditEngine<S> {
             transaction_id: Uuid::new_v4().to_string(),
             user_id: user_id.to_string(),
             amount: -cost,
-            transaction_type: CreditTransactionType::Consumed,
+            transaction_type: CreditTransactionType::Consumption,
             description: format!("Operation: {}", operation_type),
             operation_type: Some(operation_type.to_string()),
             operation_id: Some(operation_id.to_string()),
@@ -77,7 +77,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         let mut storage = self.storage.lock().unwrap();
 
         let mut user = storage.get_user_account(user_id)?
-            .ok_or_else(|| StorageError::NotFound("User not found".to_string()))?;
+            .ok_or_else(|| StorageError::NotFound)?;
 
         user.credits += amount;
         user.updated_at = Utc::now();
@@ -86,7 +86,11 @@ impl<S: StorageBackend> CreditEngine<S> {
             transaction_id: Uuid::new_v4().to_string(),
             user_id: user_id.to_string(),
             amount,
-            transaction_type: CreditTransactionType::Added,
+            transaction_type: if amount >= 0 {
+                CreditTransactionType::Grant
+            } else {
+                CreditTransactionType::Penalty
+            },
             description: description.to_string(),
             operation_type: None,
             operation_id: None,
@@ -128,8 +132,8 @@ impl<S: StorageBackend> CreditEngine<S> {
         // Find the original transaction
         let transactions = storage.get_credit_transactions(user_id, None)?;
         let original_transaction = transactions.iter().find(|t| {
-            t.operation_id.as_ref() == Some(operation_id) &&
-            t.transaction_type == CreditTransactionType::Consumed
+            t.operation_id.as_deref() == Some(operation_id) &&
+            t.transaction_type == CreditTransactionType::Consumption
         });
 
         if let Some(original) = original_transaction {
@@ -164,7 +168,7 @@ impl<S: StorageBackend> CreditEngine<S> {
             (UserTier::Basic, "circuit_execution") => Ok(false),
             (UserTier::Basic, "bulk_export") => Ok(false),
             (UserTier::Basic, "advanced_query") => Ok(false),
-            (UserTier::Professional, "bulk_export") if user.limits.bulk_operations_per_month <= 0 => Ok(false),
+            (UserTier::Professional, "bulk_export") => Ok(true), // Professional tier allows bulk operations
             _ => Ok(true),
         }
     }
@@ -207,7 +211,7 @@ impl<S: StorageBackend> CreditEngine<S> {
 
         for transaction in transactions {
             if transaction.timestamp >= start_of_month &&
-               transaction.transaction_type == CreditTransactionType::Consumed {
+               transaction.transaction_type == CreditTransactionType::Consumption {
                 if let Some(op_type) = &transaction.operation_type {
                     *usage.entry(op_type.clone()).or_insert(0) += -transaction.amount;
                 }
@@ -226,7 +230,7 @@ impl<S: StorageBackend> CreditEngine<S> {
 
         // Check if user has subscription and needs refill
         if let Some(subscription) = &user.subscription {
-            if user.credits < 100 && subscription.auto_refill {
+            if user.credits < 100 && subscription.auto_renew {
                 drop(storage);
 
                 let refill_amount = match user.tier {

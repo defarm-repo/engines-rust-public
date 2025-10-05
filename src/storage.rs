@@ -5,7 +5,8 @@ use crate::types::{
     Circuit, CircuitOperation, ItemShare, PendingItem, PendingReason, PendingPriority,
     AuditEvent, AuditEventType, AuditOutcome, AuditSeverity, AuditQuery,
     SecurityIncident, ComplianceReport, AuditDashboardMetrics, SecurityIncidentSummary, ComplianceStatus, UserRiskProfile, SecurityAnomaly,
-    CircuitType, ItemStorageHistory, StorageRecord, CircuitAdapterConfig, UserAccount, CreditTransaction, AdminAction, SystemStatistics
+    CircuitType, ItemStorageHistory, StorageRecord, CircuitAdapterConfig, UserAccount, CreditTransaction, AdminAction, SystemStatistics,
+    Notification
 };
 use chrono::{DateTime, Utc};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -24,6 +25,7 @@ pub enum StorageError {
     SerializationError(serde_json::Error),
     EncryptionError(String),
     NotFound,
+    AlreadyExists(String),
     NotImplemented(String),
 }
 
@@ -46,6 +48,7 @@ impl std::fmt::Display for StorageError {
             StorageError::SerializationError(e) => write!(f, "Serialization error: {}", e),
             StorageError::EncryptionError(e) => write!(f, "Encryption error: {}", e),
             StorageError::NotFound => write!(f, "Record not found"),
+            StorageError::AlreadyExists(e) => write!(f, "Already exists: {}", e),
             StorageError::NotImplemented(e) => write!(f, "Not implemented: {}", e),
         }
     }
@@ -246,6 +249,15 @@ pub trait StorageBackend {
     // System Statistics operations
     fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError>;
     fn update_system_statistics(&mut self, stats: &SystemStatistics) -> Result<(), StorageError>;
+
+    // Notification operations
+    fn store_notification(&mut self, notification: &Notification) -> Result<(), StorageError>;
+    fn get_notification(&self, notification_id: &str) -> Result<Option<Notification>, StorageError>;
+    fn get_user_notifications(&self, user_id: &str, since: Option<DateTime<Utc>>, limit: Option<usize>, unread_only: bool) -> Result<Vec<Notification>, StorageError>;
+    fn update_notification(&mut self, notification: &Notification) -> Result<(), StorageError>;
+    fn delete_notification(&mut self, notification_id: &str) -> Result<(), StorageError>;
+    fn mark_all_notifications_read(&mut self, user_id: &str) -> Result<usize, StorageError>;
+    fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError>;
 }
 
 pub struct InMemoryStorage {
@@ -276,6 +288,8 @@ pub struct InMemoryStorage {
     credit_transactions_by_user: HashMap<String, Vec<String>>, // user_id -> transaction_ids
     admin_actions: HashMap<String, AdminAction>,
     system_statistics: Option<SystemStatistics>,
+    notifications: HashMap<String, Notification>,
+    notifications_by_user: HashMap<String, Vec<String>>, // user_id -> notification_ids
 }
 
 impl InMemoryStorage {
@@ -308,6 +322,8 @@ impl InMemoryStorage {
             credit_transactions_by_user: HashMap::new(),
             admin_actions: HashMap::new(),
             system_statistics: None,
+            notifications: HashMap::new(),
+            notifications_by_user: HashMap::new(),
         }
     }
 }
@@ -1237,6 +1253,317 @@ impl StorageBackend for InMemoryStorage {
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
         Ok(self.circuit_adapter_configs.values().cloned().collect())
     }
+
+    // User Account operations
+    fn store_user_account(&mut self, user: &UserAccount) -> Result<(), StorageError> {
+        // Check for duplicate username
+        if self.user_accounts_by_username.contains_key(&user.username) {
+            return Err(StorageError::AlreadyExists(format!("Username '{}' already exists", user.username)));
+        }
+
+        // Check for duplicate email
+        if self.user_accounts_by_email.contains_key(&user.email) {
+            return Err(StorageError::AlreadyExists(format!("Email '{}' already exists", user.email)));
+        }
+
+        // Store user account
+        self.user_accounts.insert(user.user_id.clone(), user.clone());
+
+        // Update indices
+        self.user_accounts_by_username.insert(user.username.clone(), user.user_id.clone());
+        self.user_accounts_by_email.insert(user.email.clone(), user.user_id.clone());
+
+        Ok(())
+    }
+
+    fn get_user_account(&self, user_id: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(self.user_accounts.get(user_id).cloned())
+    }
+
+    fn get_user_by_username(&self, username: &str) -> Result<Option<UserAccount>, StorageError> {
+        if let Some(user_id) = self.user_accounts_by_username.get(username) {
+            Ok(self.user_accounts.get(user_id).cloned())
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn get_user_by_email(&self, email: &str) -> Result<Option<UserAccount>, StorageError> {
+        if let Some(user_id) = self.user_accounts_by_email.get(email) {
+            Ok(self.user_accounts.get(user_id).cloned())
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn update_user_account(&mut self, user: &UserAccount) -> Result<(), StorageError> {
+        // Check if user exists
+        if !self.user_accounts.contains_key(&user.user_id) {
+            return Err(StorageError::NotFound);
+        }
+
+        // Get old user to update indices if username/email changed
+        if let Some(old_user) = self.user_accounts.get(&user.user_id) {
+            // Update username index if changed
+            if old_user.username != user.username {
+                self.user_accounts_by_username.remove(&old_user.username);
+
+                // Check new username isn't taken
+                if self.user_accounts_by_username.contains_key(&user.username) {
+                    return Err(StorageError::AlreadyExists(format!("Username '{}' already exists", user.username)));
+                }
+
+                self.user_accounts_by_username.insert(user.username.clone(), user.user_id.clone());
+            }
+
+            // Update email index if changed
+            if old_user.email != user.email {
+                self.user_accounts_by_email.remove(&old_user.email);
+
+                // Check new email isn't taken
+                if self.user_accounts_by_email.contains_key(&user.email) {
+                    return Err(StorageError::AlreadyExists(format!("Email '{}' already exists", user.email)));
+                }
+
+                self.user_accounts_by_email.insert(user.email.clone(), user.user_id.clone());
+            }
+        }
+
+        // Update user account
+        self.user_accounts.insert(user.user_id.clone(), user.clone());
+        Ok(())
+    }
+
+    fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
+        Ok(self.user_accounts.values().cloned().collect())
+    }
+
+    fn delete_user_account(&mut self, user_id: &str) -> Result<(), StorageError> {
+        if let Some(user) = self.user_accounts.remove(user_id) {
+            // Remove from indices
+            self.user_accounts_by_username.remove(&user.username);
+            self.user_accounts_by_email.remove(&user.email);
+            Ok(())
+        } else {
+            Err(StorageError::NotFound)
+        }
+    }
+
+    // Credit Transaction operations
+    fn record_credit_transaction(&mut self, transaction: &CreditTransaction) -> Result<(), StorageError> {
+        // Store the transaction
+        self.credit_transactions.insert(transaction.transaction_id.clone(), transaction.clone());
+
+        // Add to user's transaction list
+        self.credit_transactions_by_user
+            .entry(transaction.user_id.clone())
+            .or_insert_with(Vec::new)
+            .push(transaction.transaction_id.clone());
+
+        Ok(())
+    }
+
+    fn get_credit_transaction(&self, transaction_id: &str) -> Result<Option<CreditTransaction>, StorageError> {
+        Ok(self.credit_transactions.get(transaction_id).cloned())
+    }
+
+    fn get_credit_transactions(&self, user_id: &str, limit: Option<usize>) -> Result<Vec<CreditTransaction>, StorageError> {
+        let transaction_ids = self.credit_transactions_by_user
+            .get(user_id)
+            .cloned()
+            .unwrap_or_default();
+
+        let mut transactions: Vec<CreditTransaction> = transaction_ids
+            .iter()
+            .filter_map(|id| self.credit_transactions.get(id))
+            .cloned()
+            .collect();
+
+        // Sort by timestamp (newest first)
+        transactions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        // Apply limit if specified
+        if let Some(limit) = limit {
+            transactions.truncate(limit);
+        }
+
+        Ok(transactions)
+    }
+
+    fn get_credit_transactions_by_operation(&self, operation_type: &str) -> Result<Vec<CreditTransaction>, StorageError> {
+        Ok(self.credit_transactions
+            .values()
+            .filter(|t| t.operation_type.as_deref() == Some(operation_type))
+            .cloned()
+            .collect())
+    }
+
+    // Admin Action operations
+    fn record_admin_action(&mut self, action: &AdminAction) -> Result<(), StorageError> {
+        self.admin_actions.insert(action.action_id.clone(), action.clone());
+        Ok(())
+    }
+
+    fn get_admin_actions(&self, admin_id: Option<&str>, limit: Option<usize>) -> Result<Vec<AdminAction>, StorageError> {
+        let mut actions: Vec<AdminAction> = if let Some(admin_id) = admin_id {
+            self.admin_actions
+                .values()
+                .filter(|a| a.admin_user_id == admin_id)
+                .cloned()
+                .collect()
+        } else {
+            self.admin_actions.values().cloned().collect()
+        };
+
+        // Sort by timestamp (newest first)
+        actions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        // Apply limit if specified
+        if let Some(limit) = limit {
+            actions.truncate(limit);
+        }
+
+        Ok(actions)
+    }
+
+    fn get_admin_actions_by_type(&self, action_type: &str) -> Result<Vec<AdminAction>, StorageError> {
+        Ok(self.admin_actions
+            .values()
+            .filter(|a| format!("{:?}", a.action_type) == action_type)
+            .cloned()
+            .collect())
+    }
+
+    // System Statistics operations (stub implementations for now)
+    fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError> {
+        Ok(SystemStatistics {
+            total_users: 0,
+            active_users_24h: 0,
+            active_users_30d: 0,
+            total_items: 0,
+            total_circuits: 0,
+            total_storage_operations: 0,
+            credits_consumed_24h: 0,
+            tier_distribution: HashMap::new(),
+            adapter_usage_stats: HashMap::new(),
+            generated_at: Utc::now(),
+        })
+    }
+
+    fn update_system_statistics(&mut self, _stats: &SystemStatistics) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("System statistics operations not yet implemented".to_string()))
+    }
+
+    // Notification operations
+    fn store_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
+        self.notifications.insert(notification.id.clone(), notification.clone());
+        self.notifications_by_user
+            .entry(notification.user_id.clone())
+            .or_insert_with(Vec::new)
+            .push(notification.id.clone());
+        Ok(())
+    }
+
+    fn get_notification(&self, notification_id: &str) -> Result<Option<Notification>, StorageError> {
+        Ok(self.notifications.get(notification_id).cloned())
+    }
+
+    fn get_user_notifications(
+        &self,
+        user_id: &str,
+        since: Option<DateTime<Utc>>,
+        limit: Option<usize>,
+        unread_only: bool,
+    ) -> Result<Vec<Notification>, StorageError> {
+        let notification_ids = self.notifications_by_user.get(user_id);
+
+        if notification_ids.is_none() {
+            return Ok(Vec::new());
+        }
+
+        let mut notifications: Vec<Notification> = notification_ids
+            .unwrap()
+            .iter()
+            .filter_map(|id| self.notifications.get(id).cloned())
+            .filter(|n| {
+                // Filter by timestamp if provided
+                if let Some(since_time) = since {
+                    if n.timestamp <= since_time {
+                        return false;
+                    }
+                }
+
+                // Filter by read status if unread_only
+                if unread_only && n.read {
+                    return false;
+                }
+
+                true
+            })
+            .collect();
+
+        // Sort by timestamp descending (newest first)
+        notifications.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        // Apply limit if provided
+        if let Some(limit_count) = limit {
+            notifications.truncate(limit_count);
+        }
+
+        Ok(notifications)
+    }
+
+    fn update_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
+        if self.notifications.contains_key(&notification.id) {
+            self.notifications.insert(notification.id.clone(), notification.clone());
+            Ok(())
+        } else {
+            Err(StorageError::NotFound)
+        }
+    }
+
+    fn delete_notification(&mut self, notification_id: &str) -> Result<(), StorageError> {
+        if let Some(notification) = self.notifications.remove(notification_id) {
+            // Also remove from user's notification list
+            if let Some(user_notifications) = self.notifications_by_user.get_mut(&notification.user_id) {
+                user_notifications.retain(|id| id != notification_id);
+            }
+            Ok(())
+        } else {
+            Err(StorageError::NotFound)
+        }
+    }
+
+    fn mark_all_notifications_read(&mut self, user_id: &str) -> Result<usize, StorageError> {
+        let mut count = 0;
+
+        if let Some(notification_ids) = self.notifications_by_user.get(user_id) {
+            for id in notification_ids {
+                if let Some(notification) = self.notifications.get_mut(id) {
+                    if !notification.read {
+                        notification.read = true;
+                        count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(count)
+    }
+
+    fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError> {
+        let count = self.notifications_by_user
+            .get(user_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.notifications.get(id))
+                    .filter(|n| !n.read)
+                    .count()
+            })
+            .unwrap_or(0);
+
+        Ok(count)
+    }
 }
 
 impl Default for InMemoryStorage {
@@ -1835,6 +2162,114 @@ impl StorageBackend for EncryptedFileStorage {
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
         Ok(Vec::new())
     }
+
+    // User Account operations (stub implementations for now)
+    fn store_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+    }
+
+    fn get_user_account(&self, _user_id: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_user_by_username(&self, _username: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_user_by_email(&self, _email: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(None)
+    }
+
+    fn update_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+    }
+
+    fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn delete_user_account(&mut self, _user_id: &str) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+    }
+
+    // Credit Transaction operations (stub implementations for now)
+    fn record_credit_transaction(&mut self, _transaction: &CreditTransaction) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Credit transaction operations not yet implemented".to_string()))
+    }
+
+    fn get_credit_transaction(&self, _transaction_id: &str) -> Result<Option<CreditTransaction>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_credit_transactions(&self, _user_id: &str, _limit: Option<usize>) -> Result<Vec<CreditTransaction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_credit_transactions_by_operation(&self, _operation_type: &str) -> Result<Vec<CreditTransaction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    // Admin Action operations (stub implementations for now)
+    fn record_admin_action(&mut self, _action: &AdminAction) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Admin action operations not yet implemented".to_string()))
+    }
+
+    fn get_admin_actions(&self, _admin_id: Option<&str>, _limit: Option<usize>) -> Result<Vec<AdminAction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_admin_actions_by_type(&self, _action_type: &str) -> Result<Vec<AdminAction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    // System Statistics operations (stub implementations for now)
+    fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError> {
+        Ok(SystemStatistics {
+            total_users: 0,
+            active_users_24h: 0,
+            active_users_30d: 0,
+            total_items: 0,
+            total_circuits: 0,
+            total_storage_operations: 0,
+            credits_consumed_24h: 0,
+            tier_distribution: HashMap::new(),
+            adapter_usage_stats: HashMap::new(),
+            generated_at: Utc::now(),
+        })
+    }
+
+    fn update_system_statistics(&mut self, _stats: &SystemStatistics) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("System statistics operations not yet implemented".to_string()))
+    }
+
+    // Notification operations - not implemented for file storage yet
+    fn store_notification(&mut self, _notification: &Notification) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+    }
+
+    fn get_notification(&self, _notification_id: &str) -> Result<Option<Notification>, StorageError> {
+        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+    }
+
+    fn get_user_notifications(&self, _user_id: &str, _since: Option<DateTime<Utc>>, _limit: Option<usize>, _unread_only: bool) -> Result<Vec<Notification>, StorageError> {
+        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+    }
+
+    fn update_notification(&mut self, _notification: &Notification) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+    }
+
+    fn delete_notification(&mut self, _notification_id: &str) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+    }
+
+    fn mark_all_notifications_read(&mut self, _user_id: &str) -> Result<usize, StorageError> {
+        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+    }
+
+    fn get_unread_notification_count(&self, _user_id: &str) -> Result<usize, StorageError> {
+        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+    }
 }
 
 // Implementation of StorageBackend for Arc<Mutex<InMemoryStorage>>
@@ -2269,6 +2704,114 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
 
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
         self.lock().unwrap().list_circuit_adapter_configs()
+    }
+
+    // User Account operations (stub implementations for now)
+    fn store_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+    }
+
+    fn get_user_account(&self, _user_id: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_user_by_username(&self, _username: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_user_by_email(&self, _email: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(None)
+    }
+
+    fn update_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+    }
+
+    fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn delete_user_account(&mut self, _user_id: &str) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+    }
+
+    // Credit Transaction operations (stub implementations for now)
+    fn record_credit_transaction(&mut self, _transaction: &CreditTransaction) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Credit transaction operations not yet implemented".to_string()))
+    }
+
+    fn get_credit_transaction(&self, _transaction_id: &str) -> Result<Option<CreditTransaction>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_credit_transactions(&self, _user_id: &str, _limit: Option<usize>) -> Result<Vec<CreditTransaction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_credit_transactions_by_operation(&self, _operation_type: &str) -> Result<Vec<CreditTransaction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    // Admin Action operations (stub implementations for now)
+    fn record_admin_action(&mut self, _action: &AdminAction) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Admin action operations not yet implemented".to_string()))
+    }
+
+    fn get_admin_actions(&self, _admin_id: Option<&str>, _limit: Option<usize>) -> Result<Vec<AdminAction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_admin_actions_by_type(&self, _action_type: &str) -> Result<Vec<AdminAction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    // System Statistics operations (stub implementations for now)
+    fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError> {
+        Ok(SystemStatistics {
+            total_users: 0,
+            active_users_24h: 0,
+            active_users_30d: 0,
+            total_items: 0,
+            total_circuits: 0,
+            total_storage_operations: 0,
+            credits_consumed_24h: 0,
+            tier_distribution: HashMap::new(),
+            adapter_usage_stats: HashMap::new(),
+            generated_at: Utc::now(),
+        })
+    }
+
+    fn update_system_statistics(&mut self, _stats: &SystemStatistics) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("System statistics operations not yet implemented".to_string()))
+    }
+
+    // Notification operations - delegate to inner storage
+    fn store_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
+        self.lock().unwrap().store_notification(notification)
+    }
+
+    fn get_notification(&self, notification_id: &str) -> Result<Option<Notification>, StorageError> {
+        self.lock().unwrap().get_notification(notification_id)
+    }
+
+    fn get_user_notifications(&self, user_id: &str, since: Option<DateTime<Utc>>, limit: Option<usize>, unread_only: bool) -> Result<Vec<Notification>, StorageError> {
+        self.lock().unwrap().get_user_notifications(user_id, since, limit, unread_only)
+    }
+
+    fn update_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
+        self.lock().unwrap().update_notification(notification)
+    }
+
+    fn delete_notification(&mut self, notification_id: &str) -> Result<(), StorageError> {
+        self.lock().unwrap().delete_notification(notification_id)
+    }
+
+    fn mark_all_notifications_read(&mut self, user_id: &str) -> Result<usize, StorageError> {
+        self.lock().unwrap().mark_all_notifications_read(user_id)
+    }
+
+    fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError> {
+        self.lock().unwrap().get_unread_notification_count(user_id)
     }
 }
 

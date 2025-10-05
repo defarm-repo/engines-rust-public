@@ -1,5 +1,6 @@
 use axum::{
     http::StatusCode,
+    middleware,
     response::Json,
     routing::{get, post},
     Router,
@@ -11,7 +12,9 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber;
 
-use defarm_engine::api::{auth_routes, receipt_routes, event_routes, circuit_routes, item_routes, workspace_routes, activity_routes, audit_routes, zk_proof_routes, adapter_routes, storage_history_routes, shared_state::AppState};
+use defarm_engine::api::{auth_routes, receipt_routes, event_routes, circuit_routes, item_routes, workspace_routes, activity_routes, audit_routes, zk_proof_routes, adapter_routes, storage_history_routes, admin_routes, user_credits_routes, notifications_rest_routes, notifications_ws_route, shared_state::AppState};
+use defarm_engine::auth_middleware::jwt_auth_middleware;
+use defarm_engine::db_init::setup_development_data;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -27,11 +30,24 @@ async fn main() {
     // Initialize shared state
     let app_state = Arc::new(AppState::new());
 
-    // Build our application with routes
-    let app = Router::new()
+    // Setup development data (hen admin + sample users)
+    {
+        let mut storage = app_state.shared_storage.lock().unwrap();
+        if let Err(e) = setup_development_data(&mut storage) {
+            tracing::error!("Failed to setup development data: {}", e);
+        }
+    }
+
+    // Public routes (no authentication required)
+    let public_routes = Router::new()
         .route("/", get(root))
         .route("/health", get(health_check))
-        .nest("/api/auth", auth_routes())
+        .nest("/api/auth", auth_routes(app_state.clone()))
+        // WebSocket route does NOT use JWT middleware (verifies token from query param)
+        .nest("/api/notifications", notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()));
+
+    // Protected routes (require JWT authentication)
+    let protected_routes = Router::new()
         .nest("/api/receipts", receipt_routes())
         .nest("/api/events", event_routes())
         .nest("/api/circuits", circuit_routes(app_state.clone()))
@@ -42,6 +58,18 @@ async fn main() {
         .nest("/api/proofs", zk_proof_routes(app_state.clone()))
         .nest("/api/adapters", adapter_routes(app_state.clone()))
         .nest("/api/storage-history", storage_history_routes(app_state.clone()))
+        // Notification REST API routes (protected by JWT middleware)
+        .nest("/api/notifications", notifications_rest_routes().with_state(app_state.clone()))
+        .merge(user_credits_routes().with_state(app_state.clone()))
+        .nest("/api/admin", admin_routes().with_state(app_state.clone()))
+        .layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            jwt_auth_middleware,
+        ));
+
+    // Combine routes
+    let app = public_routes
+        .merge(protected_routes)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
 

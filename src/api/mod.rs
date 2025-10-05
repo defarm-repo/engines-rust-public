@@ -9,6 +9,10 @@ pub mod audit;
 pub mod zk_proofs;
 pub mod adapters;
 pub mod storage_history;
+pub mod admin;
+pub mod api_keys;
+pub mod user_credits;
+pub mod notifications;
 pub mod shared_state;
 
 pub use auth::auth_routes;
@@ -22,3 +26,7 @@ pub use audit::audit_routes;
 pub use zk_proofs::zk_proof_routes;
 pub use adapters::adapter_routes;
 pub use storage_history::storage_history_routes;
+pub use admin::admin_routes;
+pub use api_keys::*;
+pub use user_credits::routes as user_credits_routes;
+pub use notifications::{notifications_rest_routes, notifications_ws_route};

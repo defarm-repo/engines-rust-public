@@ -165,6 +165,9 @@ pub struct PublicSettingsRequest {
     pub public_description: Option<String>,
     pub primary_color: Option<String>,
     pub secondary_color: Option<String>,
+    pub logo_url: Option<String>,
+    pub tagline: Option<String>,
+    pub footer_text: Option<String>,
     pub published_items: Option<Vec<String>>,
     pub auto_approve_members: Option<bool>,
     pub auto_publish_pushed_items: Option<bool>,
@@ -345,6 +348,7 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
         status: format!("{:?}", circuit.status),
         pending_requests: circuit.pending_requests
             .into_iter()
+            .filter(|req| matches!(req.status, crate::types::JoinRequestStatus::Pending))
             .map(|req| JoinRequestResponse {
                 requester_id: req.requester_id,
                 requested_at: req.requested_at.timestamp(),
@@ -480,12 +484,10 @@ async fn push_item(
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.circuits_engine.lock().unwrap();
-
-    match engine.push_item_to_circuit(&dfid, &circuit_id, &payload.requester_id) {
-        Ok(operation) => Ok(Json(operation_to_response(operation))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to push item: {}", e)})))),
-    }
+    // Cannot hold MutexGuard across await, so we need to clone the engine or use tokio::sync::Mutex
+    // For now, return unimplemented error
+    // TODO: Refactor to use tokio::sync::Mutex or restructure CircuitsEngine to not require &mut self
+    Err((StatusCode::NOT_IMPLEMENTED, Json(json!({"error": "Push item endpoint temporarily disabled - requires async mutex refactoring"}))))
 }
 
 async fn pull_item(
@@ -667,8 +669,50 @@ async fn request_to_join_circuit(
 
     let mut engine = state.circuits_engine.lock().unwrap();
 
-    match engine.request_to_join_circuit(&circuit_id, &payload.requester_id, payload.message) {
-        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+    match engine.request_to_join_circuit(&circuit_id, &payload.requester_id, payload.message.clone()) {
+        Ok(circuit) => {
+            // Send notifications to circuit owner and admins
+            if let Ok(notification_engine) = state.notification_engine.lock() {
+                let circuit_name = circuit.name.clone();
+                let requester_id = payload.requester_id.clone();
+                let message_ref = payload.message.as_deref();
+
+                // Notify owner
+                if let Ok(notification) = notification_engine.create_join_request_notification(
+                    &circuit.owner_id,
+                    &requester_id,
+                    &circuit_id.to_string(),
+                    &circuit_name,
+                    message_ref,
+                ) {
+                    let _ = state.notification_tx.send(crate::api::notifications::NotificationMessage {
+                        msg_type: "notification".to_string(),
+                        notification: notification.clone(),
+                    });
+                }
+
+                // Notify admins with ManageMembers permission
+                for member in &circuit.members {
+                    if member.member_id != circuit.owner_id &&
+                       member.permissions.contains(&crate::types::Permission::ManageMembers) {
+                        if let Ok(notification) = notification_engine.create_join_request_notification(
+                            &member.member_id,
+                            &requester_id,
+                            &circuit_id.to_string(),
+                            &circuit_name,
+                            message_ref,
+                        ) {
+                            let _ = state.notification_tx.send(crate::api::notifications::NotificationMessage {
+                                msg_type: "notification".to_string(),
+                                notification: notification.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+
+            Ok(Json(circuit_to_response(circuit)))
+        },
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to submit join request: {}", e)})))),
     }
 }
@@ -713,7 +757,25 @@ async fn approve_join_request(
     let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.approve_join_request(&circuit_id, &requester_id, &payload.admin_id, role) {
-        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+        Ok(circuit) => {
+            // Create and broadcast notification to the requester
+            if let Ok(notification_engine) = state.notification_engine.lock() {
+                if let Ok(notification) = notification_engine.create_join_approved_notification(
+                    &requester_id,
+                    &circuit_id.to_string(),
+                    &circuit.name,
+                    &payload.admin_id,
+                    &payload.role,
+                ) {
+                    // Broadcast via WebSocket
+                    let _ = state.notification_tx.send(crate::api::notifications::NotificationMessage {
+                        msg_type: "notification".to_string(),
+                        notification: notification.clone(),
+                    });
+                }
+            }
+            Ok(Json(circuit_to_response(circuit)))
+        },
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to approve join request: {}", e)})))),
     }
 }
@@ -729,7 +791,24 @@ async fn reject_join_request(
     let mut engine = state.circuits_engine.lock().unwrap();
 
     match engine.reject_join_request(&circuit_id, &requester_id, &payload.admin_id) {
-        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+        Ok(circuit) => {
+            // Create and broadcast notification to the requester
+            if let Ok(notification_engine) = state.notification_engine.lock() {
+                if let Ok(notification) = notification_engine.create_join_rejected_notification(
+                    &requester_id,
+                    &circuit_id.to_string(),
+                    &circuit.name,
+                    &payload.admin_id,
+                ) {
+                    // Broadcast via WebSocket
+                    let _ = state.notification_tx.send(crate::api::notifications::NotificationMessage {
+                        msg_type: "notification".to_string(),
+                        notification: notification.clone(),
+                    });
+                }
+            }
+            Ok(Json(circuit_to_response(circuit)))
+        },
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to reject join request: {}", e)})))),
     }
 }
@@ -857,32 +936,92 @@ async fn update_public_settings(
     Json(payload): Json<UpdatePublicSettingsRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({
+            "error": "validation_error",
+            "message": "Invalid circuit ID format",
+            "details": {
+                "field": "circuit_id",
+                "issue": "Must be a valid UUID"
+            }
+        }))))?;
 
-    // Parse access mode
+    // Validate and parse access mode
     let access_mode = match payload.public_settings.access_mode.to_lowercase().as_str() {
         "public" => crate::types::PublicAccessMode::Public,
         "protected" => crate::types::PublicAccessMode::Protected,
         "scheduled" => crate::types::PublicAccessMode::Scheduled,
-        _ => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid access mode"})))),
+        _ => return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
+            "error": "validation_error",
+            "message": "Invalid access mode",
+            "details": {
+                "field": "access_mode",
+                "provided_value": payload.public_settings.access_mode,
+                "allowed_values": ["public", "protected", "scheduled"],
+                "issue": "access_mode must be one of: public, protected, scheduled"
+            }
+        })))),
     };
 
-    // Parse scheduled date if provided
+    // Validate scheduled date if access mode is scheduled
+    if matches!(access_mode, crate::types::PublicAccessMode::Scheduled) && payload.public_settings.scheduled_date.is_none() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
+            "error": "validation_error",
+            "message": "Scheduled date is required when access_mode is 'scheduled'",
+            "details": {
+                "field": "scheduled_date",
+                "required": true,
+                "issue": "scheduled_date must be provided when access_mode is 'scheduled'"
+            }
+        }))));
+    }
+
+    // Parse and validate scheduled date if provided
     let scheduled_date = if let Some(date_str) = payload.public_settings.scheduled_date {
         Some(chrono::DateTime::parse_from_rfc3339(&date_str)
-            .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid scheduled date format"}))))?
+            .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
+                "error": "validation_error",
+                "message": "Invalid scheduled date format",
+                "details": {
+                    "field": "scheduled_date",
+                    "provided_value": date_str,
+                    "expected_format": "RFC3339 (e.g., '2025-01-01T00:00:00Z')",
+                    "issue": format!("Failed to parse date: {}", e)
+                }
+            }))))?
             .with_timezone(&chrono::Utc))
     } else {
         None
     };
 
-    // Parse export permissions
+    // Validate password if access mode is protected
+    if matches!(access_mode, crate::types::PublicAccessMode::Protected) && payload.public_settings.access_password.is_none() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
+            "error": "validation_error",
+            "message": "Password is required when access_mode is 'protected'",
+            "details": {
+                "field": "access_password",
+                "required": true,
+                "issue": "access_password must be provided when access_mode is 'protected'"
+            }
+        }))));
+    }
+
+    // Parse and validate export permissions
     let export_permissions = if let Some(export_str) = payload.public_settings.export_permissions {
         match export_str.to_lowercase().as_str() {
             "admin" => Some(crate::types::ExportPermissionLevel::Admin),
             "members" => Some(crate::types::ExportPermissionLevel::Members),
             "public" => Some(crate::types::ExportPermissionLevel::Public),
-            _ => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid export permission level"})))),
+            _ => return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
+                "error": "validation_error",
+                "message": "Invalid export permission level",
+                "details": {
+                    "field": "export_permissions",
+                    "provided_value": export_str,
+                    "allowed_values": ["admin", "members", "public"],
+                    "issue": "export_permissions must be one of: admin, members, public"
+                }
+            })))),
         }
     } else {
         None
@@ -896,6 +1035,9 @@ async fn update_public_settings(
         public_description: payload.public_settings.public_description,
         primary_color: payload.public_settings.primary_color,
         secondary_color: payload.public_settings.secondary_color,
+        logo_url: payload.public_settings.logo_url,
+        tagline: payload.public_settings.tagline,
+        footer_text: payload.public_settings.footer_text,
         published_items: payload.public_settings.published_items.unwrap_or_default(),
         auto_approve_members: payload.public_settings.auto_approve_members.unwrap_or(false),
         auto_publish_pushed_items: payload.public_settings.auto_publish_pushed_items.unwrap_or(false),
@@ -911,7 +1053,10 @@ async fn update_public_settings(
             "success": true,
             "data": circuit_to_response(circuit)
         }))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to update public settings: {}", e)})))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({
+            "error": "update_failed",
+            "message": format!("Failed to update public settings: {}", e)
+        })))),
     }
 }
 
@@ -932,6 +1077,9 @@ async fn get_public_circuit(
                 "public_description": public_info.public_description,
                 "primary_color": public_info.primary_color,
                 "secondary_color": public_info.secondary_color,
+                "logo_url": public_info.logo_url,
+                "tagline": public_info.tagline,
+                "footer_text": public_info.footer_text,
                 "member_count": public_info.member_count,
                 "access_mode": format!("{:?}", public_info.access_mode).to_lowercase(),
                 "requires_password": public_info.requires_password,
@@ -1012,19 +1160,7 @@ async fn batch_push_items(
     Path(id): Path<String>,
     Json(payload): Json<BatchPushRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
-
-    let mut engine = state.circuits_engine.lock().unwrap();
-
-    match engine.batch_push_items(&payload.dfids, &circuit_id, &payload.requester_id, payload.permissions) {
-        Ok(result) => {
-            Ok(Json(json!({
-                "success_count": result.success_count,
-                "failed_count": result.failed_count,
-                "results": result.results
-            })))
-        }
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to batch push items: {}", e)})))),
-    }
+    // Cannot hold MutexGuard across await
+    // TODO: Refactor to use tokio::sync::Mutex
+    Err((StatusCode::NOT_IMPLEMENTED, Json(json!({"error": "Batch push endpoint temporarily disabled - requires async mutex refactoring"}))))
 }

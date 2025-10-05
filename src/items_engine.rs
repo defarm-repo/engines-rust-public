@@ -165,16 +165,18 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             let storage_locations = history_manager.get_all_storage_locations(dfid).await
                 .map_err(|e| ItemsError::StorageError(e))?;
 
-            self.logger.info("ItemsEngine", "multi_storage_retrieval", "Attempting retrieval from multiple storage locations")
-                .with_context("dfid", dfid.to_string())
-                .with_context("locations_count", storage_locations.len().to_string());
+            // TODO: Re-enable logging when logger is made thread-safe (use Arc<Mutex<LoggingEngine>>)
+            // self.logger.info("ItemsEngine", "multi_storage_retrieval", "Attempting retrieval from multiple storage locations")
+            //     .with_context("dfid", dfid.to_string())
+            //     .with_context("locations_count", storage_locations.len().to_string());
 
             // Try each storage location until we find the item
             for location in storage_locations {
                 if let Ok(Some(item)) = self.retrieve_item_from_location(dfid, &location).await {
-                    self.logger.info("ItemsEngine", "item_found_remote", "Item retrieved from remote storage location")
-                        .with_context("dfid", dfid.to_string())
-                        .with_context("location_type", format!("{:?}", location));
+                    // TODO: Re-enable logging when logger is made thread-safe
+                    // self.logger.info("ItemsEngine", "item_found_remote", "Item retrieved from remote storage location")
+                    //     .with_context("dfid", dfid.to_string())
+                    //     .with_context("location_type", format!("{:?}", location));
 
                     // Optionally cache the item locally for future access
                     // Note: This would require mutable access to storage
@@ -191,9 +193,10 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         // For now, we'll return None since we need to implement adapter integration
         // TODO: Create adapter instances and retrieve data from them
 
-        self.logger.info("ItemsEngine", "location_retrieval_attempt", "Attempting to retrieve item from storage location")
-            .with_context("dfid", dfid.to_string())
-            .with_context("location", format!("{:?}", location));
+        // TODO: Re-enable logging when logger is made thread-safe
+        // self.logger.info("ItemsEngine", "location_retrieval_attempt", "Attempting to retrieve item from storage location")
+        //     .with_context("dfid", dfid.to_string())
+        //     .with_context("location", format!("{:?}", location));
 
         // Placeholder - in a full implementation, this would:
         // 1. Create appropriate adapter instance based on location type

@@ -11,8 +11,12 @@ use std::sync::Arc;
 use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation};
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{Utc, Duration};
+use crate::api::shared_state::AppState;
+use crate::storage::StorageBackend;
+use crate::types::{UserAccount, UserTier, AccountStatus, TierLimits, CreditTransaction, CreditTransactionType};
+use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub user_id: String,
     pub workspace_id: Option<String>,
@@ -51,12 +55,9 @@ pub struct UserProfile {
     pub workspace_id: Option<String>,
 }
 
-// In a real application, this would be stored in a database
-// For demo purposes, we'll use a simple in-memory store
+// Auth state contains JWT secret
 pub struct AuthState {
     pub jwt_secret: String,
-    // In production, use a proper database
-    pub users: std::sync::Mutex<std::collections::HashMap<String, (String, String, String, i64)>>, // user_id -> (username, password_hash, email, created_at)
 }
 
 impl AuthState {
@@ -64,17 +65,8 @@ impl AuthState {
         let jwt_secret = std::env::var("JWT_SECRET")
             .unwrap_or_else(|_| "your-secret-key-change-in-production".to_string());
 
-        let mut users = std::collections::HashMap::new();
-
-        // Add demo users
-        let demo_password = hash("demo123", DEFAULT_COST).unwrap();
-        users.insert("hen".to_string(), ("hen".to_string(), demo_password.clone(), "hen@defarm.io".to_string(), Utc::now().timestamp()));
-        users.insert("pullet".to_string(), ("pullet".to_string(), demo_password.clone(), "pullet@defarm.io".to_string(), Utc::now().timestamp()));
-        users.insert("cock".to_string(), ("cock".to_string(), demo_password, "cock@defarm.io".to_string(), Utc::now().timestamp()));
-
         Self {
             jwt_secret,
-            users: std::sync::Mutex::new(users),
         }
     }
 
@@ -106,26 +98,65 @@ impl AuthState {
     }
 }
 
-pub fn auth_routes() -> Router {
-    let auth_state = Arc::new(AuthState::new());
+pub fn auth_routes(app_state: Arc<AppState>) -> Router {
+    // Create AuthState using the shared JWT secret from AppState
+    let auth_state = Arc::new(AuthState {
+        jwt_secret: app_state.jwt_secret.clone(),
+    });
 
     Router::new()
         .route("/login", post(login))
         .route("/register", post(register))
         .route("/profile", get(get_profile))
         .route("/refresh", post(refresh_token))
-        .with_state(auth_state)
+        .with_state((auth_state, app_state))
 }
 
 async fn login(
-    State(auth): State<Arc<AuthState>>,
+    State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
-    let users = auth.users.lock().unwrap();
+    // Get user by username from shared storage
+    let storage = app_state.shared_storage.lock().unwrap();
 
-    if let Some((username, password_hash, _email, _created_at)) = users.get(&payload.username) {
-        if verify(&payload.password, password_hash).unwrap_or(false) {
-            let token = auth.generate_token(&payload.username, payload.workspace_id.clone())
+    if let Some(user) = storage.get_user_by_username(&payload.username)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
+    {
+        // Verify password
+        if verify(&payload.password, &user.password_hash).unwrap_or(false) {
+            // Check account status
+            match user.status {
+                AccountStatus::Suspended => {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(json!({"error": "Your account has been suspended. Please contact an administrator."}))
+                    ));
+                }
+                AccountStatus::Banned => {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(json!({"error": "Your account has been banned. Please contact an administrator."}))
+                    ));
+                }
+                AccountStatus::PendingVerification => {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(json!({"error": "Your account is pending verification. Please check your email."}))
+                    ));
+                }
+                AccountStatus::TrialExpired => {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(json!({"error": "Your trial has expired. Please upgrade your account."}))
+                    ));
+                }
+                AccountStatus::Active => {
+                    // Account is active, proceed with login
+                }
+            }
+
+            // Generate token with actual user_id
+            let token = auth.generate_token(&user.user_id, user.workspace_id.clone())
                 .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to generate token"}))))?;
 
             let expires_at = Utc::now()
@@ -135,8 +166,8 @@ async fn login(
 
             return Ok(Json(AuthResponse {
                 token,
-                user_id: payload.username.clone(),
-                workspace_id: payload.workspace_id,
+                user_id: user.user_id,
+                workspace_id: user.workspace_id,
                 expires_at,
             }));
         }
@@ -146,27 +177,76 @@ async fn login(
 }
 
 async fn register(
-    State(auth): State<Arc<AuthState>>,
+    State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
-    let mut users = auth.users.lock().unwrap();
+    let mut storage = app_state.shared_storage.lock().unwrap();
 
-    if users.contains_key(&payload.username) {
+    // Check if username already exists
+    if storage.get_user_by_username(&payload.username)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
+        .is_some()
+    {
         return Err((StatusCode::CONFLICT, Json(json!({"error": "Username already exists"}))));
+    }
+
+    // Check if email already exists
+    if storage.get_user_by_email(&payload.email)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
+        .is_some()
+    {
+        return Err((StatusCode::CONFLICT, Json(json!({"error": "Email already exists"}))));
     }
 
     let password_hash = hash(&payload.password, DEFAULT_COST)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to hash password"}))))?;
 
-    let created_at = Utc::now().timestamp();
-    users.insert(
-        payload.username.clone(),
-        (payload.username.clone(), password_hash, payload.email.clone(), created_at)
-    );
+    // Create new user account
+    let user_id = format!("user-{}", Uuid::new_v4());
+    let workspace_id = payload.workspace_name.as_ref().map(|name| format!("{}-workspace", name))
+        .or_else(|| Some(format!("{}-workspace", payload.username)));
 
-    drop(users); // Release the lock
+    let new_user = UserAccount {
+        user_id: user_id.clone(),
+        username: payload.username.clone(),
+        email: payload.email.clone(),
+        password_hash,
+        tier: UserTier::Basic,
+        status: AccountStatus::Active,
+        credits: 100, // Starting credits for Basic tier
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        last_login: None,
+        subscription: None,
+        limits: TierLimits::for_tier(&UserTier::Basic),
+        is_admin: false,
+        workspace_id: workspace_id.clone(),
+        available_adapters: None, // Use tier defaults
+    };
 
-    let token = auth.generate_token(&payload.username, None)
+    // Store user account
+    storage.store_user_account(&new_user)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+
+    // Record initial credit grant
+    let initial_credit_transaction = CreditTransaction {
+        transaction_id: Uuid::new_v4().to_string(),
+        user_id: user_id.clone(),
+        amount: 100,
+        transaction_type: CreditTransactionType::Grant,
+        description: "New user registration bonus".to_string(),
+        operation_type: Some("registration".to_string()),
+        operation_id: Some(user_id.clone()),
+        timestamp: Utc::now(),
+        balance_after: 100,
+    };
+
+    storage.record_credit_transaction(&initial_credit_transaction)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+
+    drop(storage); // Release the lock
+
+    let token = auth.generate_token(&user_id, workspace_id.clone())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to generate token"}))))?;
 
     let expires_at = Utc::now()
@@ -176,45 +256,65 @@ async fn register(
 
     Ok(Json(AuthResponse {
         token,
-        user_id: payload.username.clone(),
-        workspace_id: None,
+        user_id,
+        workspace_id,
         expires_at,
     }))
 }
 
 async fn get_profile(
-    State(auth): State<Arc<AuthState>>,
-    // In a real implementation, extract JWT token from headers
+    State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
+    // TODO: Extract JWT token from headers via middleware
 ) -> Result<Json<UserProfile>, (StatusCode, Json<Value>)> {
-    // For demo purposes, return a sample profile
-    // In production, extract user from JWT token
-    Ok(Json(UserProfile {
-        user_id: "demo_user".to_string(),
-        username: "demo_user".to_string(),
-        email: "demo@defarm.io".to_string(),
-        created_at: Utc::now().timestamp(),
-        workspace_id: None,
-    }))
+    // For now, return demo user until JWT middleware is implemented
+    // TODO: Get actual user_id from JWT Claims in request extensions
+    let user_id = "hen-admin-001"; // Temporary until JWT middleware
+
+    let storage = app_state.shared_storage.lock().unwrap();
+
+    if let Some(user) = storage.get_user_account(user_id)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
+    {
+        return Ok(Json(UserProfile {
+            user_id: user.user_id,
+            username: user.username,
+            email: user.email,
+            created_at: user.created_at.timestamp(),
+            workspace_id: user.workspace_id,
+        }));
+    }
+
+    Err((StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))))
 }
 
 async fn refresh_token(
-    State(auth): State<Arc<AuthState>>,
-    // In a real implementation, extract JWT token from headers
+    State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
+    // TODO: Extract JWT token from headers via middleware
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
-    // For demo purposes, generate a new token
-    // In production, verify existing token and generate new one
-    let token = auth.generate_token("demo_user", None)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to generate token"}))))?;
+    // For now, use demo user until JWT middleware is implemented
+    // TODO: Get actual user_id from JWT Claims in request extensions
+    let user_id = "hen-admin-001"; // Temporary until JWT middleware
 
-    let expires_at = Utc::now()
-        .checked_add_signed(Duration::hours(24))
-        .expect("valid timestamp")
-        .timestamp();
+    let storage = app_state.shared_storage.lock().unwrap();
 
-    Ok(Json(AuthResponse {
-        token,
-        user_id: "demo_user".to_string(),
-        workspace_id: None,
-        expires_at,
-    }))
+    if let Some(user) = storage.get_user_account(user_id)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
+    {
+        let token = auth.generate_token(&user.user_id, user.workspace_id.clone())
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to generate token"}))))?;
+
+        let expires_at = Utc::now()
+            .checked_add_signed(Duration::hours(24))
+            .expect("valid timestamp")
+            .timestamp();
+
+        return Ok(Json(AuthResponse {
+            token,
+            user_id: user.user_id,
+            workspace_id: user.workspace_id,
+            expires_at,
+        }));
+    }
+
+    Err((StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))))
 }

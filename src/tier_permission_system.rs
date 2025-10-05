@@ -1,7 +1,8 @@
-use crate::types::{UserTier, UserAccount, TierLimits};
+use crate::types::{UserTier, UserAccount, TierLimits, AdapterType};
 use crate::storage::{StorageBackend, StorageError};
 use std::collections::HashMap;
 use std::sync::Arc;
+use chrono::{Datelike, Timelike};
 
 #[derive(Debug, Clone)]
 pub struct TierPermissionSystem<S: StorageBackend> {
@@ -13,10 +14,14 @@ pub struct TierPermissionSystem<S: StorageBackend> {
 pub struct TierConfiguration {
     pub tier: UserTier,
     pub permissions: Vec<String>,
-    pub limits: TierLimits,
+    pub tier_limits: TierLimits,
     pub features_enabled: Vec<String>,
     pub api_rate_limit_per_minute: u32,
     pub concurrent_operations_limit: u32,
+    pub bulk_operations_per_month: i64,
+    pub advanced_analytics: bool,
+    pub admin_access: bool,
+    pub custom_integrations: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -48,24 +53,17 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
                 "read_events".to_string(),
                 "create_events".to_string(),
             ],
-            limits: TierLimits {
-                max_items_per_month: 100,
-                max_events_per_month: 500,
-                max_circuits_per_month: 0, // Not allowed
-                max_storage_gb: 1,
-                max_api_calls_per_minute: 60,
-                max_concurrent_operations: 2,
-                bulk_operations_per_month: 0, // Not allowed
-                advanced_analytics: false,
-                priority_support: false,
-                custom_integrations: false,
-            },
+            tier_limits: TierLimits::for_tier(&UserTier::Basic),
             features_enabled: vec![
                 "basic_storage".to_string(),
                 "basic_api".to_string(),
             ],
             api_rate_limit_per_minute: 60,
             concurrent_operations_limit: 2,
+            bulk_operations_per_month: 0,
+            advanced_analytics: false,
+            admin_access: false,
+            custom_integrations: false,
         });
 
         // Professional tier configuration
@@ -84,18 +82,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
                 "execute_circuits".to_string(),
                 "bulk_operations".to_string(),
             ],
-            limits: TierLimits {
-                max_items_per_month: 1000,
-                max_events_per_month: 5000,
-                max_circuits_per_month: 10,
-                max_storage_gb: 10,
-                max_api_calls_per_minute: 300,
-                max_concurrent_operations: 5,
-                bulk_operations_per_month: 10,
-                advanced_analytics: true,
-                priority_support: false,
-                custom_integrations: false,
-            },
+            tier_limits: TierLimits::for_tier(&UserTier::Professional),
             features_enabled: vec![
                 "basic_storage".to_string(),
                 "basic_api".to_string(),
@@ -106,6 +93,10 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
             ],
             api_rate_limit_per_minute: 300,
             concurrent_operations_limit: 5,
+            bulk_operations_per_month: 10,
+            advanced_analytics: true,
+            admin_access: false,
+            custom_integrations: false,
         });
 
         // Enterprise tier configuration
@@ -131,18 +122,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
                 "priority_support".to_string(),
                 "audit_access".to_string(),
             ],
-            limits: TierLimits {
-                max_items_per_month: 50000,
-                max_events_per_month: 250000,
-                max_circuits_per_month: 100,
-                max_storage_gb: 100,
-                max_api_calls_per_minute: 1000,
-                max_concurrent_operations: 20,
-                bulk_operations_per_month: 100,
-                advanced_analytics: true,
-                priority_support: true,
-                custom_integrations: true,
-            },
+            tier_limits: TierLimits::for_tier(&UserTier::Enterprise),
             features_enabled: vec![
                 "basic_storage".to_string(),
                 "basic_api".to_string(),
@@ -157,6 +137,10 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
             ],
             api_rate_limit_per_minute: 1000,
             concurrent_operations_limit: 20,
+            bulk_operations_per_month: 100,
+            advanced_analytics: true,
+            admin_access: false,
+            custom_integrations: true,
         });
 
         // Admin tier configuration (unlimited)
@@ -186,23 +170,16 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
                 "admin_tiers".to_string(),
                 "admin_credits".to_string(),
             ],
-            limits: TierLimits {
-                max_items_per_month: i64::MAX,
-                max_events_per_month: i64::MAX,
-                max_circuits_per_month: i64::MAX,
-                max_storage_gb: i64::MAX,
-                max_api_calls_per_minute: i64::MAX,
-                max_concurrent_operations: i64::MAX,
-                bulk_operations_per_month: i64::MAX,
-                advanced_analytics: true,
-                priority_support: true,
-                custom_integrations: true,
-            },
+            tier_limits: TierLimits::for_tier(&UserTier::Admin),
             features_enabled: vec![
                 "all".to_string(),
             ],
             api_rate_limit_per_minute: u32::MAX,
             concurrent_operations_limit: u32::MAX,
+            bulk_operations_per_month: i64::MAX,
+            advanced_analytics: true,
+            admin_access: true,
+            custom_integrations: true,
         });
 
         Self {
@@ -214,16 +191,16 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
     pub async fn check_permission(&self, check: &PermissionCheck) -> Result<PermissionResult, StorageError> {
         let storage = self.storage.lock().unwrap();
         let user = storage.get_user_account(&check.user_id)?
-            .ok_or_else(|| StorageError::NotFound("User not found".to_string()))?;
+            .ok_or_else(|| StorageError::NotFound)?;
 
         let tier_config = self.tier_configs.get(&user.tier)
-            .ok_or_else(|| StorageError::NotImplemented("Tier not configured".to_string()))?;
+            .ok_or_else(|| StorageError::NotImplemented("Tier configuration not found".to_string()))?;
 
         // Check if operation is permitted for this tier
         if !tier_config.permissions.contains(&check.operation) {
             return Ok(PermissionResult {
                 allowed: false,
-                reason: Some(format!("Operation '{}' not permitted for {} tier", check.operation, user.tier)),
+                reason: Some(format!("Operation '{}' not permitted for {:?} tier", check.operation, user.tier)),
                 remaining_quota: None,
                 next_reset: None,
             });
@@ -233,7 +210,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
         if !self.is_feature_enabled(&user.tier, &check.operation) {
             return Ok(PermissionResult {
                 allowed: false,
-                reason: Some(format!("Feature '{}' not available for {} tier", check.operation, user.tier)),
+                reason: Some(format!("Feature '{}' not available for {:?} tier", check.operation, user.tier)),
                 remaining_quota: None,
                 next_reset: None,
             });
@@ -254,7 +231,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
     }
 
     pub fn get_tier_limits(&self, tier: &UserTier) -> Option<&TierLimits> {
-        self.tier_configs.get(tier).map(|config| &config.limits)
+        self.tier_configs.get(tier).map(|config| &config.tier_limits)
     }
 
     pub fn get_tier_permissions(&self, tier: &UserTier) -> Option<&Vec<String>> {
@@ -295,14 +272,13 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
         // For now, returning allowed with placeholder values
 
         let tier_config = self.tier_configs.get(&user.tier)
-            .ok_or_else(|| StorageError::NotImplemented("Tier not configured".to_string()))?;
+            .ok_or_else(|| StorageError::NotImplemented("Tier configuration not found".to_string()))?;
 
         // Calculate remaining quota based on operation type
         let remaining_quota = match operation {
-            "create_items" => Some(tier_config.limits.max_items_per_month),
-            "create_events" => Some(tier_config.limits.max_events_per_month),
-            "create_circuits" => Some(tier_config.limits.max_circuits_per_month),
-            "bulk_operations" => Some(tier_config.limits.bulk_operations_per_month),
+            "create_items" => tier_config.tier_limits.max_items_per_month,
+            "create_circuits" => tier_config.tier_limits.max_circuits,
+            "bulk_operations" => Some(tier_config.bulk_operations_per_month),
             _ => None,
         };
 
@@ -329,16 +305,14 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
     pub fn upgrade_user_tier(&self, user_id: &str, new_tier: UserTier) -> Result<(), StorageError> {
         let mut storage = self.storage.lock().unwrap();
         let mut user = storage.get_user_account(user_id)?
-            .ok_or_else(|| StorageError::NotFound("User not found".to_string()))?;
+            .ok_or_else(|| StorageError::NotFound)?;
 
         let old_tier = user.tier.clone();
         user.tier = new_tier.clone();
         user.updated_at = chrono::Utc::now();
 
         // Update tier limits
-        if let Some(tier_config) = self.tier_configs.get(&new_tier) {
-            user.limits = tier_config.limits.clone();
-        }
+        user.limits = TierLimits::for_tier(&new_tier);
 
         storage.update_user_account(&user)?;
 

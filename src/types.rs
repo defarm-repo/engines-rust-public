@@ -598,6 +598,9 @@ pub struct PublicSettings {
     pub public_description: Option<String>,
     pub primary_color: Option<String>,
     pub secondary_color: Option<String>,
+    pub logo_url: Option<String>,
+    pub tagline: Option<String>,
+    pub footer_text: Option<String>,
     pub published_items: Vec<String>,
     pub auto_approve_members: bool,
     pub auto_publish_pushed_items: bool,
@@ -643,6 +646,9 @@ pub struct PublicCircuitInfo {
     pub public_description: Option<String>,
     pub primary_color: Option<String>,
     pub secondary_color: Option<String>,
+    pub logo_url: Option<String>,
+    pub tagline: Option<String>,
+    pub footer_text: Option<String>,
     pub member_count: usize,
     pub access_mode: PublicAccessMode,
     pub requires_password: bool,
@@ -750,6 +756,7 @@ impl Event {
 impl Circuit {
     pub fn new(name: String, description: String, owner_id: String) -> Self {
         let circuit_id = Uuid::new_v4();
+        let now = Utc::now();
 
         let owner_member = CircuitMember {
             member_id: owner_id.clone(),
@@ -766,7 +773,7 @@ impl Circuit {
                 Permission::Certify,
                 Permission::Audit,
             ],
-            joined_timestamp: Utc::now(),
+            joined_timestamp: now,
         };
 
         let default_roles = vec![
@@ -779,8 +786,8 @@ impl Circuit {
             name,
             description,
             owner_id,
-            created_timestamp: Utc::now(),
-            last_modified: Utc::now(),
+            created_timestamp: now,
+            last_modified: now,
             members: vec![owner_member],
             permissions: CircuitPermissions::default(),
             status: CircuitStatus::Active,
@@ -1061,6 +1068,9 @@ impl Circuit {
             public_description: settings.and_then(|s| s.public_description.as_ref().map(|d| d.clone())),
             primary_color: settings.and_then(|s| s.primary_color.as_ref().map(|c| c.clone())),
             secondary_color: settings.and_then(|s| s.secondary_color.as_ref().map(|c| c.clone())),
+            logo_url: settings.and_then(|s| s.logo_url.as_ref().map(|l| l.clone())),
+            tagline: settings.and_then(|s| s.tagline.as_ref().map(|t| t.clone())),
+            footer_text: settings.and_then(|s| s.footer_text.as_ref().map(|f| f.clone())),
             member_count: self.members.len(),
             access_mode: settings.map(|s| s.access_mode.clone()).unwrap_or(PublicAccessMode::Public),
             requires_password: matches!(
@@ -1926,7 +1936,7 @@ pub struct ClientAdapterConfig {
 // USER MANAGEMENT & TIER SYSTEM
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum UserTier {
     Basic,
     Professional,
@@ -1955,7 +1965,7 @@ impl UserTier {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AccountStatus {
     Active,
     Suspended,
@@ -1980,6 +1990,7 @@ pub struct UserAccount {
     pub limits: TierLimits,
     pub is_admin: bool,
     pub workspace_id: Option<String>,
+    pub available_adapters: Option<Vec<AdapterType>>, // None = use tier defaults
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2111,7 +2122,7 @@ pub struct CreditTransaction {
     pub balance_after: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CreditTransactionType {
     Purchase,       // User bought credits
     Grant,          // Admin granted credits
@@ -2205,6 +2216,68 @@ pub struct SystemStatistics {
 }
 
 // ============================================================================
+// NOTIFICATION SYSTEM
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum NotificationType {
+    JoinRequestReceived,
+    JoinRequestApproved,
+    JoinRequestRejected,
+    CircuitInvite,
+    ItemShared,
+    MemberAdded,
+    MemberRemoved,
+    RoleChanged,
+    CircuitUpdated,
+    AccountUpdated,
+    CreditsAdjusted,
+    AccountFrozen,
+    AccountUnfrozen,
+    AdaptersUpdated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Notification {
+    pub id: String,
+    pub user_id: String,
+    pub notification_type: NotificationType,
+    pub title: String,
+    pub message: String,
+    pub read: bool,
+    pub timestamp: DateTime<Utc>,
+    pub data: serde_json::Value,
+}
+
+impl Notification {
+    pub fn new(
+        user_id: String,
+        notification_type: NotificationType,
+        title: String,
+        message: String,
+        data: serde_json::Value,
+    ) -> Self {
+        Self {
+            id: format!("NOTIF-{}-{}",
+                Utc::now().format("%Y%m%d%H%M%S"),
+                Uuid::new_v4().to_string()[..8].to_uppercase()
+            ),
+            user_id,
+            notification_type,
+            title,
+            message,
+            read: false,
+            timestamp: Utc::now(),
+            data,
+        }
+    }
+
+    pub fn mark_as_read(&mut self) {
+        self.read = true;
+    }
+}
+
+// ============================================================================
 // ADMIN SYSTEM
 // ============================================================================
 
@@ -2231,12 +2304,16 @@ pub struct AdminAction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AdminActionType {
     UserCreated,
+    UserUpdated,
+    UserDeleted,
     UserSuspended,
     UserBanned,
     UserUnbanned,
     TierChanged,
     CreditsAdded,
     CreditsRemoved,
+    CreditsAdjusted,
+    BulkCreditsGranted,
     SystemConfigChanged,
     DataExported,
     WorkspaceDeleted,
