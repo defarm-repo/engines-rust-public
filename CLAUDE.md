@@ -140,6 +140,16 @@ Every new feature or update must be documented by updating existing principles o
 3. Operation approval workflow prevents unauthorized access
 4. Circuit deactivation disables all operations while preserving data
 
+### Circuit Adapter Permissions
+1. Circuits can specify required adapter type for push operations via adapter_config
+2. Circuits can sponsor adapter access for members (sponsor_adapter_access flag)
+3. When sponsored, any member with Push permission can push regardless of their adapter access
+4. When not sponsored, users must have the required adapter in their available_adapters
+5. Adapter permissions checked against user's custom adapters or tier defaults
+6. Push operations fail with clear error when adapter access denied
+7. Error messages guide users to request adapter access from administrator
+8. Circuit adapter config changes trigger CircuitAdapterConfigUpdated notifications
+
 ## API Key Engine Principles
 
 ### API Key Generation

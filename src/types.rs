@@ -587,6 +587,7 @@ pub struct Circuit {
     pub pending_requests: Vec<JoinRequest>,
     pub custom_roles: Vec<CustomRole>,
     pub public_settings: Option<PublicSettings>,
+    pub adapter_config: Option<CircuitAdapterConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -794,6 +795,7 @@ impl Circuit {
             pending_requests: Vec::new(),
             custom_roles: default_roles,
             public_settings: None,
+            adapter_config: None,
         }
     }
 
@@ -1920,6 +1922,7 @@ pub struct CircuitAdapterConfig {
     pub configured_at: DateTime<Utc>,
     pub requires_approval: bool,
     pub auto_migrate_existing: bool, // Whether to migrate existing items when circuit adapter changes
+    pub sponsor_adapter_access: bool, // When true, circuit sponsors adapter access for all members
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2235,6 +2238,7 @@ pub enum NotificationType {
     AccountFrozen,
     AccountUnfrozen,
     AdaptersUpdated,
+    CircuitAdapterConfigUpdated,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

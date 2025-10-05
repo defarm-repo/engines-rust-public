@@ -6,7 +6,7 @@ use crate::api::adapters::create_adapter_instance;
 use crate::types::{
     Activity, ActivityDetails, ActivityStatus, ActivityType, BatchPushResult, BatchPushItemResult,
     Circuit, CircuitItem, CircuitOperation, CircuitStatus, EventVisibility,
-    Item, MemberRole, OperationStatus, OperationType, Permission, CustomRole, AdapterType,
+    Item, MemberRole, OperationStatus, OperationType, Permission, CustomRole, AdapterType, UserTier,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -15,6 +15,7 @@ use uuid::Uuid;
 pub enum CircuitsError {
     StorageError(String),
     PermissionDenied(String),
+    AdapterPermissionDenied(String),
     ValidationError(String),
     NotFound,
     ItemNotFound,
@@ -27,6 +28,7 @@ impl std::fmt::Display for CircuitsError {
         match self {
             CircuitsError::StorageError(e) => write!(f, "Storage error: {}", e),
             CircuitsError::PermissionDenied(e) => write!(f, "Permission denied: {}", e),
+            CircuitsError::AdapterPermissionDenied(e) => write!(f, "Adapter permission denied: {}", e),
             CircuitsError::ValidationError(e) => write!(f, "Validation error: {}", e),
             CircuitsError::NotFound => write!(f, "Circuit not found"),
             CircuitsError::ItemNotFound => write!(f, "Item not found"),
@@ -37,6 +39,30 @@ impl std::fmt::Display for CircuitsError {
 }
 
 impl std::error::Error for CircuitsError {}
+
+// Helper function to get tier default adapters
+fn get_tier_default_adapters(tier: &UserTier) -> Vec<AdapterType> {
+    match tier {
+        UserTier::Admin | UserTier::Enterprise => vec![
+            AdapterType::LocalLocal,
+            AdapterType::IpfsIpfs,
+            AdapterType::StellarTestnetIpfs,
+            AdapterType::StellarMainnetIpfs,
+            AdapterType::LocalIpfs,
+            AdapterType::StellarMainnetStellarMainnet,
+        ],
+        UserTier::Professional => vec![
+            AdapterType::LocalLocal,
+            AdapterType::IpfsIpfs,
+            AdapterType::StellarTestnetIpfs,
+            AdapterType::LocalIpfs,
+        ],
+        UserTier::Basic => vec![
+            AdapterType::LocalLocal,
+            AdapterType::LocalIpfs,
+        ],
+    }
+}
 
 pub struct CircuitsEngine<S: StorageBackend> {
     storage: Arc<std::sync::Mutex<S>>,
@@ -194,6 +220,43 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             return Err(CircuitsError::PermissionDenied(
                 "User does not have permission to push to this circuit".to_string(),
             ));
+        }
+
+        // Check adapter permissions if circuit has a configured adapter
+        if let Some(adapter_config) = &circuit.adapter_config {
+            if let Some(required_adapter) = &adapter_config.adapter_type {
+                // Skip validation if circuit sponsors adapter access
+                if !adapter_config.sponsor_adapter_access {
+                    // Get user account to check their available adapters
+                    let user = storage
+                        .get_user_account(requester_id)
+                        .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+                        .ok_or_else(|| CircuitsError::ValidationError("User not found".to_string()))?;
+
+                    // Get user's available adapters (custom or tier defaults)
+                    let user_adapters = if let Some(custom_adapters) = &user.available_adapters {
+                        custom_adapters.clone()
+                    } else {
+                        get_tier_default_adapters(&user.tier)
+                    };
+
+                    // Check if user has access to the required adapter
+                    if !user_adapters.contains(required_adapter) {
+                        let adapter_name = format!("{:?}", required_adapter);
+                        let user_adapters_str = user_adapters.iter()
+                            .map(|a| format!("{:?}", a))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        return Err(CircuitsError::AdapterPermissionDenied(
+                            format!(
+                                "This circuit requires '{}' adapter access. You currently have access to: {}. Please contact your administrator to request access to this adapter.",
+                                adapter_name,
+                                user_adapters_str
+                            )
+                        ));
+                    }
+                }
+            }
         }
 
         let mut operation = CircuitOperation::new(
