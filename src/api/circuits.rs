@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     response::Json,
     routing::{get, patch, post, put},
+    Extension,
     Router,
 };
 use chrono::{DateTime, Utc};
@@ -12,7 +13,8 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::{CircuitsEngine, InMemoryStorage, MemberRole, Circuit, CircuitOperation};
-use crate::types::{Activity, BatchPushResult, CircuitItem, CircuitPermissions, Permission, CustomRole, PublicSettings};
+use crate::types::{Activity, AdapterType, BatchPushResult, CircuitAdapterConfig, CircuitItem, CircuitPermissions, Permission, CustomRole, PublicSettings};
+use crate::api::auth::Claims;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitRequest {
@@ -243,6 +245,24 @@ pub struct CircuitOperationResponse {
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct GetAdapterConfigResponse {
+    pub adapter_type: Option<String>,
+    pub sponsor_adapter_access: bool,
+    pub requires_approval: bool,
+    pub auto_migrate_existing: bool,
+    pub configured_by: String,
+    pub configured_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetAdapterConfigRequest {
+    pub adapter_type: Option<String>,
+    pub auto_migrate_existing: bool,
+    pub requires_approval: bool,
+    pub sponsor_adapter_access: bool,
+}
+
 pub struct CircuitState {
     pub engine: Arc<Mutex<CircuitsEngine<InMemoryStorage>>>,
 }
@@ -285,6 +305,8 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/activities", get(get_circuit_activities))
         .route("/:id/items", get(get_circuit_items))
         .route("/:id/push/batch", post(batch_push_items))
+        .route("/:id/adapter", get(get_circuit_adapter_config))
+        .route("/:id/adapter", put(set_circuit_adapter_config))
         .route("/list", get(list_circuits))
         .route("/member/:member_id", get(get_circuits_for_member))
         .with_state(app_state)
@@ -1163,4 +1185,104 @@ async fn batch_push_items(
     // Cannot hold MutexGuard across await
     // TODO: Refactor to use tokio::sync::Mutex
     Err((StatusCode::NOT_IMPLEMENTED, Json(json!({"error": "Batch push endpoint temporarily disabled - requires async mutex refactoring"}))))
+}
+
+async fn get_circuit_adapter_config(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<GetAdapterConfigResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let engine = state.circuits_engine.lock().unwrap();
+
+    match engine.get_circuit(&circuit_id) {
+        Ok(Some(circuit)) => {
+            if let Some(adapter_config) = circuit.adapter_config {
+                // Convert AdapterType enum to hyphenated string format
+                let adapter_type_str = adapter_config.adapter_type.map(|adapter| {
+                    format!("{:?}", adapter)
+                        .replace("Ipfs", "-ipfs")
+                        .replace("StellarTestnet", "stellar_testnet")
+                        .replace("StellarMainnet", "stellar_mainnet")
+                        .replace("LocalLocal", "local-local")
+                        .replace("LocalIpfs", "local-ipfs")
+                        .to_lowercase()
+                });
+
+                Ok(Json(GetAdapterConfigResponse {
+                    adapter_type: adapter_type_str,
+                    sponsor_adapter_access: adapter_config.sponsor_adapter_access,
+                    requires_approval: adapter_config.requires_approval,
+                    auto_migrate_existing: adapter_config.auto_migrate_existing,
+                    configured_by: adapter_config.configured_by,
+                    configured_at: adapter_config.configured_at.to_rfc3339(),
+                }))
+            } else {
+                Err((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit adapter configuration not found"}))))
+            }
+        }
+        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"})))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)})))),
+    }
+}
+
+async fn set_circuit_adapter_config(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<SetAdapterConfigRequest>,
+) -> Result<Json<GetAdapterConfigResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    // Parse adapter_type string to AdapterType enum
+    let adapter_type = if let Some(adapter_str) = payload.adapter_type {
+        Some(AdapterType::from_string(&adapter_str)
+            .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid adapter type: {}", e)}))))?)
+    } else {
+        None
+    };
+
+    let mut engine = state.circuits_engine.lock().unwrap();
+
+    match engine.set_circuit_adapter_config(
+        &circuit_id,
+        &claims.user_id,
+        adapter_type,
+        payload.auto_migrate_existing,
+        payload.requires_approval,
+        payload.sponsor_adapter_access,
+    ) {
+        Ok(adapter_config) => {
+            // Convert AdapterType enum to hyphenated string format
+            let adapter_type_str = adapter_config.adapter_type.map(|adapter| {
+                format!("{:?}", adapter)
+                    .replace("Ipfs", "-ipfs")
+                    .replace("StellarTestnet", "stellar_testnet")
+                    .replace("StellarMainnet", "stellar_mainnet")
+                    .replace("LocalLocal", "local-local")
+                    .replace("LocalIpfs", "local-ipfs")
+                    .to_lowercase()
+            });
+
+            Ok(Json(GetAdapterConfigResponse {
+                adapter_type: adapter_type_str,
+                sponsor_adapter_access: adapter_config.sponsor_adapter_access,
+                requires_approval: adapter_config.requires_approval,
+                auto_migrate_existing: adapter_config.auto_migrate_existing,
+                configured_by: adapter_config.configured_by,
+                configured_at: adapter_config.configured_at.to_rfc3339(),
+            }))
+        }
+        Err(e) => {
+            let status = match e.to_string().as_str() {
+                s if s.contains("Permission denied") || s.contains("does not have access") => StatusCode::FORBIDDEN,
+                s if s.contains("not found") => StatusCode::NOT_FOUND,
+                s if s.contains("Invalid") => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            Err((status, Json(json!({"error": e.to_string()}))))
+        }
+    }
 }

@@ -5,8 +5,8 @@ use crate::storage_history_manager::StorageHistoryManager;
 use crate::api::adapters::create_adapter_instance;
 use crate::types::{
     Activity, ActivityDetails, ActivityStatus, ActivityType, BatchPushResult, BatchPushItemResult,
-    Circuit, CircuitItem, CircuitOperation, CircuitStatus, EventVisibility,
-    Item, MemberRole, OperationStatus, OperationType, Permission, CustomRole, AdapterType, UserTier,
+    Circuit, CircuitAdapterConfig, CircuitItem, CircuitOperation, CircuitStatus, EventVisibility,
+    Item, MemberRole, Notification, NotificationType, OperationStatus, OperationType, Permission, CustomRole, AdapterType, UserTier,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -61,6 +61,27 @@ fn get_tier_default_adapters(tier: &UserTier) -> Vec<AdapterType> {
             AdapterType::LocalLocal,
             AdapterType::LocalIpfs,
         ],
+    }
+}
+
+// Helper function to validate if a user tier has access to an adapter
+fn validate_adapter_tier_access(user_tier: &UserTier, adapter_type: &AdapterType) -> bool {
+    match adapter_type {
+        // Basic tier adapters - all tiers have access
+        AdapterType::LocalLocal | AdapterType::LocalIpfs => true,
+
+        // Professional tier adapters - Professional, Enterprise, Admin
+        AdapterType::IpfsIpfs | AdapterType::StellarTestnetIpfs => {
+            matches!(user_tier, UserTier::Professional | UserTier::Enterprise | UserTier::Admin)
+        }
+
+        // Enterprise tier adapters - Enterprise, Admin only
+        AdapterType::StellarMainnetIpfs | AdapterType::StellarMainnetStellarMainnet => {
+            matches!(user_tier, UserTier::Enterprise | UserTier::Admin)
+        }
+
+        // Other adapters (Ethereum, Polygon, etc.) - currently not available
+        _ => false,
     }
 }
 
@@ -781,6 +802,102 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .with_context("requester_id", requester_id.to_string());
 
         Ok(circuit)
+    }
+
+    pub fn set_circuit_adapter_config(
+        &mut self,
+        circuit_id: &Uuid,
+        requester_id: &str,
+        adapter_type: Option<AdapterType>,
+        auto_migrate_existing: bool,
+        requires_approval: bool,
+        sponsor_adapter_access: bool,
+    ) -> Result<CircuitAdapterConfig, CircuitsError> {
+        let mut storage = self.storage.lock().unwrap();
+
+        // Get the circuit
+        let mut circuit = storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Validate requester is owner or admin
+        if circuit.owner_id != requester_id &&
+           !circuit.has_permission(requester_id, &Permission::ManagePermissions) {
+            return Err(CircuitsError::PermissionDenied(
+                "Only circuit owner or admins can configure adapter settings".to_string(),
+            ));
+        }
+
+        // If an adapter is specified, validate requester's tier has access to it
+        if let Some(ref adapter) = adapter_type {
+            let user = storage
+                .get_user_account(requester_id)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+                .ok_or_else(|| CircuitsError::ValidationError("User not found".to_string()))?;
+
+            if !validate_adapter_tier_access(&user.tier, adapter) {
+                return Err(CircuitsError::PermissionDenied(
+                    format!(
+                        "Your tier ({}) does not have access to the {:?} adapter. Please upgrade your tier or contact an administrator.",
+                        user.tier.as_str(),
+                        adapter
+                    )
+                ));
+            }
+        }
+
+        // Create the adapter config
+        let adapter_config = CircuitAdapterConfig {
+            circuit_id: *circuit_id,
+            adapter_type,
+            configured_by: requester_id.to_string(),
+            configured_at: chrono::Utc::now(),
+            requires_approval,
+            auto_migrate_existing,
+            sponsor_adapter_access,
+        };
+
+        // Update the circuit
+        circuit.adapter_config = Some(adapter_config.clone());
+        circuit.last_modified = chrono::Utc::now();
+
+        storage
+            .update_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        // Send notifications to all circuit members
+        for member in &circuit.members {
+            let notification = Notification::new(
+                member.member_id.clone(),
+                NotificationType::CircuitAdapterConfigUpdated,
+                "Circuit Adapter Configuration Updated".to_string(),
+                format!(
+                    "The adapter configuration for circuit '{}' has been updated by {}",
+                    circuit.name,
+                    requester_id
+                ),
+                serde_json::json!({
+                    "circuit_id": circuit_id,
+                    "circuit_name": circuit.name,
+                    "adapter_type": adapter_config.adapter_type.as_ref().map(|a| format!("{:?}", a)),
+                    "sponsor_adapter_access": sponsor_adapter_access,
+                    "configured_by": requester_id,
+                }),
+            );
+
+            storage
+                .store_notification(&notification)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+        }
+
+        self.logger.borrow_mut().info("circuits_engine", "adapter_config_updated", "Circuit adapter configuration updated")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("requester_id", requester_id.to_string())
+            .with_context("adapter_type", format!("{:?}", adapter_config.adapter_type))
+            .with_context("sponsor_adapter_access", sponsor_adapter_access.to_string());
+
+        Ok(adapter_config)
     }
 
     pub fn create_custom_role(

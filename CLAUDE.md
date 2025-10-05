@@ -149,6 +149,9 @@ Every new feature or update must be documented by updating existing principles o
 6. Push operations fail with clear error when adapter access denied
 7. Error messages guide users to request adapter access from administrator
 8. Circuit adapter config changes trigger CircuitAdapterConfigUpdated notifications
+9. GET /api/circuits/:id/adapter retrieves circuit adapter configuration with JWT authentication
+10. PUT /api/circuits/:id/adapter sets/updates configuration, validates requester tier has adapter access
+11. Only circuit owner or admins can configure adapter settings
 
 ## API Key Engine Principles
 
