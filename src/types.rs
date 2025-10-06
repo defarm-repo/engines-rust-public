@@ -226,6 +226,7 @@ pub struct Event {
     pub metadata: HashMap<String, serde_json::Value>,
     pub is_encrypted: bool,
     pub visibility: EventVisibility,
+    pub content_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -738,24 +739,57 @@ pub enum OperationStatus {
 
 impl Event {
     pub fn new(dfid: String, event_type: EventType, source: String, visibility: EventVisibility) -> Self {
+        let timestamp = Utc::now();
+        let metadata = HashMap::new();
+        let content_hash = Self::calculate_content_hash(&event_type, &source, &timestamp, &metadata);
+
         Self {
             event_id: Uuid::new_v4(),
             dfid,
             event_type,
-            timestamp: Utc::now(),
+            timestamp,
             source,
-            metadata: HashMap::new(),
+            metadata,
             is_encrypted: false,
             visibility,
+            content_hash,
         }
     }
 
     pub fn add_metadata(&mut self, key: String, value: serde_json::Value) {
         self.metadata.insert(key, value);
+        // Recalculate hash when metadata changes
+        self.content_hash = Self::calculate_content_hash(&self.event_type, &self.source, &self.timestamp, &self.metadata);
     }
 
     pub fn encrypt(&mut self) {
         self.is_encrypted = true;
+    }
+
+    /// Calculate content hash using BLAKE3 for event deduplication
+    /// Hash includes: event_type + source + timestamp + metadata
+    fn calculate_content_hash(
+        event_type: &EventType,
+        source: &str,
+        timestamp: &DateTime<Utc>,
+        metadata: &HashMap<String, serde_json::Value>
+    ) -> String {
+        let mut hasher = blake3::Hasher::new();
+
+        // Add event_type to hash
+        hasher.update(format!("{:?}", event_type).as_bytes());
+
+        // Add source to hash
+        hasher.update(source.as_bytes());
+
+        // Add timestamp to hash (as RFC3339 string for consistency)
+        hasher.update(timestamp.to_rfc3339().as_bytes());
+
+        // Add metadata to hash (sorted keys for deterministic hashing)
+        let metadata_json = serde_json::to_string(metadata).unwrap_or_default();
+        hasher.update(metadata_json.as_bytes());
+
+        hasher.finalize().to_hex().to_string()
     }
 }
 

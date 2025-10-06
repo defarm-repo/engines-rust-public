@@ -292,6 +292,19 @@ pub struct CircuitItemResponse {
     pub permissions: Option<Vec<String>>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CircuitItemWithEventsResponse {
+    #[serde(flatten)]
+    pub item: CircuitItemResponse,
+    pub events: Vec<crate::types::Event>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CircuitItemsQuery {
+    #[serde(default)]
+    pub include_events: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BatchPushItem {
     pub dfid: String,
@@ -594,26 +607,34 @@ async fn pull_item(
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let mut engine = state.circuits_engine.lock().unwrap();
+    let (item, operation) = {
+        let mut engine = state.circuits_engine.lock().unwrap();
+        engine.pull_item_from_circuit(&dfid, &circuit_id, &payload.requester_id)
+            .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to pull item: {}", e)}))))?
+    };
 
-    match engine.pull_item_from_circuit(&dfid, &circuit_id, &payload.requester_id) {
-        Ok((item, operation)) => {
-            Ok(Json(json!({
-                "item": {
-                    "dfid": item.dfid,
-                    "identifiers": item.identifiers,
-                    "enriched_data": item.enriched_data,
-                    "creation_timestamp": item.creation_timestamp.timestamp(),
-                    "last_modified": item.last_modified.timestamp(),
-                    "source_entries": item.source_entries,
-                    "confidence_score": item.confidence_score,
-                    "status": format!("{:?}", item.status)
-                },
-                "operation": operation_to_response(operation)
-            })))
-        }
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to pull item: {}", e)})))),
-    }
+    // Fetch all events for this item
+    let events = {
+        let events_engine = state.events_engine.lock().unwrap();
+        events_engine.get_events_for_item(&dfid)
+            .unwrap_or_else(|_| Vec::new())
+    };
+
+    Ok(Json(json!({
+        "item": {
+            "dfid": item.dfid,
+            "identifiers": item.identifiers,
+            "enriched_data": item.enriched_data,
+            "creation_timestamp": item.creation_timestamp.timestamp(),
+            "last_modified": item.last_modified.timestamp(),
+            "source_entries": item.source_entries,
+            "confidence_score": item.confidence_score,
+            "status": format!("{:?}", item.status)
+        },
+        "events": events,
+        "events_count": events.len(),
+        "operation": operation_to_response(operation)
+    })))
 }
 
 async fn get_circuit_operations(
@@ -1308,21 +1329,46 @@ async fn get_circuit_activities(
 async fn get_circuit_items(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> Result<Json<Vec<CircuitItemResponse>>, (StatusCode, Json<Value>)> {
+    Query(query): Query<CircuitItemsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
 
-    let engine = state.circuits_engine.lock().unwrap();
+    let items = {
+        let engine = state.circuits_engine.lock().unwrap();
+        engine.get_circuit_items(&circuit_id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit items: {}", e)}))))?
+    };
 
-    match engine.get_circuit_items(&circuit_id) {
-        Ok(items) => {
-            let response: Vec<CircuitItemResponse> = items
-                .into_iter()
-                .map(circuit_item_to_response)
-                .collect();
-            Ok(Json(response))
+    if query.include_events {
+        // Fetch events for each item
+        let mut items_with_events = Vec::new();
+
+        for item in items {
+            let dfid = item.dfid.clone();
+            let item_response = circuit_item_to_response(item);
+
+            // Fetch events for this DFID
+            let events = {
+                let events_engine = state.events_engine.lock().unwrap();
+                events_engine.get_events_for_item(&dfid)
+                    .unwrap_or_else(|_| Vec::new())
+            };
+
+            items_with_events.push(CircuitItemWithEventsResponse {
+                item: item_response,
+                events,
+            });
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit items: {}", e)})))),
+
+        Ok(Json(serde_json::to_value(items_with_events).unwrap()))
+    } else {
+        // Return items without events (original behavior)
+        let response: Vec<CircuitItemResponse> = items
+            .into_iter()
+            .map(circuit_item_to_response)
+            .collect();
+        Ok(Json(serde_json::to_value(response).unwrap()))
     }
 }
 
