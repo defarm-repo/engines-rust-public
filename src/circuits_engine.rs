@@ -1329,6 +1329,11 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .get_all_activities()
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
+
+    pub fn get_events_for_item(&self, dfid: &str) -> Result<Vec<crate::types::Event>, CircuitsError> {
+        self.events_engine.get_events_for_item(dfid)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))
+    }
 }
 
 #[cfg(test)]

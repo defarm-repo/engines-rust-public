@@ -615,8 +615,8 @@ async fn pull_item(
 
     // Fetch all events for this item
     let events = {
-        let events_engine = state.events_engine.lock().unwrap();
-        events_engine.get_events_for_item(&dfid)
+        let engine = state.circuits_engine.lock().unwrap();
+        engine.get_events_for_item(&dfid)
             .unwrap_or_else(|_| Vec::new())
     };
 
@@ -1350,8 +1350,8 @@ async fn get_circuit_items(
 
             // Fetch events for this DFID
             let events = {
-                let events_engine = state.events_engine.lock().unwrap();
-                events_engine.get_events_for_item(&dfid)
+                let engine = state.circuits_engine.lock().unwrap();
+                engine.get_events_for_item(&dfid)
                     .unwrap_or_else(|_| Vec::new())
             };
 

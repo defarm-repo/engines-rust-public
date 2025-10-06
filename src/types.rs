@@ -246,6 +246,7 @@ pub enum EventVisibility {
     Public,
     Private,
     CircuitOnly,
+    Direct,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -790,6 +791,54 @@ impl Event {
         hasher.update(metadata_json.as_bytes());
 
         hasher.finalize().to_hex().to_string()
+    }
+
+    /// Check if a specific user can view this event based on visibility and metadata
+    /// Returns true if the user has permission to see the event
+    pub fn can_user_view(&self, user_id: &str, current_circuit_id: Option<&str>) -> bool {
+        match self.visibility {
+            EventVisibility::Public => true,
+            EventVisibility::Private => {
+                // Private events only visible to creator
+                self.source == user_id
+            },
+            EventVisibility::Direct => {
+                // Direct events visible to creator or recipient
+                if self.source == user_id {
+                    return true;
+                }
+                // Check metadata for recipient_id
+                if let Some(serde_json::Value::String(recipient)) = self.metadata.get("recipient_id") {
+                    recipient == user_id
+                } else {
+                    false
+                }
+            },
+            EventVisibility::CircuitOnly => {
+                // Circuit events only visible in specific circuit
+                if let Some(circuit_id) = current_circuit_id {
+                    if let Some(serde_json::Value::String(event_circuit)) = self.metadata.get("circuit_id") {
+                        return event_circuit == circuit_id;
+                    }
+                }
+                // If no circuit context or no circuit_id in metadata, not visible
+                false
+            }
+        }
+    }
+
+    /// Set recipient for Direct visibility events
+    pub fn set_recipient(&mut self, recipient_id: String) {
+        self.metadata.insert("recipient_id".to_string(), serde_json::Value::String(recipient_id));
+        // Recalculate hash after metadata change
+        self.content_hash = Self::calculate_content_hash(&self.event_type, &self.source, &self.timestamp, &self.metadata);
+    }
+
+    /// Set circuit for CircuitOnly visibility events
+    pub fn set_circuit(&mut self, circuit_id: String) {
+        self.metadata.insert("circuit_id".to_string(), serde_json::Value::String(circuit_id));
+        // Recalculate hash after metadata change
+        self.content_hash = Self::calculate_content_hash(&self.event_type, &self.source, &self.timestamp, &self.metadata);
     }
 }
 
