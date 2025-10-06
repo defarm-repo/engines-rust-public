@@ -1,9 +1,8 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, State, Extension},
     http::StatusCode,
     response::Json,
-    routing::{get, patch, post, put},
-    Extension,
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use chrono::{DateTime, Utc};
@@ -13,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::{CircuitsEngine, InMemoryStorage, MemberRole, Circuit, CircuitOperation};
-use crate::types::{Activity, AdapterType, BatchPushResult, CircuitAdapterConfig, CircuitItem, CircuitPermissions, Permission, CustomRole, PublicSettings};
+use crate::types::{Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitAdapterConfig, CircuitItem, CircuitPermissions, Permission, CustomRole, PublicSettings};
 use crate::api::auth::Claims;
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +37,69 @@ pub struct CircuitOperationRequest {
 #[derive(Debug, Deserialize)]
 pub struct ApproveOperationRequest {
     pub approver_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RejectOperationRequest {
+    pub rejecter_id: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingItemPreview {
+    pub identifiers: Vec<IdentifierResponse>,
+    pub enriched_data: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IdentifierResponse {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingItemResponse {
+    pub pending_id: String,
+    pub dfid: String,
+    pub pushed_by: String,
+    pub pushed_at: i64,
+    pub status: String,
+    pub item_preview: Option<PendingItemPreview>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApproveItemRequest {
+    pub admin_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ApproveItemData {
+    pub circuit_id: String,
+    pub dfid: String,
+    pub pushed_by: String,
+    pub pushed_at: i64,
+    pub approved_by: String,
+    pub approved_at: i64,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ApproveItemResponse {
+    pub success: bool,
+    pub message: String,
+    pub data: ApproveItemData,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RejectItemRequest {
+    pub admin_id: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RejectItemResponse {
+    pub success: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,8 +144,6 @@ pub struct UpdateCircuitRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateCircuitPermissions {
-    pub default_push: Option<bool>,
-    pub default_pull: Option<bool>,
     pub require_approval_for_push: Option<bool>,
     pub require_approval_for_pull: Option<bool>,
     pub allow_public_visibility: Option<bool>,
@@ -94,6 +154,14 @@ pub struct CreateCustomRoleRequest {
     pub role_name: String,
     pub permissions: Vec<String>,
     pub description: String,
+    pub color: Option<String>,
+    pub requester_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateCustomRoleRequest {
+    pub permissions: Option<Vec<String>>,
+    pub description: Option<String>,
     pub color: Option<String>,
     pub requester_id: String,
 }
@@ -145,8 +213,6 @@ pub struct CircuitMemberResponse {
 
 #[derive(Debug, Serialize)]
 pub struct CircuitPermissionsResponse {
-    pub default_push: bool,
-    pub default_pull: bool,
     pub require_approval_for_push: bool,
     pub require_approval_for_pull: bool,
     pub allow_public_visibility: bool,
@@ -227,10 +293,15 @@ pub struct CircuitItemResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct BatchPushItem {
+    pub dfid: String,
+    pub data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct BatchPushRequest {
-    pub dfids: Vec<String>,
+    pub items: Vec<BatchPushItem>,
     pub requester_id: String,
-    pub permissions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -298,6 +369,8 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/requests/:requester_id/reject", post(reject_join_request))
         .route("/:id/roles", post(create_custom_role))
         .route("/:id/roles", get(get_custom_roles))
+        .route("/:id/roles/:role_name", put(update_custom_role))
+        .route("/:id/roles/:role_name", delete(delete_custom_role))
         .route("/:id/members/:user_id", patch(assign_member_role))
         .route("/:id/public-settings", put(update_public_settings))
         .route("/:id/public", get(get_public_circuit))
@@ -305,6 +378,9 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/activities", get(get_circuit_activities))
         .route("/:id/items", get(get_circuit_items))
         .route("/:id/push/batch", post(batch_push_items))
+        .route("/:id/pending-items", get(get_circuit_pending_items))
+        .route("/:id/pending-items/:pending_id/approve", post(approve_pending_item))
+        .route("/:id/pending-items/:pending_id/reject", post(reject_pending_item))
         .route("/:id/adapter", get(get_circuit_adapter_config))
         .route("/:id/adapter", put(set_circuit_adapter_config))
         .route("/list", get(list_circuits))
@@ -361,8 +437,6 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
             })
             .collect(),
         permissions: CircuitPermissionsResponse {
-            default_push: circuit.permissions.default_push,
-            default_pull: circuit.permissions.default_pull,
             require_approval_for_push: circuit.permissions.require_approval_for_push,
             require_approval_for_pull: circuit.permissions.require_approval_for_pull,
             allow_public_visibility: circuit.permissions.allow_public_visibility,
@@ -853,8 +927,6 @@ async fn update_circuit(
     // Convert permissions if provided, preserving existing values for unspecified fields
     let permissions = if let Some(update_perms) = payload.permissions {
         Some(CircuitPermissions {
-            default_push: update_perms.default_push.unwrap_or(current_circuit.permissions.default_push),
-            default_pull: update_perms.default_pull.unwrap_or(current_circuit.permissions.default_pull),
             require_approval_for_push: update_perms.require_approval_for_push.unwrap_or(current_circuit.permissions.require_approval_for_push),
             require_approval_for_pull: update_perms.require_approval_for_pull.unwrap_or(current_circuit.permissions.require_approval_for_pull),
             allow_public_visibility: update_perms.allow_public_visibility.unwrap_or(current_circuit.permissions.allow_public_visibility),
@@ -930,6 +1002,83 @@ async fn get_custom_roles(
             Ok(Json(response))
         },
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get custom roles: {}", e)})))),
+    }
+}
+
+async fn update_custom_role(
+    State(state): State<Arc<AppState>>,
+    Path((id, role_name)): Path<(String, String)>,
+    Json(payload): Json<UpdateCustomRoleRequest>,
+) -> Result<Json<CustomRoleResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    // Parse permissions if provided
+    let permissions = if let Some(perm_strings) = payload.permissions {
+        let parsed: Result<Vec<Permission>, String> = perm_strings
+            .into_iter()
+            .map(|p| parse_permission(&p))
+            .collect();
+        Some(parsed.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?)
+    } else {
+        None
+    };
+
+    let mut engine = state.circuits_engine.lock().unwrap();
+
+    match engine.update_custom_role(
+        &circuit_id,
+        &role_name,
+        permissions,
+        payload.description,
+        payload.color,
+        &payload.requester_id,
+    ) {
+        Ok(updated_role) => {
+            let role_counts = engine.get_circuit(&circuit_id)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
+                .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?
+                .get_member_count_by_role();
+
+            let member_count = role_counts.get(&updated_role.role_name).copied().unwrap_or(0);
+            Ok(Json(custom_role_to_response(updated_role, member_count)))
+        },
+        Err(e) => {
+            let status = match e.to_string().as_str() {
+                s if s.contains("Permission denied") => StatusCode::FORBIDDEN,
+                s if s.contains("not found") => StatusCode::NOT_FOUND,
+                s if s.contains("Cannot update") => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            Err((status, Json(json!({"error": format!("Failed to update custom role: {}", e)}))))
+        }
+    }
+}
+
+async fn delete_custom_role(
+    State(state): State<Arc<AppState>>,
+    Path((id, role_name)): Path<(String, String)>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let mut engine = state.circuits_engine.lock().unwrap();
+
+    match engine.remove_custom_role(&circuit_id, &role_name, &claims.user_id) {
+        Ok(_) => Ok(Json(json!({
+            "success": true,
+            "message": format!("Custom role '{}' deleted successfully", role_name)
+        }))),
+        Err(e) => {
+            let status = match e.to_string().as_str() {
+                s if s.contains("Permission denied") => StatusCode::FORBIDDEN,
+                s if s.contains("not found") => StatusCode::NOT_FOUND,
+                s if s.contains("Cannot delete") || s.contains("in use") => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            Err((status, Json(json!({"error": format!("Failed to delete custom role: {}", e)}))))
+        }
     }
 }
 
@@ -1181,10 +1330,163 @@ async fn batch_push_items(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(payload): Json<BatchPushRequest>,
+) -> Result<Json<BatchPushResult>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let mut results = Vec::new();
+    let mut success_count = 0;
+    let mut failed_count = 0;
+
+    // Process each item sequentially using spawn_blocking
+    for item in payload.items.iter() {
+        let dfid = item.dfid.clone();
+        let circuit_id_copy = circuit_id.clone();
+        let requester_id = payload.requester_id.clone();
+        let engine_arc = state.circuits_engine.clone();
+
+        // Use spawn_blocking to run the async code with blocking mutex
+        let result = tokio::task::spawn_blocking(move || {
+            // Create a new runtime for this blocking task
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let mut engine = engine_arc.lock().unwrap();
+                engine.push_item_to_circuit(&dfid, &circuit_id_copy, &requester_id).await
+            })
+        }).await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Task error: {}", e)}))))?;
+
+        match result {
+            Ok(_) => {
+                success_count += 1;
+                results.push(BatchPushItemResult {
+                    dfid: item.dfid.clone(),
+                    success: true,
+                    error_message: None,
+                });
+            }
+            Err(e) => {
+                failed_count += 1;
+                results.push(BatchPushItemResult {
+                    dfid: item.dfid.clone(),
+                    success: false,
+                    error_message: Some(e.to_string()),
+                });
+            }
+        }
+    }
+
+    Ok(Json(BatchPushResult {
+        success_count,
+        failed_count,
+        results,
+    }))
+}
+
+async fn get_circuit_pending_items(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    // Cannot hold MutexGuard across await
-    // TODO: Refactor to use tokio::sync::Mutex
-    Err((StatusCode::NOT_IMPLEMENTED, Json(json!({"error": "Batch push endpoint temporarily disabled - requires async mutex refactoring"}))))
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let circuits_engine = state.circuits_engine.lock().unwrap();
+
+    // Get pending operations for this circuit
+    let pending_operations = circuits_engine.get_pending_operations(&circuit_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get pending operations: {}", e)}))))?;
+
+    drop(circuits_engine); // Release lock before fetching items
+
+    let mut pending_items = Vec::new();
+
+    for operation in pending_operations {
+        // Try to fetch the item to build preview
+        let item_preview = {
+            let items_engine = state.items_engine.lock().unwrap();
+            match items_engine.get_item(&operation.dfid) {
+                Ok(Some(item)) => {
+                    Some(PendingItemPreview {
+                        identifiers: item.identifiers.into_iter().map(|identifier| {
+                            IdentifierResponse {
+                                key: identifier.key,
+                                value: identifier.value
+                            }
+                        }).collect(),
+                        enriched_data: serde_json::to_value(item.enriched_data).unwrap_or(serde_json::json!({})),
+                    })
+                }
+                _ => None,
+            }
+        };
+
+        pending_items.push(PendingItemResponse {
+            pending_id: operation.operation_id.to_string(),
+            dfid: operation.dfid,
+            pushed_by: operation.requester_id,
+            pushed_at: operation.timestamp.timestamp(),
+            status: format!("{:?}", operation.status),
+            item_preview,
+        });
+    }
+
+    Ok(Json(json!({
+        "success": true,
+        "data": pending_items
+    })))
+}
+
+async fn approve_pending_item(
+    State(state): State<Arc<AppState>>,
+    Path((circuit_id, pending_id)): Path<(String, String)>,
+    Json(payload): Json<ApproveItemRequest>,
+) -> Result<Json<ApproveItemResponse>, (StatusCode, Json<Value>)> {
+    let _circuit_id = Uuid::parse_str(&circuit_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let operation_id = Uuid::parse_str(&pending_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid pending ID format"}))))?;
+
+    let mut circuits_engine = state.circuits_engine.lock().unwrap();
+
+    let approved_operation = circuits_engine.approve_operation(&operation_id, &payload.admin_id)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to approve operation: {}", e)}))))?;
+
+    Ok(Json(ApproveItemResponse {
+        success: true,
+        message: "Item approved and added to circuit".to_string(),
+        data: ApproveItemData {
+            circuit_id: approved_operation.circuit_id.to_string(),
+            dfid: approved_operation.dfid,
+            pushed_by: approved_operation.requester_id.clone(),
+            pushed_at: approved_operation.timestamp.timestamp(),
+            approved_by: payload.admin_id,
+            approved_at: Utc::now().timestamp(),
+            status: "active".to_string(),
+        },
+    }))
+}
+
+async fn reject_pending_item(
+    State(state): State<Arc<AppState>>,
+    Path((circuit_id, pending_id)): Path<(String, String)>,
+    Json(payload): Json<RejectItemRequest>,
+) -> Result<Json<RejectItemResponse>, (StatusCode, Json<Value>)> {
+    let _circuit_id = Uuid::parse_str(&circuit_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let operation_id = Uuid::parse_str(&pending_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid pending ID format"}))))?;
+
+    let mut circuits_engine = state.circuits_engine.lock().unwrap();
+
+    circuits_engine.reject_operation(&operation_id, &payload.admin_id, payload.reason.clone())
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to reject operation: {}", e)}))))?;
+
+    Ok(Json(RejectItemResponse {
+        success: true,
+        message: "Item rejected".to_string(),
+    }))
 }
 
 async fn get_circuit_adapter_config(

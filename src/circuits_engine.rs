@@ -8,6 +8,7 @@ use crate::types::{
     Circuit, CircuitAdapterConfig, CircuitItem, CircuitOperation, CircuitStatus, EventVisibility,
     Item, MemberRole, Notification, NotificationType, OperationStatus, OperationType, Permission, CustomRole, AdapterType, UserTier,
 };
+use chrono::Utc;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -573,6 +574,58 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(operation)
     }
 
+    pub fn reject_operation(
+        &mut self,
+        operation_id: &Uuid,
+        rejecter_id: &str,
+        reason: Option<String>,
+    ) -> Result<CircuitOperation, CircuitsError> {
+        let mut storage = self.storage.lock().unwrap();
+        let mut operation = storage
+            .get_circuit_operation(operation_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::NotFound)?;
+
+        let circuit = storage
+            .get_circuit(&operation.circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        if !circuit.has_permission(rejecter_id, &Permission::ManageMembers) {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to reject operations".to_string(),
+            ));
+        }
+
+        operation.status = OperationStatus::Rejected;
+
+        // Store rejection reason in metadata
+        if let Some(reason_text) = reason {
+            operation.metadata.insert(
+                "rejection_reason".to_string(),
+                serde_json::Value::String(reason_text),
+            );
+        }
+        operation.metadata.insert(
+            "rejected_by".to_string(),
+            serde_json::Value::String(rejecter_id.to_string()),
+        );
+        operation.metadata.insert(
+            "rejected_at".to_string(),
+            serde_json::Value::String(Utc::now().to_rfc3339()),
+        );
+
+        storage
+            .update_circuit_operation(&operation)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger.borrow_mut().info("circuits_engine", "operation_rejected", "Circuit operation rejected")
+            .with_context("operation_id", operation_id.to_string())
+            .with_context("rejecter_id", rejecter_id.to_string());
+
+        Ok(operation)
+    }
+
     pub fn list_circuits(&self) -> Result<Vec<Circuit>, CircuitsError> {
         let storage = self.storage.lock().unwrap();
         storage
@@ -1007,6 +1060,44 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(())
     }
 
+    pub fn update_custom_role(
+        &mut self,
+        circuit_id: &Uuid,
+        role_name: &str,
+        new_permissions: Option<Vec<Permission>>,
+        new_description: Option<String>,
+        new_color: Option<String>,
+        requester_id: &str,
+    ) -> Result<CustomRole, CircuitsError> {
+        let mut circuit = self.get_circuit(circuit_id)?.ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check if requester has permission to manage roles
+        if !circuit.has_permission(requester_id, &Permission::ManageRoles) {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to manage roles".to_string(),
+            ));
+        }
+
+        // Update the custom role
+        circuit.update_custom_role(role_name, new_permissions.clone(), new_description.clone(), new_color.clone())
+            .map_err(|e| CircuitsError::ValidationError(e))?;
+
+        // Save the updated circuit
+        self.storage.lock().unwrap().store_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        let updated_role = circuit.get_custom_role(role_name)
+            .ok_or(CircuitsError::ValidationError("Failed to retrieve updated role".to_string()))?
+            .clone();
+
+        self.logger.borrow_mut().info("circuits_engine", "custom_role_updated", "Custom role updated successfully")
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("role_name", role_name.to_string())
+            .with_context("updated_by", requester_id.to_string());
+
+        Ok(updated_role)
+    }
+
     pub fn update_public_settings(
         &mut self,
         circuit_id: &Uuid,
@@ -1044,14 +1135,53 @@ impl<S: StorageBackend> CircuitsEngine<S> {
     }
 
     pub fn get_public_circuit_info(&self, circuit_id: &Uuid) -> Result<Option<crate::types::PublicCircuitInfo>, CircuitsError> {
-        let storage = self.storage.lock().unwrap();
+        let (mut public_info, show_encrypted_events) = {
+            let storage = self.storage.lock().unwrap();
 
-        let circuit = storage
-            .get_circuit(circuit_id)
-            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
-            .ok_or(CircuitsError::CircuitNotFound)?;
+            let circuit = storage
+                .get_circuit(circuit_id)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+                .ok_or(CircuitsError::CircuitNotFound)?;
 
-        Ok(circuit.get_public_info())
+            let public_info = match circuit.get_public_info() {
+                Some(info) => info,
+                None => return Ok(None),
+            };
+
+            let show_encrypted_events = circuit.public_settings
+                .as_ref()
+                .map(|s| s.show_encrypted_events)
+                .unwrap_or(false);
+
+            (public_info, show_encrypted_events)
+        }; // Storage lock is released here
+
+        // Get events for each published item (storage lock is now free)
+        let mut published_items_with_events = Vec::new();
+
+        for dfid in &public_info.published_items {
+            // Get events for this item
+            let all_events = self.events_engine.get_events_for_item(dfid)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+            // Filter events: must be Public AND (not encrypted OR show_encrypted_events is true)
+            let filtered_events: Vec<crate::types::Event> = all_events
+                .into_iter()
+                .filter(|event| {
+                    matches!(event.visibility, crate::types::EventVisibility::Public) &&
+                    (!event.is_encrypted || show_encrypted_events)
+                })
+                .collect();
+
+            published_items_with_events.push(crate::types::PublicItemWithEvents {
+                dfid: dfid.clone(),
+                events: filtered_events,
+            });
+        }
+
+        public_info.published_items_with_events = published_items_with_events;
+
+        Ok(Some(public_info))
     }
 
     pub fn join_public_circuit(

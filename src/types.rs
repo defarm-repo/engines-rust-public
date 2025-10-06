@@ -641,6 +641,12 @@ pub enum JoinRequestStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicItemWithEvents {
+    pub dfid: String,
+    pub events: Vec<Event>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublicCircuitInfo {
     pub circuit_id: Uuid,
     pub public_name: String,
@@ -656,6 +662,7 @@ pub struct PublicCircuitInfo {
     pub is_currently_accessible: bool,
     pub published_items: Vec<String>,
     pub auto_publish_pushed_items: bool,
+    pub published_items_with_events: Vec<PublicItemWithEvents>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -690,8 +697,6 @@ pub enum Permission {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircuitPermissions {
-    pub default_push: bool,
-    pub default_pull: bool,
     pub require_approval_for_push: bool,
     pub require_approval_for_pull: bool,
     pub allow_public_visibility: bool,
@@ -949,31 +954,13 @@ impl Circuit {
             .ok_or_else(|| format!("Custom role '{}' not found", role_name))?
             .permissions.clone();
 
-        // Find member first to get the role, then update
-        let member_role = self.members.iter()
+        // Find member to verify existence
+        let _member = self.members.iter()
             .find(|m| m.member_id == member_id)
-            .ok_or_else(|| format!("Member '{}' not found", member_id))?
-            .role;
+            .ok_or_else(|| format!("Member '{}' not found", member_id))?;
 
-        // Get base role permissions
-        let base_role_permissions = match member_role {
-            MemberRole::Owner => self.get_custom_role("Owner").map(|r| r.permissions.clone()).unwrap_or_else(|| {
-                vec![Permission::Push, Permission::Pull, Permission::Invite, Permission::ManageMembers,
-                     Permission::ManagePermissions, Permission::ManageRoles, Permission::Delete,
-                     Permission::Certify, Permission::Audit]
-            }),
-            MemberRole::Admin => vec![Permission::Push, Permission::Pull, Permission::Invite, Permission::ManageMembers],
-            MemberRole::Member => vec![Permission::Push, Permission::Pull],
-            MemberRole::Viewer => vec![Permission::Pull],
-        };
-
-        // Combine base role permissions with custom role permissions
-        let mut combined_permissions = base_role_permissions;
-        for perm in custom_role_permissions {
-            if !combined_permissions.contains(&perm) {
-                combined_permissions.push(perm);
-            }
-        }
+        // Custom role REPLACES permissions entirely (no combination with base role)
+        let final_permissions = custom_role_permissions;
 
         // Now update the member
         let member = self.members.iter_mut()
@@ -981,7 +968,7 @@ impl Circuit {
             .unwrap(); // Safe because we already checked existence above
 
         member.custom_role_name = Some(role_name.to_string());
-        member.permissions = combined_permissions;
+        member.permissions = final_permissions;
         self.last_modified = Utc::now();
         Ok(())
     }
@@ -1008,6 +995,47 @@ impl Circuit {
 
         // Remove the role
         self.custom_roles.retain(|r| r.role_name != role_name);
+        self.last_modified = Utc::now();
+        Ok(())
+    }
+
+    pub fn update_custom_role(
+        &mut self,
+        role_name: &str,
+        new_permissions: Option<Vec<Permission>>,
+        new_description: Option<String>,
+        new_color: Option<String>,
+    ) -> Result<(), String> {
+        // Check if it's a default role
+        if role_name == "Owner" || role_name == "Member" {
+            return Err("Cannot update default roles".to_string());
+        }
+
+        // Find the role
+        let role = self.custom_roles.iter_mut()
+            .find(|r| r.role_name == role_name)
+            .ok_or_else(|| format!("Custom role '{}' not found", role_name))?;
+
+        // Update fields if provided
+        if let Some(permissions) = new_permissions {
+            role.permissions = permissions;
+
+            // Update permissions for all members with this role
+            for member in self.members.iter_mut() {
+                if member.custom_role_name.as_ref() == Some(&role_name.to_string()) {
+                    member.permissions = role.permissions.clone();
+                }
+            }
+        }
+
+        if let Some(description) = new_description {
+            role.description = description;
+        }
+
+        if let Some(color) = new_color {
+            role.color = Some(color);
+        }
+
         self.last_modified = Utc::now();
         Ok(())
     }
@@ -1082,6 +1110,7 @@ impl Circuit {
             is_currently_accessible: self.is_publicly_accessible(),
             published_items: settings.map(|s| s.published_items.clone()).unwrap_or_else(Vec::new),
             auto_publish_pushed_items: settings.map(|s| s.auto_publish_pushed_items).unwrap_or(false),
+            published_items_with_events: Vec::new(), // Will be populated by circuits_engine
         })
     }
 
@@ -1107,8 +1136,6 @@ impl Circuit {
 impl Default for CircuitPermissions {
     fn default() -> Self {
         Self {
-            default_push: false,
-            default_pull: true,
             require_approval_for_push: false,
             require_approval_for_pull: false,
             allow_public_visibility: false,
@@ -2239,6 +2266,9 @@ pub enum NotificationType {
     AccountUnfrozen,
     AdaptersUpdated,
     CircuitAdapterConfigUpdated,
+    CircuitItemPendingApproval,
+    CircuitItemApproved,
+    CircuitItemRejected,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

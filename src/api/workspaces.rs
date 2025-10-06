@@ -123,8 +123,6 @@ pub struct WorkspaceMember {
 impl Default for WorkspaceSettings {
     fn default() -> Self {
         let mut default_permissions = HashMap::new();
-        default_permissions.insert("default_push".to_string(), true);
-        default_permissions.insert("default_pull".to_string(), true);
         default_permissions.insert("require_approval_for_push".to_string(), false);
         default_permissions.insert("require_approval_for_pull".to_string(), false);
 
