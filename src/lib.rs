@@ -1,4 +1,5 @@
 pub mod types;
+pub mod identifier_types;
 pub mod logging;
 pub mod storage;
 pub mod receipt_engine;
@@ -22,7 +23,11 @@ pub mod rate_limiter;
 pub mod error_handling;
 pub mod notification_engine;
 pub mod auth_middleware;
+pub mod adapter_manager;
 pub mod api;
+
+#[cfg(test)]
+mod circuit_tokenization_tests;
 
 pub use types::*;
 pub use logging::*;

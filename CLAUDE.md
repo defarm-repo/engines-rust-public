@@ -88,6 +88,20 @@ Every new feature or update must be documented by updating existing principles o
 3. Item operations include creation, enrichment, merging, and splitting
 4. All item changes maintain source entry references for traceability
 
+### Local Item Creation
+1. Items can be created locally with a LID (Local ID) without immediate DFID assignment
+2. Local items use temporary DFID format "LID-{uuid}" for storage
+3. Local items remain workspace-private until pushed to a circuit
+4. Local items support both legacy identifiers and enhanced identifiers
+5. Local items enable offline data collection before circuit tokenization
+
+### LID-DFID Mapping
+1. LID (Local ID) is a UUID generated when item is created locally
+2. DFID is only assigned when item is first pushed to a circuit
+3. LID-DFID mappings are stored for item tracking across lifecycle
+4. Items can be queried by either LID or DFID after tokenization
+5. Temporary DFID format enables local-only items to work with existing systems
+
 ### Item Lifecycle
 1. Items start as Active when created
 2. Items can be Merged when duplicates are consolidated
@@ -220,3 +234,73 @@ Every new feature or update must be documented by updating existing principles o
 3. Internal errors are logged at Error level for alerting
 4. Client errors are logged at Warn level for monitoring
 5. Error patterns enable proactive issue detection
+
+## Circuit Tokenization Architecture
+
+### Core Tokenization Principles
+1. Workspaces maintain Local IDs (LIDs) as UUIDs generated locally
+2. DFIDs are ONLY generated when items are first pushed to circuits (tokenization)
+3. Circuits are the authority for deduplication and identity resolution
+4. Same real-world entity gets same DFID across all circuits in ecosystem
+5. Legacy items with workspace-generated DFIDs continue working (backward compatibility)
+
+### Identifier Types
+
+#### Canonical Identifiers
+1. Globally unique within their registry (SISBOV, CPF, CAR, RFID)
+2. Used for cross-user deduplication without fingerprints
+3. Format validated by system against registry rules
+4. Examples: bovino:sisbov:BR12345678901234, pessoa:cpf:12345678901
+
+#### Contextual Identifiers
+1. Locally unique within user/organization context only
+2. Require fingerprint for deduplication across users
+3. Examples: soja:lote:123, aves:granja:G5, milho:talhao:A3
+
+### Namespace System
+1. Prevents collision between value chains (bovino vs aves vs soja)
+2. Standard namespaces: bovino, aves, suino, soja, milho, algodao, cafe, leite, generic
+3. Circuit defines default_namespace for auto-application
+4. Format namespace:key:value creates globally unique identifier key
+
+### Circuit Alias Configuration
+1. Circuits specify required canonical identifiers (e.g., ["sisbov", "cpf"])
+2. Circuits specify required contextual identifiers (e.g., ["lote", "safra"])
+3. Circuits can restrict allowed namespaces for data integrity
+4. Auto-apply namespace if missing when auto_apply_namespace is true
+5. Use fingerprint deduplication when use_fingerprint is true
+
+### Tokenization Flow
+1. Workspace creates item with LID (Local ID) via POST /api/items/local
+2. Push to circuit includes LID + enhanced identifiers via POST /api/circuits/{id}/push-local
+3. Circuit validates against alias requirements
+4. Circuit checks for existing DFID via canonical identifier or fingerprint
+5. Circuit creates new DFID or enriches existing item
+6. DFID returned to workspace with LID mapping stored
+
+### Tokenization API Endpoints
+1. POST /api/items/local - Create local item with LID (no DFID yet)
+2. POST /api/circuits/{id}/push-local - Push local item to circuit for tokenization
+3. GET /api/items/mapping/{local_id} - Query LID-DFID mapping and status
+4. GET /api/circuits/{id}/adapter - Retrieve circuit adapter configuration
+5. PUT /api/circuits/{id}/adapter - Configure circuit adapter settings (owner/admin only)
+
+### Fingerprint Generation
+1. Used when no canonical identifier available
+2. Format: BLAKE3(user:id|lid:uuid|time:nanoseconds|ids:sorted)
+3. Scoped per circuit to prevent cross-contamination
+4. Includes timestamp to prevent collisions
+5. Deterministic within same user and identifier set
+
+### External Aliases
+1. Items track aliases from multiple sources (certifiers, ERPs, users)
+2. Each alias includes scheme, value, issuer, timestamp, and evidence hash
+3. Aliases enable cross-referencing across different systems
+4. Conflicts between aliases tracked with issuer information
+
+### Deduplication Strategy
+1. Priority 1: Match by canonical identifier (SISBOV, CPF, etc.)
+2. Priority 2: Match by fingerprint if circuit configured
+3. Priority 3: Create new DFID if no match found
+4. All matches enrich existing item with new data
+5. Multiple pushes from same entity accumulate data

@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
+use crate::identifier_types::{EnhancedIdentifier, ExternalAlias, CircuitAliasConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Identifier {
@@ -52,7 +53,12 @@ pub enum ProcessingStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub dfid: String,
-    pub identifiers: Vec<Identifier>,
+    pub local_id: Option<Uuid>,         // NOVO: LID do workspace
+    pub legacy_mode: bool,              // NOVO: true se DFID gerado no workspace
+    pub identifiers: Vec<Identifier>,   // Manter por compatibilidade
+    pub enhanced_identifiers: Vec<EnhancedIdentifier>, // NOVO
+    pub aliases: Vec<ExternalAlias>,    // NOVO
+    pub fingerprint: Option<String>,    // NOVO: para dedup contextual
     pub enriched_data: HashMap<String, serde_json::Value>,
     pub creation_timestamp: DateTime<Utc>,
     pub last_modified: DateTime<Utc>,
@@ -148,7 +154,30 @@ impl Item {
     pub fn new(dfid: String, identifiers: Vec<Identifier>, source_entry: Uuid) -> Self {
         Self {
             dfid,
+            local_id: None,
+            legacy_mode: true, // By default, assume legacy mode for existing code
             identifiers,
+            enhanced_identifiers: vec![],
+            aliases: vec![],
+            fingerprint: None,
+            enriched_data: HashMap::new(),
+            creation_timestamp: Utc::now(),
+            last_modified: Utc::now(),
+            source_entries: vec![source_entry],
+            confidence_score: 1.0,
+            status: ItemStatus::Active,
+        }
+    }
+
+    pub fn new_with_lid(local_id: Uuid, identifiers: Vec<Identifier>, source_entry: Uuid) -> Self {
+        Self {
+            dfid: format!("LID-{}", local_id), // Temporary DFID
+            local_id: Some(local_id),
+            legacy_mode: false,
+            identifiers,
+            enhanced_identifiers: vec![],
+            aliases: vec![],
+            fingerprint: None,
             enriched_data: HashMap::new(),
             creation_timestamp: Utc::now(),
             last_modified: Utc::now(),
@@ -581,6 +610,8 @@ pub struct Circuit {
     pub name: String,
     pub description: String,
     pub owner_id: String,
+    pub default_namespace: String,                       // NOVO
+    pub alias_config: Option<CircuitAliasConfig>,        // NOVO
     pub created_timestamp: DateTime<Utc>,
     pub last_modified: DateTime<Utc>,
     pub members: Vec<CircuitMember>,
@@ -875,6 +906,8 @@ impl Circuit {
             name,
             description,
             owner_id,
+            default_namespace: "generic".to_string(),
+            alias_config: None,
             created_timestamp: now,
             last_modified: now,
             members: vec![owner_member],
@@ -2436,4 +2469,194 @@ pub enum AdminActionType {
     WorkspaceDeleted,
     CircuitDeleted,
     SecurityIncidentResolved,
+    AdapterCreated,
+    AdapterUpdated,
+    AdapterDeleted,
+}
+
+// ============================================================================
+// Adapter Configuration Management
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterConfig {
+    pub config_id: Uuid,
+    pub name: String,
+    pub description: String,
+    pub adapter_type: AdapterType,
+    pub connection_details: AdapterConnectionDetails,
+    pub contract_configs: Option<ContractConfigs>,
+    pub is_active: bool,
+    pub is_default: bool,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub last_tested_at: Option<DateTime<Utc>>,
+    pub test_status: Option<TestStatus>,
+}
+
+impl AdapterConfig {
+    pub fn new(
+        name: String,
+        description: String,
+        adapter_type: AdapterType,
+        connection_details: AdapterConnectionDetails,
+        created_by: String,
+    ) -> Self {
+        Self {
+            config_id: Uuid::new_v4(),
+            name,
+            description,
+            adapter_type,
+            connection_details,
+            contract_configs: None,
+            is_active: true,
+            is_default: false,
+            created_by,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_tested_at: None,
+            test_status: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterConnectionDetails {
+    pub endpoint: String,
+    pub api_key: Option<String>,
+    pub secret_key: Option<String>,
+    pub auth_type: AuthType,
+    pub timeout_ms: u64,
+    pub retry_attempts: u32,
+    pub max_concurrent_requests: u32,
+    pub custom_headers: HashMap<String, String>,
+}
+
+impl Default for AdapterConnectionDetails {
+    fn default() -> Self {
+        Self {
+            endpoint: String::new(),
+            api_key: None,
+            secret_key: None,
+            auth_type: AuthType::None,
+            timeout_ms: 30000,
+            retry_attempts: 3,
+            max_concurrent_requests: 10,
+            custom_headers: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AuthType {
+    None,
+    ApiKey,
+    Bearer,
+    BasicAuth,
+    OAuth2,
+    Custom(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractConfigs {
+    pub mint_contract: Option<ContractInfo>,
+    pub ipcm_contract: Option<ContractInfo>,
+    pub network: String,
+    pub chain_id: Option<String>,
+}
+
+impl ContractConfigs {
+    pub fn new(network: String) -> Self {
+        Self {
+            mint_contract: None,
+            ipcm_contract: None,
+            network,
+            chain_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractInfo {
+    pub contract_address: String,
+    pub contract_name: String,
+    pub abi: Option<String>,
+    pub methods: HashMap<String, MethodConfig>,
+}
+
+impl ContractInfo {
+    pub fn new(contract_address: String, contract_name: String) -> Self {
+        Self {
+            contract_address,
+            contract_name,
+            abi: None,
+            methods: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MethodConfig {
+    pub method_name: String,
+    pub description: String,
+    pub parameters: Vec<ParameterMapping>,
+    pub return_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParameterMapping {
+    pub param_name: String,
+    pub param_type: String,
+    pub source: ParameterSource,
+    pub required: bool,
+    pub default_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ParameterSource {
+    Static(String),
+    FromDfid,
+    FromItem(String),
+    FromEvent(String),
+    FromCircuit(String),
+    FromTimestamp,
+    FromUser,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TestStatus {
+    Passed,
+    Failed,
+    Warning,
+    NotTested,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterTestResult {
+    pub config_id: Uuid,
+    pub tested_at: DateTime<Utc>,
+    pub status: TestStatus,
+    pub connection_test: ConnectionTestResult,
+    pub contract_tests: Vec<ContractTestResult>,
+    pub error_message: Option<String>,
+    pub latency_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectionTestResult {
+    pub success: bool,
+    pub endpoint_reachable: bool,
+    pub authentication_valid: bool,
+    pub latency_ms: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractTestResult {
+    pub contract_type: String,
+    pub contract_address: String,
+    pub is_valid: bool,
+    pub methods_verified: Vec<String>,
+    pub error: Option<String>,
 }

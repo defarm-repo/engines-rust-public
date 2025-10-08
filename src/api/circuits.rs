@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::{CircuitsEngine, InMemoryStorage, MemberRole, Circuit, CircuitOperation};
 use crate::types::{Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitAdapterConfig, CircuitItem, CircuitPermissions, Permission, CustomRole, PublicSettings};
 use crate::api::auth::Claims;
+use crate::identifier_types::EnhancedIdentifier;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitRequest {
@@ -317,6 +318,36 @@ pub struct BatchPushRequest {
     pub requester_id: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EnhancedIdentifierRequest {
+    pub namespace: String,
+    pub key: String,
+    pub value: String,
+    pub id_type: String, // "Canonical" or "Contextual"
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PushLocalItemRequest {
+    pub local_id: String,
+    pub identifiers: Option<Vec<EnhancedIdentifierRequest>>,
+    pub enriched_data: Option<std::collections::HashMap<String, serde_json::Value>>,
+    pub requester_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PushLocalItemResponse {
+    pub success: bool,
+    pub data: PushLocalItemData,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PushLocalItemData {
+    pub dfid: String,
+    pub status: String, // "NewItemCreated" or "ExistingItemEnriched"
+    pub operation_id: String,
+    pub local_id: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CircuitOperationResponse {
     pub operation_id: String,
@@ -371,6 +402,8 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id", put(update_circuit))
         .route("/:id/members", post(add_member))
         .route("/:id/push/:dfid", post(push_item))
+        // TODO: Fix push_local_item handler signature issue
+        // .route("/:id/push-local", post(push_local_item))
         .route("/:id/pull/:dfid", post(pull_item))
         .route("/:id/operations", get(get_circuit_operations))
         .route("/:id/operations/pending", get(get_pending_operations))
@@ -635,6 +668,68 @@ async fn pull_item(
         "events_count": events.len(),
         "operation": operation_to_response(operation)
     })))
+}
+
+async fn push_local_item(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<PushLocalItemRequest>,
+) -> Result<Json<PushLocalItemResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+
+    let local_id = Uuid::parse_str(&payload.local_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid local_id format"}))))?;
+
+    // Convert enhanced identifier requests to EnhancedIdentifier
+    let identifiers: Vec<EnhancedIdentifier> = payload.identifiers
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|req| {
+            match req.id_type.as_str() {
+                "Canonical" => Some(EnhancedIdentifier::canonical(&req.namespace, &req.key, &req.value)),
+                "Contextual" => Some(EnhancedIdentifier::contextual(&req.namespace, &req.key, &req.value)),
+                _ => None,
+            }
+        })
+        .collect();
+
+    // Call the push_local_item_to_circuit method
+    let result = {
+        let mut engine = state.circuits_engine.lock().unwrap();
+        engine.push_local_item_to_circuit(
+            &local_id,
+            identifiers,
+            payload.enriched_data,
+            &circuit_id,
+            &payload.requester_id,
+        ).await
+        .map_err(|e| {
+            let status_code = match e {
+                crate::circuits_engine::CircuitsError::PermissionDenied(_) => StatusCode::FORBIDDEN,
+                crate::circuits_engine::CircuitsError::ValidationError(_) => StatusCode::BAD_REQUEST,
+                crate::circuits_engine::CircuitsError::CircuitNotFound => StatusCode::NOT_FOUND,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status_code, Json(json!({"error": format!("{}", e)})))
+        })?
+    };
+
+    let status_str = match result.status {
+        crate::circuits_engine::PushStatus::NewItemCreated => "NewItemCreated",
+        crate::circuits_engine::PushStatus::ExistingItemEnriched => "ExistingItemEnriched",
+        crate::circuits_engine::PushStatus::ConflictDetected { .. } => "ConflictDetected",
+    };
+
+    Ok(Json(PushLocalItemResponse {
+        success: true,
+        data: PushLocalItemData {
+            dfid: result.dfid,
+            status: status_str.to_string(),
+            operation_id: result.operation_id.to_string(),
+            local_id: result.local_id.to_string(),
+        },
+    }))
 }
 
 async fn get_circuit_operations(

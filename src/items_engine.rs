@@ -8,6 +8,7 @@ use crate::adapters::{AdapterInstance, StorageLocation, StorageAdapter};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
+use chrono::Utc;
 
 #[derive(Debug)]
 pub enum ItemsError {
@@ -148,6 +149,58 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         }
 
         Ok(item)
+    }
+
+    pub fn create_local_item(
+        &mut self,
+        identifiers: Vec<Identifier>,
+        enhanced_identifiers: Vec<crate::identifier_types::EnhancedIdentifier>,
+        enriched_data: Option<HashMap<String, serde_json::Value>>,
+        source_entry: Uuid,
+    ) -> Result<Item, ItemsError> {
+        // Generate a UUID for the local ID
+        let local_id = Uuid::new_v4();
+
+        self.logger.info("ItemsEngine", "local_item_creation", "Creating local item without DFID")
+            .with_context("local_id", local_id.to_string())
+            .with_context("identifiers_count", identifiers.len().to_string())
+            .with_context("enhanced_identifiers_count", enhanced_identifiers.len().to_string())
+            .with_context("source_entry", source_entry.to_string());
+
+        // Create item with local_id and temporary DFID format
+        let item = Item {
+            dfid: format!("LID-{}", local_id), // Temporary DFID format
+            local_id: Some(local_id),
+            legacy_mode: false,
+            identifiers,
+            enhanced_identifiers,
+            aliases: vec![],
+            fingerprint: None,
+            enriched_data: enriched_data.unwrap_or_default(),
+            creation_timestamp: Utc::now(),
+            last_modified: Utc::now(),
+            source_entries: vec![source_entry],
+            confidence_score: 1.0,
+            status: ItemStatus::Active, // Status will indicate "LocalOnly" through dfid format
+        };
+
+        self.storage.store_item(&item)?;
+
+        self.logger.info("ItemsEngine", "local_item_created", "Local item created successfully")
+            .with_context("local_id", local_id.to_string());
+
+        Ok(item)
+    }
+
+    pub fn get_item_by_lid(&self, local_id: &Uuid) -> Result<Option<Item>, ItemsError> {
+        // Try to get DFID from mapping first
+        if let Ok(Some(dfid)) = self.storage.get_dfid_by_lid(local_id) {
+            return self.storage.get_item_by_dfid(&dfid).map_err(ItemsError::from);
+        }
+
+        // If no mapping exists, look for item with LID-based temporary DFID
+        let temp_dfid = format!("LID-{}", local_id);
+        self.storage.get_item_by_dfid(&temp_dfid).map_err(ItemsError::from)
     }
 
     pub fn get_item(&self, dfid: &str) -> Result<Option<Item>, ItemsError> {
@@ -688,7 +741,7 @@ mod tests {
         fn store_circuit(&mut self, _circuit: &crate::types::Circuit) -> Result<(), StorageError> {
             Ok(())
         }
-        fn get_circuit_by_id(&self, _circuit_id: &str) -> Result<Option<crate::types::Circuit>, StorageError> {
+        fn get_circuit(&self, _circuit_id: &uuid::Uuid) -> Result<Option<crate::types::Circuit>, StorageError> {
             Ok(None)
         }
         fn update_circuit(&mut self, _circuit: &crate::types::Circuit) -> Result<(), StorageError> {
@@ -697,32 +750,20 @@ mod tests {
         fn list_circuits(&self) -> Result<Vec<crate::types::Circuit>, StorageError> {
             Ok(Vec::new())
         }
-        fn get_circuits_for_user(&self, _user_id: &str) -> Result<Vec<crate::types::Circuit>, StorageError> {
+        fn get_circuits_for_member(&self, _member_id: &str) -> Result<Vec<crate::types::Circuit>, StorageError> {
             Ok(Vec::new())
-        }
-        fn delete_circuit(&mut self, _circuit_id: &str) -> Result<(), StorageError> {
-            Ok(())
         }
         fn store_circuit_item(&mut self, _circuit_item: &crate::types::CircuitItem) -> Result<(), StorageError> {
             Ok(())
         }
-        fn get_circuit_items(&self, _circuit_id: &str) -> Result<Vec<crate::types::CircuitItem>, StorageError> {
+        fn get_circuit_items(&self, _circuit_id: &uuid::Uuid) -> Result<Vec<crate::types::CircuitItem>, StorageError> {
             Ok(Vec::new())
         }
-        fn get_circuit_item(&self, _circuit_id: &str, _dfid: &str) -> Result<Option<crate::types::CircuitItem>, StorageError> {
-            Ok(None)
-        }
-        fn update_circuit_item(&mut self, _circuit_item: &crate::types::CircuitItem) -> Result<(), StorageError> {
-            Ok(())
-        }
-        fn remove_circuit_item(&mut self, _circuit_id: &str, _dfid: &str) -> Result<(), StorageError> {
+        fn remove_circuit_item(&mut self, _circuit_id: &uuid::Uuid, _dfid: &str) -> Result<(), StorageError> {
             Ok(())
         }
         fn store_activity(&mut self, _activity: &crate::types::Activity) -> Result<(), StorageError> {
             Ok(())
-        }
-        fn get_activity_by_id(&self, _activity_id: &str) -> Result<Option<crate::types::Activity>, StorageError> {
-            Ok(None)
         }
         fn get_all_activities(&self) -> Result<Vec<crate::types::Activity>, StorageError> {
             Ok(Vec::new())
@@ -730,14 +771,17 @@ mod tests {
         fn get_activities_for_user(&self, _user_id: &str) -> Result<Vec<crate::types::Activity>, StorageError> {
             Ok(Vec::new())
         }
-        fn get_activities_for_circuit(&self, _circuit_id: &str) -> Result<Vec<crate::types::Activity>, StorageError> {
+        fn get_activities_for_circuit(&self, _circuit_id: &uuid::Uuid) -> Result<Vec<crate::types::Activity>, StorageError> {
             Ok(Vec::new())
         }
         fn store_data_lake_entry(&mut self, _entry: &crate::types::DataLakeEntry) -> Result<(), StorageError> {
             Ok(())
         }
-        fn get_data_lake_entry_by_id(&self, _entry_id: &uuid::Uuid) -> Result<Option<crate::types::DataLakeEntry>, StorageError> {
+        fn get_data_lake_entry(&self, _entry_id: &uuid::Uuid) -> Result<Option<crate::types::DataLakeEntry>, StorageError> {
             Ok(None)
+        }
+        fn list_data_lake_entries(&self) -> Result<Vec<crate::types::DataLakeEntry>, StorageError> {
+            Ok(Vec::new())
         }
         fn get_data_lake_entries_by_status(&self, _status: crate::types::ProcessingStatus) -> Result<Vec<crate::types::DataLakeEntry>, StorageError> {
             Ok(Vec::new())
@@ -749,6 +793,9 @@ mod tests {
             Ok(())
         }
         fn get_identifier_mappings(&self, _identifier: &Identifier) -> Result<Vec<crate::types::IdentifierMapping>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn list_identifier_mappings(&self) -> Result<Vec<crate::types::IdentifierMapping>, StorageError> {
             Ok(Vec::new())
         }
         fn update_identifier_mapping(&mut self, _mapping: &crate::types::IdentifierMapping) -> Result<(), StorageError> {
@@ -763,8 +810,140 @@ mod tests {
         fn get_pending_conflicts(&self) -> Result<Vec<crate::types::ConflictResolution>, StorageError> {
             Ok(Vec::new())
         }
-        fn update_conflict_resolution(&mut self, _conflict: &crate::types::ConflictResolution) -> Result<(), StorageError> {
+        fn store_receipt(&mut self, _receipt: &crate::types::Receipt) -> Result<(), StorageError> {
             Ok(())
+        }
+        fn get_receipt(&self, _id: &uuid::Uuid) -> Result<Option<crate::types::Receipt>, StorageError> {
+            Ok(None)
+        }
+        fn find_receipts_by_identifier(&self, _identifier: &Identifier) -> Result<Vec<crate::types::Receipt>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn list_receipts(&self) -> Result<Vec<crate::types::Receipt>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn store_log(&mut self, _log: &crate::logging::LogEntry) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_logs(&self) -> Result<Vec<crate::logging::LogEntry>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn store_event(&mut self, _event: &crate::types::Event) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_event(&self, _event_id: &uuid::Uuid) -> Result<Option<crate::types::Event>, StorageError> {
+            Ok(None)
+        }
+        fn update_event(&mut self, _event: &crate::types::Event) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn list_events(&self) -> Result<Vec<crate::types::Event>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_events_by_dfid(&self, _dfid: &str) -> Result<Vec<crate::types::Event>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_events_by_type(&self, _event_type: crate::types::EventType) -> Result<Vec<crate::types::Event>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_events_by_visibility(&self, _visibility: crate::types::EventVisibility) -> Result<Vec<crate::types::Event>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_events_in_time_range(&self, _start: chrono::DateTime<chrono::Utc>, _end: chrono::DateTime<chrono::Utc>) -> Result<Vec<crate::types::Event>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn store_circuit_operation(&mut self, _operation: &crate::types::CircuitOperation) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_circuit_operation(&self, _operation_id: &uuid::Uuid) -> Result<Option<crate::types::CircuitOperation>, StorageError> {
+            Ok(None)
+        }
+        fn update_circuit_operation(&mut self, _operation: &crate::types::CircuitOperation) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_circuit_operations(&self, _circuit_id: &uuid::Uuid) -> Result<Vec<crate::types::CircuitOperation>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn store_audit_event(&mut self, _event: &crate::types::AuditEvent) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_audit_event(&self, _event_id: &uuid::Uuid) -> Result<Option<crate::types::AuditEvent>, StorageError> {
+            Ok(None)
+        }
+        fn query_audit_events(&self, _query: &crate::types::AuditQuery) -> Result<Vec<crate::types::AuditEvent>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn list_audit_events(&self) -> Result<Vec<crate::types::AuditEvent>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_audit_events_by_user(&self, _user_id: &str) -> Result<Vec<crate::types::AuditEvent>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_audit_events_by_type(&self, _event_type: crate::types::AuditEventType) -> Result<Vec<crate::types::AuditEvent>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_audit_events_by_severity(&self, _severity: crate::types::AuditSeverity) -> Result<Vec<crate::types::AuditEvent>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_audit_events_in_time_range(&self, _start: chrono::DateTime<chrono::Utc>, _end: chrono::DateTime<chrono::Utc>) -> Result<Vec<crate::types::AuditEvent>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn sync_audit_events(&mut self, _events: Vec<crate::types::AuditEvent>) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn store_security_incident(&mut self, _incident: &crate::types::SecurityIncident) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_security_incident(&self, _incident_id: &uuid::Uuid) -> Result<Option<crate::types::SecurityIncident>, StorageError> {
+            Ok(None)
+        }
+        fn update_security_incident(&mut self, _incident: &crate::types::SecurityIncident) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn list_security_incidents(&self) -> Result<Vec<crate::types::SecurityIncident>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_incidents_by_severity(&self, _severity: crate::types::AuditSeverity) -> Result<Vec<crate::types::SecurityIncident>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_open_incidents(&self) -> Result<Vec<crate::types::SecurityIncident>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_incidents_by_assignee(&self, _assignee: &str) -> Result<Vec<crate::types::SecurityIncident>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn store_compliance_report(&mut self, _report: &crate::types::ComplianceReport) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_compliance_report(&self, _report_id: &uuid::Uuid) -> Result<Option<crate::types::ComplianceReport>, StorageError> {
+            Ok(None)
+        }
+        fn list_compliance_reports(&self) -> Result<Vec<crate::types::ComplianceReport>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_reports_by_type(&self, _report_type: &str) -> Result<Vec<crate::types::ComplianceReport>, StorageError> {
+            Ok(Vec::new())
+        }
+        fn get_event_count_by_time_range(&self, _start: chrono::DateTime<chrono::Utc>, _end: chrono::DateTime<chrono::Utc>) -> Result<u64, StorageError> {
+            Ok(0)
+        }
+        fn store_enhanced_identifier_mapping(&mut self, _identifier: &crate::identifier_types::EnhancedIdentifier, _dfid: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_dfid_by_canonical(&self, _namespace: &str, _registry: &str, _value: &str) -> Result<Option<String>, StorageError> {
+            Ok(None)
+        }
+        fn store_lid_dfid_mapping(&mut self, _lid: &uuid::Uuid, _dfid: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_dfid_by_lid(&self, _lid: &uuid::Uuid) -> Result<Option<String>, StorageError> {
+            Ok(None)
+        }
+        fn store_fingerprint_mapping(&mut self, _fingerprint: &str, _dfid: &str, _circuit_id: &uuid::Uuid) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get_dfid_by_fingerprint(&self, _fingerprint: &str, _circuit_id: &uuid::Uuid) -> Result<Option<String>, StorageError> {
+            Ok(None)
         }
     }
 

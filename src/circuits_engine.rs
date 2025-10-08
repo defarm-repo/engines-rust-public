@@ -3,13 +3,16 @@ use crate::logging::LoggingEngine;
 use crate::storage::StorageBackend;
 use crate::storage_history_manager::StorageHistoryManager;
 use crate::api::adapters::create_adapter_instance;
+use crate::identifier_types::{EnhancedIdentifier, ExternalAlias, IdentifierType, CircuitAliasConfig};
+use crate::dfid_engine::DfidEngine;
 use crate::types::{
     Activity, ActivityDetails, ActivityStatus, ActivityType, BatchPushResult, BatchPushItemResult,
     Circuit, CircuitAdapterConfig, CircuitItem, CircuitOperation, CircuitStatus, EventVisibility,
-    Item, MemberRole, Notification, NotificationType, OperationStatus, OperationType, Permission, CustomRole, AdapterType, UserTier,
+    Item, MemberRole, Notification, NotificationType, OperationStatus, OperationType, Permission, CustomRole, AdapterType, UserTier, Identifier, ItemStatus,
 };
 use chrono::Utc;
 use std::sync::Arc;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -91,6 +94,7 @@ pub struct CircuitsEngine<S: StorageBackend> {
     logger: std::cell::RefCell<LoggingEngine>,
     events_engine: EventsEngine<S>,
     storage_history_manager: Option<StorageHistoryManager<S>>,
+    dfid_engine: DfidEngine,
 }
 
 impl<S: StorageBackend> CircuitsEngine<S> {
@@ -102,6 +106,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             logger: std::cell::RefCell::new(logger),
             events_engine,
             storage_history_manager: None,
+            dfid_engine: DfidEngine::new(),
         }
     }
 
@@ -115,7 +120,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         circuit: &Circuit,
         dfid: &str,
         circuit_id: &Uuid,
-        storage: &mut std::sync::MutexGuard<S>,
+        storage: &mut std::sync::MutexGuard<'_, S>,
     ) -> Result<(), CircuitsError> {
         println!("DEBUG AUTO-PUBLISH: Checking auto-publish for circuit {}", circuit_id);
         if let Some(ref public_settings) = circuit.public_settings {
@@ -152,7 +157,20 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         description: String,
         owner_id: String,
     ) -> Result<Circuit, CircuitsError> {
-        let circuit = Circuit::new(name.clone(), description.clone(), owner_id.clone());
+        self.create_circuit_with_namespace(name, description, owner_id, "generic".to_string(), None)
+    }
+
+    pub fn create_circuit_with_namespace(
+        &mut self,
+        name: String,
+        description: String,
+        owner_id: String,
+        default_namespace: String,
+        alias_config: Option<CircuitAliasConfig>,
+    ) -> Result<Circuit, CircuitsError> {
+        let mut circuit = Circuit::new(name.clone(), description.clone(), owner_id.clone());
+        circuit.default_namespace = default_namespace;
+        circuit.alias_config = alias_config;
 
         self.logger.borrow_mut().info("circuits_engine", "circuit_creation_started", &format!("Creating circuit: {}", name))
             .with_context("circuit_id", circuit.circuit_id.to_string())
@@ -362,6 +380,391 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .with_context("operation_id", operation.operation_id.to_string());
 
         Ok(operation)
+    }
+
+    // NEW: Push with LID (tokenization in circuit)
+    pub async fn push_local_item_to_circuit(
+        &mut self,
+        local_id: &Uuid,
+        mut identifiers: Vec<EnhancedIdentifier>,
+        enriched_data: Option<HashMap<String, serde_json::Value>>,
+        circuit_id: &Uuid,
+        requester_id: &str,
+    ) -> Result<PushResult, CircuitsError> {
+        let mut storage = self.storage.lock().unwrap();
+
+        // 1. Get circuit and validate permissions
+        let circuit = storage.get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        if !circuit.has_permission(requester_id, &Permission::Push) {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to push to this circuit".to_string()
+            ));
+        }
+
+        // 2. Auto-apply namespace if configured
+        if circuit.alias_config.as_ref()
+            .map(|c| c.auto_apply_namespace)
+            .unwrap_or(true)
+        {
+            for identifier in &mut identifiers {
+                if identifier.namespace.is_empty() {
+                    identifier.namespace = circuit.default_namespace.clone();
+                }
+            }
+        }
+
+        // 3. Validate circuit requirements
+        self.validate_circuit_requirements(&circuit, &identifiers)?;
+
+        // 4. Resolve or create DFID (core of tokenization)
+        let (dfid, status) = self.resolve_or_create_dfid(
+            &identifiers,
+            &circuit,
+            requester_id,
+            local_id,
+            enriched_data.clone(),
+            &mut storage,
+        ).await?;
+
+        // 5. Save LID -> DFID mapping
+        storage.store_lid_dfid_mapping(local_id, &dfid)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        // 6. Create circuit item and operation
+        let circuit_item = CircuitItem::new(
+            dfid.clone(),
+            *circuit_id,
+            requester_id.to_string(),
+            vec!["read".to_string(), "verify".to_string()],
+        );
+        storage.store_circuit_item(&circuit_item)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        // 7. Create and store operation
+        let mut operation = CircuitOperation::new(
+            *circuit_id,
+            dfid.clone(),
+            OperationType::Push,
+            requester_id.to_string(),
+        );
+
+        if circuit.permissions.require_approval_for_push {
+            operation.status = crate::types::OperationStatus::Pending;
+        } else {
+            operation.approve();
+            operation.complete();
+
+            // Log activity
+            let activity = Activity::new(
+                ActivityType::Push,
+                *circuit_id,
+                circuit.name.clone(),
+                vec![dfid.clone()],
+                requester_id.to_string(),
+                ActivityStatus::Success,
+                ActivityDetails {
+                    items_affected: 1,
+                    enrichments_made: None,
+                    error_message: None,
+                },
+            );
+            storage.store_activity(&activity)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+        }
+
+        storage.store_circuit_operation(&operation)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        drop(storage);
+
+        // Create event
+        let visibility = if circuit.permissions.allow_public_visibility {
+            EventVisibility::Public
+        } else {
+            EventVisibility::CircuitOnly
+        };
+
+        self.events_engine.create_circuit_operation_event(
+            dfid.clone(),
+            circuit_id.to_string(),
+            "push".to_string(),
+            requester_id.to_string(),
+            visibility,
+        ).map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger.borrow_mut().info("circuits_engine", "item_tokenized", "Item tokenized and pushed to circuit")
+            .with_context("local_id", local_id.to_string())
+            .with_context("dfid", dfid.clone())
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("status", format!("{:?}", status));
+
+        Ok(PushResult {
+            dfid,
+            status,
+            operation_id: operation.operation_id,
+            local_id: *local_id,
+        })
+    }
+
+    fn validate_circuit_requirements(
+        &self,
+        circuit: &Circuit,
+        identifiers: &[EnhancedIdentifier],
+    ) -> Result<(), CircuitsError> {
+        let Some(ref config) = circuit.alias_config else {
+            return Ok(());
+        };
+
+        // Validate allowed namespaces
+        if let Some(ref allowed) = config.allowed_namespaces {
+            for id in identifiers {
+                if !allowed.contains(&id.namespace) {
+                    return Err(CircuitsError::ValidationError(
+                        format!("Namespace '{}' not allowed in this circuit", id.namespace)
+                    ));
+                }
+            }
+        }
+
+        // Validate required canonical identifiers
+        for required in &config.required_canonical {
+            let found = identifiers.iter().any(|id| {
+                if let IdentifierType::Canonical { ref registry, .. } = id.id_type {
+                    registry == required
+                } else {
+                    false
+                }
+            });
+
+            if !found {
+                return Err(CircuitsError::ValidationError(
+                    format!("Required canonical identifier '{}' not provided", required)
+                ));
+            }
+        }
+
+        // Validate required contextual identifiers
+        for required in &config.required_contextual {
+            let found = identifiers.iter().any(|id| {
+                matches!(id.id_type, IdentifierType::Contextual { .. }) && id.key == *required
+            });
+
+            if !found {
+                return Err(CircuitsError::ValidationError(
+                    format!("Required contextual identifier '{}' not provided", required)
+                ));
+            }
+        }
+
+        // Validate identifier formats
+        for id in identifiers {
+            if !id.validate() {
+                return Err(CircuitsError::ValidationError(
+                    format!("Invalid identifier format: {}", id.unique_key())
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn resolve_or_create_dfid(
+        &self,
+        identifiers: &[EnhancedIdentifier],
+        circuit: &Circuit,
+        requester_id: &str,
+        local_id: &Uuid,
+        enriched_data: Option<HashMap<String, serde_json::Value>>,
+        storage: &mut std::sync::MutexGuard<'_, S>,
+    ) -> Result<(String, PushStatus), CircuitsError> {
+        // STEP 1: Look for canonical identifiers
+        for identifier in identifiers {
+            if let IdentifierType::Canonical { ref registry, .. } = identifier.id_type {
+                if let Some(dfid) = storage.get_dfid_by_canonical(
+                    &identifier.namespace,
+                    registry,
+                    &identifier.value
+                ).map_err(|e| CircuitsError::StorageError(e.to_string()))? {
+                    // Found! Enrich existing item
+                    self.enrich_existing_item_internal(
+                        &dfid,
+                        identifiers,
+                        enriched_data,
+                        requester_id,
+                        storage,
+                    )?;
+                    return Ok((dfid, PushStatus::ExistingItemEnriched));
+                }
+            }
+        }
+
+        // STEP 2: Look for fingerprint (if configured)
+        if circuit.alias_config.as_ref()
+            .map(|c| c.use_fingerprint)
+            .unwrap_or(false)
+        {
+            let fingerprint = self.generate_fingerprint(identifiers, requester_id, local_id);
+
+            if let Some(dfid) = storage.get_dfid_by_fingerprint(&fingerprint, &circuit.circuit_id)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            {
+                self.enrich_existing_item_internal(
+                    &dfid,
+                    identifiers,
+                    enriched_data,
+                    requester_id,
+                    storage,
+                )?;
+                return Ok((dfid, PushStatus::ExistingItemEnriched));
+            }
+
+            // Save fingerprint for future lookups
+            let dfid = self.create_new_tokenized_item(
+                identifiers,
+                enriched_data,
+                requester_id,
+                local_id,
+                Some(fingerprint.clone()),
+                storage,
+            )?;
+
+            storage.store_fingerprint_mapping(&fingerprint, &dfid, &circuit.circuit_id)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+            return Ok((dfid, PushStatus::NewItemCreated));
+        }
+
+        // STEP 3: Create new tokenized item
+        let dfid = self.create_new_tokenized_item(
+            identifiers,
+            enriched_data,
+            requester_id,
+            local_id,
+            None,
+            storage,
+        )?;
+
+        Ok((dfid, PushStatus::NewItemCreated))
+    }
+
+    fn generate_fingerprint(
+        &self,
+        identifiers: &[EnhancedIdentifier],
+        requester_id: &str,
+        local_id: &Uuid,
+    ) -> String {
+        let mut sorted_keys: Vec<String> = identifiers.iter()
+            .map(|id| id.unique_key())
+            .collect();
+        sorted_keys.sort();
+
+        let timestamp = chrono::Utc::now().timestamp_nanos();
+        let combined = format!(
+            "user:{}|lid:{}|time:{}|ids:{}",
+            requester_id,
+            local_id,
+            timestamp,
+            sorted_keys.join("|")
+        );
+
+        blake3::hash(combined.as_bytes()).to_hex().to_string()
+    }
+
+    fn create_new_tokenized_item(
+        &self,
+        identifiers: &[EnhancedIdentifier],
+        enriched_data: Option<HashMap<String, serde_json::Value>>,
+        requester_id: &str,
+        local_id: &Uuid,
+        fingerprint: Option<String>,
+        storage: &mut std::sync::MutexGuard<'_, S>,
+    ) -> Result<String, CircuitsError> {
+        let dfid = self.dfid_engine.generate_dfid();
+
+        // Convert enhanced identifiers to legacy identifiers (for compatibility)
+        let legacy_identifiers: Vec<Identifier> = identifiers.iter()
+            .map(|id| Identifier::new(&id.key, &id.value))
+            .collect();
+
+        let mut item = Item {
+            dfid: dfid.clone(),
+            local_id: Some(*local_id),
+            legacy_mode: false,
+            identifiers: legacy_identifiers,
+            enhanced_identifiers: identifiers.to_vec(),
+            aliases: vec![],
+            fingerprint,
+            enriched_data: enriched_data.unwrap_or_default(),
+            creation_timestamp: Utc::now(),
+            last_modified: Utc::now(),
+            source_entries: vec![Uuid::new_v4()],
+            confidence_score: 1.0,
+            status: ItemStatus::Active,
+        };
+
+        // Add alias from requester
+        item.aliases.push(ExternalAlias::new(
+            &format!("user:{}", requester_id),
+            &local_id.to_string(),
+            requester_id,
+            &blake3::hash(local_id.as_bytes()).to_hex().to_string(),
+        ));
+
+        storage.store_item(&item)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        // Save canonical identifier mappings
+        for identifier in identifiers {
+            if identifier.is_canonical() {
+                storage.store_enhanced_identifier_mapping(identifier, &dfid)
+                    .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+            }
+        }
+
+        Ok(dfid)
+    }
+
+    fn enrich_existing_item_internal(
+        &self,
+        dfid: &str,
+        new_identifiers: &[EnhancedIdentifier],
+        enriched_data: Option<HashMap<String, serde_json::Value>>,
+        requester_id: &str,
+        storage: &mut std::sync::MutexGuard<'_, S>,
+    ) -> Result<(), CircuitsError> {
+        let mut item = storage.get_item_by_dfid(dfid)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::ItemNotFound)?;
+
+        // Add new enhanced identifiers
+        for id in new_identifiers {
+            if !item.enhanced_identifiers.contains(id) {
+                item.enhanced_identifiers.push(id.clone());
+            }
+        }
+
+        // Add alias from this push
+        item.aliases.push(ExternalAlias::new(
+            &format!("user:{}", requester_id),
+            &Uuid::new_v4().to_string(),
+            requester_id,
+            &blake3::hash(dfid.as_bytes()).to_hex().to_string(),
+        ));
+
+        // Add enriched data
+        if let Some(data) = enriched_data {
+            item.enriched_data.extend(data);
+        }
+
+        item.last_modified = Utc::now();
+
+        storage.update_item(&item)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        Ok(())
     }
 
     async fn handle_storage_migration(
@@ -1391,8 +1794,8 @@ mod tests {
         assert_eq!(updated_circuit.members.len(), 2);
     }
 
-    #[test]
-    fn test_push_item_to_circuit() {
+    #[tokio::test]
+    async fn test_push_item_to_circuit() {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         create_test_item(&storage, "DFID-123");
         let mut circuits_engine = CircuitsEngine::new(storage);
@@ -1403,7 +1806,7 @@ mod tests {
             "owner123".to_string(),
         ).unwrap();
 
-        let result = circuits_engine.push_item_to_circuit("DFID-123", &circuit.circuit_id, "owner123");
+        let result = circuits_engine.push_item_to_circuit("DFID-123", &circuit.circuit_id, "owner123").await;
         assert!(result.is_ok());
 
         let operation = result.unwrap();
@@ -1433,8 +1836,8 @@ mod tests {
         assert_eq!(operation.circuit_id, circuit.circuit_id);
     }
 
-    #[test]
-    fn test_permission_denied() {
+    #[tokio::test]
+    async fn test_permission_denied() {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         create_test_item(&storage, "DFID-123");
         let mut circuits_engine = CircuitsEngine::new(storage);
@@ -1445,8 +1848,24 @@ mod tests {
             "owner123".to_string(),
         ).unwrap();
 
-        let result = circuits_engine.push_item_to_circuit("DFID-123", &circuit.circuit_id, "unauthorized_user");
+        let result = circuits_engine.push_item_to_circuit("DFID-123", &circuit.circuit_id, "unauthorized_user").await;
         assert!(result.is_err());
         assert!(matches!(result.err().unwrap(), CircuitsError::PermissionDenied(_)));
     }
+}
+
+// New structures for push_local_item_to_circuit
+#[derive(Debug, Clone)]
+pub struct PushResult {
+    pub dfid: String,
+    pub status: PushStatus,
+    pub operation_id: Uuid,
+    pub local_id: Uuid,
+}
+
+#[derive(Debug, Clone)]
+pub enum PushStatus {
+    NewItemCreated,
+    ExistingItemEnriched,
+    ConflictDetected { conflicting_dfids: Vec<String> },
 }

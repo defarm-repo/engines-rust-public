@@ -12,12 +12,53 @@ use std::sync::{Arc, Mutex};
 
 use crate::{ItemsEngine, InMemoryStorage, Item, ItemStatus, Identifier, ItemShare, SharedItemResponse, PendingItem, PendingReason};
 use crate::items_engine::ResolutionAction;
+use crate::identifier_types::EnhancedIdentifier;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdentifierRequest {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EnhancedIdentifierRequest {
+    pub namespace: String,
+    pub key: String,
+    pub value: String,
+    pub id_type: String, // "Canonical" or "Contextual"
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateLocalItemRequest {
+    pub identifiers: Option<Vec<IdentifierRequest>>,
+    pub enhanced_identifiers: Option<Vec<EnhancedIdentifierRequest>>,
+    pub enriched_data: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateLocalItemResponse {
+    pub success: bool,
+    pub data: LocalItemData,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalItemData {
+    pub local_id: String,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LidDfidMappingResponse {
+    pub success: bool,
+    pub data: LidDfidMappingData,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LidDfidMappingData {
+    pub local_id: String,
+    pub dfid: Option<String>,
+    pub status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,6 +215,8 @@ use super::shared_state::AppState;
 pub fn item_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", post(create_item))
+        .route("/local", post(create_local_item))
+        .route("/mapping/:local_id", get(get_lid_dfid_mapping))
         .route("/batch", post(create_items_batch))
         .route("/", get(list_items))
         .route("/:dfid", get(get_item))
@@ -701,5 +744,108 @@ fn pending_item_to_response(pending_item: PendingItem) -> PendingItemResponse {
         priority: pending_item.priority as u32,
         created_at: pending_item.created_at.timestamp(),
         metadata: pending_item.metadata.into_iter().map(|(k, v)| (k, v.to_string())).collect(),
+    }
+}
+
+// Local item creation handlers
+async fn create_local_item(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateLocalItemRequest>,
+) -> Result<Json<CreateLocalItemResponse>, (StatusCode, Json<Value>)> {
+    let mut engine = state.items_engine.lock().unwrap();
+
+    // Convert legacy identifiers
+    let identifiers: Vec<Identifier> = payload.identifiers
+        .unwrap_or_default()
+        .into_iter()
+        .map(|id| Identifier::new(id.key, id.value))
+        .collect();
+
+    // Convert enhanced identifiers
+    let enhanced_identifiers: Vec<EnhancedIdentifier> = payload.enhanced_identifiers
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|req| {
+            match req.id_type.as_str() {
+                "Canonical" => Some(EnhancedIdentifier::canonical(&req.namespace, &req.key, &req.value)),
+                "Contextual" => Some(EnhancedIdentifier::contextual(&req.namespace, &req.key, &req.value)),
+                _ => None,
+            }
+        })
+        .collect();
+
+    // Generate source entry
+    let source_entry = Uuid::new_v4();
+
+    match engine.create_local_item(identifiers, enhanced_identifiers, payload.enriched_data, source_entry) {
+        Ok(item) => {
+            let local_id = item.local_id.unwrap_or_else(|| {
+                // Extract from temporary DFID format "LID-{uuid}"
+                let dfid = &item.dfid;
+                if dfid.starts_with("LID-") {
+                    Uuid::parse_str(&dfid[4..]).unwrap_or_else(|_| Uuid::new_v4())
+                } else {
+                    Uuid::new_v4()
+                }
+            });
+
+            Ok(Json(CreateLocalItemResponse {
+                success: true,
+                data: LocalItemData {
+                    local_id: local_id.to_string(),
+                    status: "LocalOnly".to_string(),
+                },
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to create local item: {}", e)})),
+        )),
+    }
+}
+
+async fn get_lid_dfid_mapping(
+    State(state): State<Arc<AppState>>,
+    Path(local_id_str): Path<String>,
+) -> Result<Json<LidDfidMappingResponse>, (StatusCode, Json<Value>)> {
+    let engine = state.items_engine.lock().unwrap();
+
+    let local_id = match Uuid::parse_str(&local_id_str) {
+        Ok(uuid) => uuid,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid local_id format"})),
+            ))
+        }
+    };
+
+    // Try to get item by LID
+    match engine.get_item_by_lid(&local_id) {
+        Ok(Some(item)) => {
+            // Check if it's a local-only item or tokenized
+            let (dfid, status) = if item.dfid.starts_with("LID-") {
+                (None, "LocalOnly".to_string())
+            } else {
+                (Some(item.dfid), "Tokenized".to_string())
+            };
+
+            Ok(Json(LidDfidMappingResponse {
+                success: true,
+                data: LidDfidMappingData {
+                    local_id: local_id_str,
+                    dfid,
+                    status,
+                },
+            }))
+        }
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Local item not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get mapping: {}", e)})),
+        )),
     }
 }

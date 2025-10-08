@@ -1,4 +1,5 @@
 use crate::logging::LogEntry;
+use crate::identifier_types::EnhancedIdentifier;
 use crate::types::{
     Activity, CircuitItem, Identifier, Receipt, DataLakeEntry, Item, IdentifierMapping, ConflictResolution,
     ProcessingStatus, ItemStatus, Event, EventType, EventVisibility,
@@ -6,7 +7,8 @@ use crate::types::{
     AuditEvent, AuditEventType, AuditOutcome, AuditSeverity, AuditQuery,
     SecurityIncident, ComplianceReport, AuditDashboardMetrics, SecurityIncidentSummary, ComplianceStatus, UserRiskProfile, SecurityAnomaly,
     CircuitType, ItemStorageHistory, StorageRecord, CircuitAdapterConfig, UserAccount, CreditTransaction, AdminAction, SystemStatistics,
-    Notification
+    Notification, AdapterConfig, AdapterType, AdapterTestResult, AdapterConnectionDetails, ContractConfigs, ContractInfo,
+    MethodConfig, ParameterMapping, ParameterSource, TestStatus, ConnectionTestResult, ContractTestResult, AuthType
 };
 use chrono::{DateTime, Utc};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -258,6 +260,33 @@ pub trait StorageBackend {
     fn delete_notification(&mut self, notification_id: &str) -> Result<(), StorageError>;
     fn mark_all_notifications_read(&mut self, user_id: &str) -> Result<usize, StorageError>;
     fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError>;
+
+    // Adapter Configuration Management operations
+    fn store_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError>;
+    fn get_adapter_config(&self, config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError>;
+    fn update_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError>;
+    fn delete_adapter_config(&mut self, config_id: &Uuid) -> Result<(), StorageError>;
+    fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError>;
+    fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError>;
+    fn get_adapter_configs_by_type(&self, adapter_type: &AdapterType) -> Result<Vec<AdapterConfig>, StorageError>;
+    fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError>;
+    fn set_default_adapter(&mut self, config_id: &Uuid) -> Result<(), StorageError>;
+    fn store_adapter_test_result(&mut self, result: &AdapterTestResult) -> Result<(), StorageError>;
+    fn get_adapter_test_result(&self, config_id: &Uuid) -> Result<Option<AdapterTestResult>, StorageError>;
+
+    // LID ↔ DFID mapping operations
+    fn store_lid_dfid_mapping(&mut self, lid: &Uuid, dfid: &str) -> Result<(), StorageError>;
+    fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError>;
+
+    // Canonical identifier lookups (optimized)
+    fn get_dfid_by_canonical(&self, namespace: &str, registry: &str, value: &str) -> Result<Option<String>, StorageError>;
+
+    // Fingerprint mappings
+    fn store_fingerprint_mapping(&mut self, fingerprint: &str, dfid: &str, circuit_id: &Uuid) -> Result<(), StorageError>;
+    fn get_dfid_by_fingerprint(&self, fingerprint: &str, circuit_id: &Uuid) -> Result<Option<String>, StorageError>;
+
+    // Enhanced identifier mappings
+    fn store_enhanced_identifier_mapping(&mut self, identifier: &EnhancedIdentifier, dfid: &str) -> Result<(), StorageError>;
 }
 
 pub struct InMemoryStorage {
@@ -272,6 +301,10 @@ pub struct InMemoryStorage {
     circuits: HashMap<Uuid, Circuit>,
     circuit_operations: HashMap<Uuid, CircuitOperation>,
     item_shares: HashMap<String, ItemShare>,
+    // New fields for tokenization
+    lid_dfid_map: HashMap<Uuid, String>,
+    canonical_index: HashMap<String, String>, // "namespace:registry:value" -> dfid
+    fingerprint_map: HashMap<(String, Uuid), String>, // (fingerprint, circuit_id) -> dfid
     activities: HashMap<String, Activity>,
     circuit_items: HashMap<(Uuid, String), CircuitItem>,
     pending_items: HashMap<Uuid, PendingItem>,
@@ -290,6 +323,8 @@ pub struct InMemoryStorage {
     system_statistics: Option<SystemStatistics>,
     notifications: HashMap<String, Notification>,
     notifications_by_user: HashMap<String, Vec<String>>, // user_id -> notification_ids
+    adapter_configs: HashMap<Uuid, AdapterConfig>,
+    adapter_test_results: HashMap<Uuid, AdapterTestResult>,
 }
 
 impl InMemoryStorage {
@@ -306,6 +341,9 @@ impl InMemoryStorage {
             circuits: HashMap::new(),
             circuit_operations: HashMap::new(),
             item_shares: HashMap::new(),
+            lid_dfid_map: HashMap::new(),
+            canonical_index: HashMap::new(),
+            fingerprint_map: HashMap::new(),
             activities: HashMap::new(),
             circuit_items: HashMap::new(),
             pending_items: HashMap::new(),
@@ -324,6 +362,8 @@ impl InMemoryStorage {
             system_statistics: None,
             notifications: HashMap::new(),
             notifications_by_user: HashMap::new(),
+            adapter_configs: HashMap::new(),
+            adapter_test_results: HashMap::new(),
         }
     }
 }
@@ -1564,6 +1604,120 @@ impl StorageBackend for InMemoryStorage {
 
         Ok(count)
     }
+
+    // Adapter Configuration Management operations
+    fn store_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
+        self.adapter_configs.insert(config.config_id, config.clone());
+        Ok(())
+    }
+
+    fn get_adapter_config(&self, config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
+        Ok(self.adapter_configs.get(config_id).cloned())
+    }
+
+    fn update_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
+        let mut updated_config = config.clone();
+        updated_config.updated_at = Utc::now();
+        self.adapter_configs.insert(updated_config.config_id, updated_config);
+        Ok(())
+    }
+
+    fn delete_adapter_config(&mut self, config_id: &Uuid) -> Result<(), StorageError> {
+        self.adapter_configs.remove(config_id);
+        self.adapter_test_results.remove(config_id);
+        Ok(())
+    }
+
+    fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
+        Ok(self.adapter_configs.values().cloned().collect())
+    }
+
+    fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
+        Ok(self.adapter_configs.values()
+            .filter(|c| c.is_active)
+            .cloned()
+            .collect())
+    }
+
+    fn get_adapter_configs_by_type(&self, adapter_type: &AdapterType) -> Result<Vec<AdapterConfig>, StorageError> {
+        Ok(self.adapter_configs.values()
+            .filter(|c| std::mem::discriminant(&c.adapter_type) == std::mem::discriminant(adapter_type))
+            .cloned()
+            .collect())
+    }
+
+    fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
+        Ok(self.adapter_configs.values()
+            .find(|c| c.is_default)
+            .cloned())
+    }
+
+    fn set_default_adapter(&mut self, config_id: &Uuid) -> Result<(), StorageError> {
+        // Unset all defaults first
+        for config in self.adapter_configs.values_mut() {
+            config.is_default = false;
+        }
+
+        // Set the new default
+        if let Some(config) = self.adapter_configs.get_mut(config_id) {
+            config.is_default = true;
+            config.updated_at = Utc::now();
+            Ok(())
+        } else {
+            Err(StorageError::NotFound)
+        }
+    }
+
+    fn store_adapter_test_result(&mut self, result: &AdapterTestResult) -> Result<(), StorageError> {
+        // Update the adapter config's last_tested_at and test_status
+        if let Some(config) = self.adapter_configs.get_mut(&result.config_id) {
+            config.last_tested_at = Some(result.tested_at);
+            config.test_status = Some(result.status.clone());
+            config.updated_at = Utc::now();
+        }
+
+        self.adapter_test_results.insert(result.config_id, result.clone());
+        Ok(())
+    }
+
+    fn get_adapter_test_result(&self, config_id: &Uuid) -> Result<Option<AdapterTestResult>, StorageError> {
+        Ok(self.adapter_test_results.get(config_id).cloned())
+    }
+
+    // LID ↔ DFID mapping operations
+    fn store_lid_dfid_mapping(&mut self, lid: &Uuid, dfid: &str) -> Result<(), StorageError> {
+        self.lid_dfid_map.insert(*lid, dfid.to_string());
+        Ok(())
+    }
+
+    fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError> {
+        Ok(self.lid_dfid_map.get(lid).cloned())
+    }
+
+    // Canonical identifier lookups (optimized)
+    fn get_dfid_by_canonical(&self, namespace: &str, registry: &str, value: &str) -> Result<Option<String>, StorageError> {
+        let key = format!("{}:{}:{}", namespace, registry, value);
+        Ok(self.canonical_index.get(&key).cloned())
+    }
+
+    // Fingerprint mappings
+    fn store_fingerprint_mapping(&mut self, fingerprint: &str, dfid: &str, circuit_id: &Uuid) -> Result<(), StorageError> {
+        self.fingerprint_map.insert((fingerprint.to_string(), *circuit_id), dfid.to_string());
+        Ok(())
+    }
+
+    fn get_dfid_by_fingerprint(&self, fingerprint: &str, circuit_id: &Uuid) -> Result<Option<String>, StorageError> {
+        Ok(self.fingerprint_map.get(&(fingerprint.to_string(), *circuit_id)).cloned())
+    }
+
+    // Enhanced identifier mappings
+    fn store_enhanced_identifier_mapping(&mut self, identifier: &EnhancedIdentifier, dfid: &str) -> Result<(), StorageError> {
+        if identifier.is_canonical() {
+            let key = identifier.unique_key();
+            self.canonical_index.insert(key, dfid.to_string());
+        }
+        Ok(())
+    }
 }
 
 impl Default for InMemoryStorage {
@@ -2270,6 +2424,79 @@ impl StorageBackend for EncryptedFileStorage {
     fn get_unread_notification_count(&self, _user_id: &str) -> Result<usize, StorageError> {
         Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
     }
+
+    // Adapter Configuration Management operations - not implemented for file storage yet
+    fn store_adapter_config(&mut self, _config: &AdapterConfig) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn get_adapter_config(&self, _config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn update_adapter_config(&mut self, _config: &AdapterConfig) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn delete_adapter_config(&mut self, _config_id: &Uuid) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn get_adapter_configs_by_type(&self, _adapter_type: &AdapterType) -> Result<Vec<AdapterConfig>, StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn set_default_adapter(&mut self, _config_id: &Uuid) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn store_adapter_test_result(&mut self, _result: &AdapterTestResult) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    fn get_adapter_test_result(&self, _config_id: &Uuid) -> Result<Option<AdapterTestResult>, StorageError> {
+        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    }
+
+    // LID ↔ DFID mapping operations - not implemented for file storage yet
+    fn store_lid_dfid_mapping(&mut self, _lid: &Uuid, _dfid: &str) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("LID-DFID mapping not yet implemented for file storage".to_string()))
+    }
+
+    fn get_dfid_by_lid(&self, _lid: &Uuid) -> Result<Option<String>, StorageError> {
+        Err(StorageError::NotImplemented("LID-DFID mapping not yet implemented for file storage".to_string()))
+    }
+
+    // Canonical identifier lookups - not implemented for file storage yet
+    fn get_dfid_by_canonical(&self, _namespace: &str, _registry: &str, _value: &str) -> Result<Option<String>, StorageError> {
+        Err(StorageError::NotImplemented("Canonical lookup not yet implemented for file storage".to_string()))
+    }
+
+    // Fingerprint mappings - not implemented for file storage yet
+    fn store_fingerprint_mapping(&mut self, _fingerprint: &str, _dfid: &str, _circuit_id: &Uuid) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Fingerprint mapping not yet implemented for file storage".to_string()))
+    }
+
+    fn get_dfid_by_fingerprint(&self, _fingerprint: &str, _circuit_id: &Uuid) -> Result<Option<String>, StorageError> {
+        Err(StorageError::NotImplemented("Fingerprint lookup not yet implemented for file storage".to_string()))
+    }
+
+    // Enhanced identifier mappings - not implemented for file storage yet
+    fn store_enhanced_identifier_mapping(&mut self, _identifier: &EnhancedIdentifier, _dfid: &str) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented("Enhanced identifier mapping not yet implemented for file storage".to_string()))
+    }
 }
 
 // Implementation of StorageBackend for Arc<Mutex<InMemoryStorage>>
@@ -2812,6 +3039,79 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
 
     fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError> {
         self.lock().unwrap().get_unread_notification_count(user_id)
+    }
+
+    // Adapter Configuration Management operations
+    fn store_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
+        self.lock().unwrap().store_adapter_config(config)
+    }
+
+    fn get_adapter_config(&self, config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
+        self.lock().unwrap().get_adapter_config(config_id)
+    }
+
+    fn update_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
+        self.lock().unwrap().update_adapter_config(config)
+    }
+
+    fn delete_adapter_config(&mut self, config_id: &Uuid) -> Result<(), StorageError> {
+        self.lock().unwrap().delete_adapter_config(config_id)
+    }
+
+    fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
+        self.lock().unwrap().list_adapter_configs()
+    }
+
+    fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
+        self.lock().unwrap().list_active_adapter_configs()
+    }
+
+    fn get_adapter_configs_by_type(&self, adapter_type: &AdapterType) -> Result<Vec<AdapterConfig>, StorageError> {
+        self.lock().unwrap().get_adapter_configs_by_type(adapter_type)
+    }
+
+    fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
+        self.lock().unwrap().get_default_adapter_config()
+    }
+
+    fn set_default_adapter(&mut self, config_id: &Uuid) -> Result<(), StorageError> {
+        self.lock().unwrap().set_default_adapter(config_id)
+    }
+
+    fn store_adapter_test_result(&mut self, result: &AdapterTestResult) -> Result<(), StorageError> {
+        self.lock().unwrap().store_adapter_test_result(result)
+    }
+
+    fn get_adapter_test_result(&self, config_id: &Uuid) -> Result<Option<AdapterTestResult>, StorageError> {
+        self.lock().unwrap().get_adapter_test_result(config_id)
+    }
+
+    // LID ↔ DFID mapping operations
+    fn store_lid_dfid_mapping(&mut self, lid: &Uuid, dfid: &str) -> Result<(), StorageError> {
+        self.lock().unwrap().store_lid_dfid_mapping(lid, dfid)
+    }
+
+    fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError> {
+        self.lock().unwrap().get_dfid_by_lid(lid)
+    }
+
+    // Canonical identifier lookups
+    fn get_dfid_by_canonical(&self, namespace: &str, registry: &str, value: &str) -> Result<Option<String>, StorageError> {
+        self.lock().unwrap().get_dfid_by_canonical(namespace, registry, value)
+    }
+
+    // Fingerprint mappings
+    fn store_fingerprint_mapping(&mut self, fingerprint: &str, dfid: &str, circuit_id: &Uuid) -> Result<(), StorageError> {
+        self.lock().unwrap().store_fingerprint_mapping(fingerprint, dfid, circuit_id)
+    }
+
+    fn get_dfid_by_fingerprint(&self, fingerprint: &str, circuit_id: &Uuid) -> Result<Option<String>, StorageError> {
+        self.lock().unwrap().get_dfid_by_fingerprint(fingerprint, circuit_id)
+    }
+
+    // Enhanced identifier mappings
+    fn store_enhanced_identifier_mapping(&mut self, identifier: &EnhancedIdentifier, dfid: &str) -> Result<(), StorageError> {
+        self.lock().unwrap().store_enhanced_identifier_mapping(identifier, dfid)
     }
 }
 

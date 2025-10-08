@@ -17,10 +17,13 @@ use crate::api::auth::Claims;
 use crate::storage::StorageBackend;
 use crate::types::{
     UserAccount, UserTier, AccountStatus, CreditTransaction, CreditTransactionType,
-    AdminAction, AdminActionType, SystemStatistics, TierLimits, AdapterType
+    AdminAction, AdminActionType, SystemStatistics, TierLimits, AdapterType,
+    AdapterConfig, AdapterConnectionDetails, ContractConfigs, AuthType
 };
 use crate::credit_manager::CreditEngine;
 use crate::tier_permission_system::TierPermissionSystem;
+use crate::adapter_manager::{AdapterManager, AdapterManagerError};
+use crate::logging::LoggingEngine;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -125,6 +128,24 @@ pub struct AdminDashboardStats {
     pub active_users_last_30_days: u64,
     pub new_users_last_30_days: u64,
     pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateAdapterConfigRequest {
+    pub name: String,
+    pub description: String,
+    pub adapter_type: AdapterType,
+    pub connection_details: AdapterConnectionDetails,
+    pub contract_configs: Option<ContractConfigs>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateAdapterConfigRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub connection_details: Option<AdapterConnectionDetails>,
+    pub contract_configs: Option<ContractConfigs>,
+    pub is_active: Option<bool>,
 }
 
 // ============================================================================
@@ -828,6 +849,220 @@ async fn get_admin_actions(
 }
 
 // ============================================================================
+// ADAPTER CONFIGURATION HANDLERS
+// ============================================================================
+
+async fn create_adapter_config(
+    State(app_state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<CreateAdapterConfigRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    verify_admin(&claims, &app_state)?;
+
+    // Create logger for adapter manager
+    let logger = LoggingEngine::new();
+    let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
+
+    match adapter_manager.create_adapter_config(
+        request.name,
+        request.description,
+        request.adapter_type,
+        request.connection_details,
+        request.contract_configs,
+        claims.user_id,
+    ) {
+        Ok(config) => {
+            Ok(Json(json!({
+                "success": true,
+                "message": "Adapter configuration created successfully",
+                "config": config
+            })))
+        }
+        Err(e) => {
+            Ok(Json(json!({
+                "success": false,
+                "error": e.to_string()
+            })))
+        }
+    }
+}
+
+async fn list_adapter_configs(
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    State(app_state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    verify_admin(&claims, &app_state)?;
+
+    let logger = LoggingEngine::new();
+    let adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
+
+    let active_only = params.get("active_only")
+        .and_then(|s| s.parse::<bool>().ok())
+        .unwrap_or(false);
+
+    match adapter_manager.list_adapters(active_only) {
+        Ok(configs) => {
+            Ok(Json(json!({
+                "success": true,
+                "configs": configs,
+                "count": configs.len()
+            })))
+        }
+        Err(e) => {
+            Ok(Json(json!({
+                "success": false,
+                "error": e.to_string()
+            })))
+        }
+    }
+}
+
+async fn get_adapter_config(
+    Path(config_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    verify_admin(&claims, &app_state)?;
+
+    let config_uuid = Uuid::parse_str(&config_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
+
+    let logger = LoggingEngine::new();
+    let adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
+
+    match adapter_manager.get_adapter_config(&config_uuid) {
+        Ok(config) => {
+            Ok(Json(json!({
+                "success": true,
+                "config": config
+            })))
+        }
+        Err(e) => {
+            Ok(Json(json!({
+                "success": false,
+                "error": e.to_string()
+            })))
+        }
+    }
+}
+
+async fn update_adapter_config(
+    Path(config_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<UpdateAdapterConfigRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    verify_admin(&claims, &app_state)?;
+
+    let config_uuid = Uuid::parse_str(&config_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
+
+    let logger = LoggingEngine::new();
+    let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
+
+    match adapter_manager.update_adapter_config(
+        &config_uuid,
+        request.name,
+        request.description,
+        request.connection_details,
+        request.contract_configs,
+        request.is_active,
+    ) {
+        Ok(config) => {
+            Ok(Json(json!({
+                "success": true,
+                "message": "Adapter configuration updated successfully",
+                "config": config
+            })))
+        }
+        Err(e) => {
+            Ok(Json(json!({
+                "success": false,
+                "error": e.to_string()
+            })))
+        }
+    }
+}
+
+async fn delete_adapter_config(
+    Path(config_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    verify_admin(&claims, &app_state)?;
+
+    let config_uuid = Uuid::parse_str(&config_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
+
+    let logger = LoggingEngine::new();
+    let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
+
+    match adapter_manager.delete_adapter_config(&config_uuid) {
+        Ok(()) => {
+            Ok(Json(json!({
+                "success": true,
+                "message": "Adapter configuration deleted successfully"
+            })))
+        }
+        Err(e) => {
+            Ok(Json(json!({
+                "success": false,
+                "error": e.to_string()
+            })))
+        }
+    }
+}
+
+async fn set_default_adapter(
+    Path(config_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    verify_admin(&claims, &app_state)?;
+
+    let config_uuid = Uuid::parse_str(&config_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
+
+    let logger = LoggingEngine::new();
+    let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
+
+    match adapter_manager.set_default_adapter(&config_uuid) {
+        Ok(()) => {
+            Ok(Json(json!({
+                "success": true,
+                "message": "Default adapter set successfully"
+            })))
+        }
+        Err(e) => {
+            Ok(Json(json!({
+                "success": false,
+                "error": e.to_string()
+            })))
+        }
+    }
+}
+
+// TODO: Implement test_adapter_config endpoint
+// This endpoint needs special handling for async adapter testing
+// For now, testing can be done programmatically using AdapterManager::test_adapter()
+// async fn test_adapter_config(
+//     State(app_state): State<Arc<AppState>>,
+//     Extension(claims): Extension<Claims>,
+//     Path(config_id): Path<String>,
+// ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+//     verify_admin(&claims, &app_state)?;
+//     let config_uuid = Uuid::parse_str(&config_id)
+//         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
+//     let logger = LoggingEngine::new();
+//     let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
+//     match adapter_manager.test_adapter(&config_uuid).await {
+//         Ok(result) => Ok(Json(json!({"success": true, "test_result": result}))),
+//         Err(e) => Ok(Json(json!({"success": false, "error": e.to_string()})))
+//     }
+// }
+
+// ============================================================================
 // ROUTER SETUP
 // ============================================================================
 
@@ -845,4 +1080,11 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
         // Dashboard and monitoring
         .route("/dashboard/stats", get(get_admin_dashboard_stats))
         .route("/actions", get(get_admin_actions))
+
+        // Adapter configuration management
+        .route("/adapters", get(list_adapter_configs).post(create_adapter_config))
+        .route("/adapters/:config_id", get(get_adapter_config).put(update_adapter_config).delete(delete_adapter_config))
+        .route("/adapters/:config_id/set-default", post(set_default_adapter))
+        // TODO: Add test endpoint once async handler issue is resolved
+        // .route("/adapters/:config_id/test", post(test_adapter_config))
 }
