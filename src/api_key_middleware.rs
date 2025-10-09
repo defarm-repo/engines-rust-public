@@ -384,7 +384,7 @@ mod tests {
         String,
         Uuid,
     ) {
-        let logging = Arc::new(LoggingEngine::new());
+        let logging = Arc::new(Mutex::new(LoggingEngine::new()));
         let engine = Arc::new(ApiKeyEngine::new());
         let storage = Arc::new(InMemoryApiKeyStorage::new());
         let rate_limiter = Arc::new(RateLimiter::new());

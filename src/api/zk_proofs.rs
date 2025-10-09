@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
-    routing::{get, post, put, delete},
+    routing::{get, post, delete},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -13,9 +13,8 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 
 use crate::zk_proof_engine::{
-    ZkProofEngine, ZkProof, ProofStatus, CircuitType, VerificationResult
+    ZkProofEngine, ZkProof, ProofStatus, CircuitType
 };
-use crate::InMemoryStorage;
 use crate::api::shared_state::AppState;
 
 // API Request/Response types
@@ -121,7 +120,11 @@ None
             })))
         }
         Err(e) => {
-            eprintln!("Error submitting proof: {:?}", e);
+            app_state.logging.lock().unwrap().error(
+                "api_zk_proofs",
+                "submit_proof_error",
+                &format!("Error submitting proof: {:?}", e)
+            );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -143,7 +146,11 @@ async fn verify_proof(
             })))
         }
         Err(e) => {
-            eprintln!("Error verifying proof: {:?}", e);
+            app_state.logging.lock().unwrap().error(
+                "api_zk_proofs",
+                "verify_proof_error",
+                &format!("Error verifying proof: {:?}", e)
+            );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -165,7 +172,11 @@ async fn get_proof(
         }
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
-            eprintln!("Error getting proof: {:?}", e);
+            app_state.logging.lock().unwrap().error(
+                "api_zk_proofs",
+                "get_proof_error",
+                &format!("Error getting proof: {:?}", e)
+            );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -223,7 +234,11 @@ async fn list_proofs(
             })))
         }
         Err(e) => {
-            eprintln!("Error querying proofs: {:?}", e);
+            app_state.logging.lock().unwrap().error(
+                "api_zk_proofs",
+                "list_proofs_error",
+                &format!("Error querying proofs: {:?}", e)
+            );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -242,7 +257,11 @@ async fn get_proof_statistics(
             })))
         }
         Err(e) => {
-            eprintln!("Error getting proof statistics: {:?}", e);
+            app_state.logging.lock().unwrap().error(
+                "api_zk_proofs",
+                "get_stats_error",
+                &format!("Error getting proof statistics: {:?}", e)
+            );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -262,7 +281,11 @@ async fn delete_proof(
             })))
         }
         Err(e) => {
-            eprintln!("Error deleting proof: {:?}", e);
+            app_state.logging.lock().unwrap().error(
+                "api_zk_proofs",
+                "delete_proof_error",
+                &format!("Error deleting proof: {:?}", e)
+            );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }

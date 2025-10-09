@@ -2,7 +2,7 @@
 mod circuit_tokenization_tests {
     use crate::circuits_engine::{CircuitsEngine, PushStatus};
     use crate::identifier_types::{EnhancedIdentifier, CircuitAliasConfig, namespaces};
-    use crate::storage::InMemoryStorage;
+    use crate::storage::{InMemoryStorage, StorageBackend};
     use std::sync::{Arc, Mutex};
     use std::collections::HashMap;
     use uuid::Uuid;

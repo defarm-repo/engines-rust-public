@@ -5,8 +5,6 @@ use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::logging::{LoggingEngine, LogEntry, LogLevel};
-
 #[derive(Error, Debug)]
 pub enum RateLimitError {
     #[error("Rate limit exceeded: {0}")]

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use crate::adapters::base::*;
 use crate::types::*;
 use crate::storage::StorageError;
@@ -22,7 +22,7 @@ impl LocalLocalAdapter {
         }
     }
 
-    fn create_metadata(&self, operation: &str) -> StorageMetadata {
+    fn create_metadata(&self, _operation: &str) -> StorageMetadata {
         let now = Utc::now();
         StorageMetadata {
             adapter_type: AdapterType::LocalLocal,
@@ -57,7 +57,7 @@ impl StorageAdapter for LocalLocalAdapter {
         Ok(AdapterResult::new(item_id, metadata))
     }
 
-    async fn store_event(&self, event: &Event, item_id: &str) -> Result<AdapterResult<String>, StorageError> {
+    async fn store_event(&self, event: &Event, _item_id: &str) -> Result<AdapterResult<String>, StorageError> {
         let mut events = self.events.lock().map_err(|_| StorageError::IoError("Failed to acquire events lock".to_string()))?;
         let mut metadata_store = self.metadata.lock().map_err(|_| StorageError::IoError("Failed to acquire metadata lock".to_string()))?;
 

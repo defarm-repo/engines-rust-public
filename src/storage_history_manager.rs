@@ -1,7 +1,7 @@
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::{StorageRecord, ItemStorageHistory, AdapterType};
-use crate::adapters::{StorageLocation, AdapterInstance, StorageAdapter};
-use chrono::{DateTime, Utc};
+use crate::adapters::{StorageLocation, AdapterInstance};
+use chrono::Utc;
 use uuid::Uuid;
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -20,7 +20,7 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         dfid: &str,
         adapter_type: AdapterType,
         storage_id: String,
-        circuit_id: Option<Uuid>,
+        _circuit_id: Option<Uuid>,
         user_id: &str,
     ) -> Result<(), StorageError> {
         let storage_location = match adapter_type {
@@ -60,7 +60,7 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         event_id: String,
         adapter_type: AdapterType,
         storage_id: String,
-        circuit_id: Option<Uuid>,
+        _circuit_id: Option<Uuid>,
         user_id: &str,
     ) -> Result<(), StorageError> {
         let storage_location = match adapter_type {
@@ -123,10 +123,10 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         dfid: &str,
         new_adapter: &AdapterInstance,
         circuit_id: Uuid,
-        user_id: &str,
+        _user_id: &str,
     ) -> Result<(), StorageError> {
         // Get current storage history
-        let current_locations = self.get_all_storage_locations(dfid).await?;
+        let _current_locations = self.get_all_storage_locations(dfid).await?;
 
         // Check if item is already stored in this adapter
         let adapter_type = new_adapter.adapter_type();

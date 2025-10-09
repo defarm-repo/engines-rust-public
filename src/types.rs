@@ -621,6 +621,7 @@ pub struct Circuit {
     pub custom_roles: Vec<CustomRole>,
     pub public_settings: Option<PublicSettings>,
     pub adapter_config: Option<CircuitAdapterConfig>,
+    pub post_action_settings: Option<PostActionSettings>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -917,6 +918,7 @@ impl Circuit {
             custom_roles: default_roles,
             public_settings: None,
             adapter_config: None,
+            post_action_settings: None,
         }
     }
 
@@ -2076,6 +2078,209 @@ pub struct ClientAdapterConfig {
     pub circuit_overrides: HashMap<Uuid, AdapterType>,
     pub tier: String, // "basic", "professional", "enterprise"
     pub updated_at: DateTime<Utc>,
+}
+
+// ============================================================================
+// WEBHOOK & POST-ACTION SYSTEM
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostActionSettings {
+    pub enabled: bool,
+    pub webhooks: Vec<WebhookConfig>,
+    pub trigger_events: Vec<PostActionTrigger>,
+    pub include_storage_details: bool,
+    pub include_item_metadata: bool,
+}
+
+impl Default for PostActionSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            webhooks: vec![],
+            trigger_events: vec![PostActionTrigger::ItemPushed],
+            include_storage_details: true,
+            include_item_metadata: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookConfig {
+    pub id: Uuid,
+    pub name: String,
+    pub url: String,
+    pub method: HttpMethod,
+    pub headers: HashMap<String, String>,
+    pub auth_type: WebhookAuthType,
+    pub auth_credentials: Option<String>, // encrypted at rest
+    pub enabled: bool,
+    pub retry_config: RetryConfig,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl WebhookConfig {
+    pub fn new(name: String, url: String) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name,
+            url,
+            method: HttpMethod::Post,
+            headers: HashMap::new(),
+            auth_type: WebhookAuthType::None,
+            auth_credentials: None,
+            enabled: true,
+            retry_config: RetryConfig::default(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum HttpMethod {
+    Post,
+    Put,
+    Patch,
+}
+
+impl HttpMethod {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HttpMethod::Post => "POST",
+            HttpMethod::Put => "PUT",
+            HttpMethod::Patch => "PATCH",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum WebhookAuthType {
+    None,
+    BearerToken,
+    ApiKey,
+    BasicAuth,
+    CustomHeader,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum PostActionTrigger {
+    ItemPushed,
+    ItemApproved,
+    ItemTokenized,
+    ItemPublished,
+}
+
+impl PostActionTrigger {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PostActionTrigger::ItemPushed => "item_pushed",
+            PostActionTrigger::ItemApproved => "item_approved",
+            PostActionTrigger::ItemTokenized => "item_tokenized",
+            PostActionTrigger::ItemPublished => "item_published",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryConfig {
+    pub max_retries: u32,
+    pub initial_delay_ms: u64,
+    pub max_delay_ms: u64,
+    pub backoff_multiplier: f64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_delay_ms: 1000,
+            max_delay_ms: 30000,
+            backoff_multiplier: 2.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookDelivery {
+    pub id: Uuid,
+    pub webhook_id: Uuid,
+    pub circuit_id: Uuid,
+    pub trigger_event: PostActionTrigger,
+    pub payload: serde_json::Value,
+    pub status: DeliveryStatus,
+    pub attempts: u32,
+    pub response_code: Option<u16>,
+    pub response_body: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub delivered_at: Option<DateTime<Utc>>,
+    pub error_message: Option<String>,
+    pub next_retry_at: Option<DateTime<Utc>>,
+}
+
+impl WebhookDelivery {
+    pub fn new(
+        webhook_id: Uuid,
+        circuit_id: Uuid,
+        trigger_event: PostActionTrigger,
+        payload: serde_json::Value,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            webhook_id,
+            circuit_id,
+            trigger_event,
+            payload,
+            status: DeliveryStatus::Pending,
+            attempts: 0,
+            response_code: None,
+            response_body: None,
+            created_at: Utc::now(),
+            delivered_at: None,
+            error_message: None,
+            next_retry_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum DeliveryStatus {
+    Pending,
+    InProgress,
+    Delivered,
+    Failed,
+    Retrying,
+}
+
+// Webhook payload structure sent to configured endpoints
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookPayload {
+    pub event_type: String,
+    pub circuit_id: String,
+    pub circuit_name: String,
+    pub timestamp: DateTime<Utc>,
+    pub item: WebhookItemData,
+    pub storage: Option<WebhookStorageData>,
+    pub operation_id: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookItemData {
+    pub dfid: String,
+    pub local_id: Option<String>,
+    pub identifiers: Vec<HashMap<String, String>>,
+    pub pushed_by: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookStorageData {
+    pub adapter_type: String,
+    pub location: String,
+    pub hash: String,
+    pub cid: Option<String>,
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 // ============================================================================

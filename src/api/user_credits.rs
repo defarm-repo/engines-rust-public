@@ -11,10 +11,8 @@ use std::sync::Arc;
 
 use crate::api::shared_state::AppState;
 use crate::api::auth::Claims;
-use crate::credit_manager::CreditEngine;
-use crate::tier_permission_system::TierPermissionSystem;
 use crate::storage::StorageBackend;
-use crate::types::{CreditTransaction, CreditCosts, UserAccount, UserTier};
+use crate::types::{CreditCosts};
 
 // ============================================================================
 // REQUEST/RESPONSE TYPES

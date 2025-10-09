@@ -7,11 +7,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
-use crate::adapters::{AdapterRegistry, AdapterInstance, LocalLocalAdapter, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter, LocalIpfsAdapter, StellarMainnetStellarMainnetAdapter, StorageAdapter};
+use crate::adapters::{AdapterInstance, LocalLocalAdapter, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter, LocalIpfsAdapter, StellarMainnetStellarMainnetAdapter, StorageAdapter};
 use crate::types::{AdapterType, StorageBackendType, UserTier};
 use crate::api::shared_state::AppState;
 use crate::api::auth::Claims;
@@ -141,8 +140,8 @@ async fn select_adapter(
 
 async fn get_adapter_status(
     Path(adapter_type_str): Path<String>,
-    Query(params): Query<AdapterQuery>,
-    State(app_state): State<Arc<AppState>>,
+    Query(_params): Query<AdapterQuery>,
+    State(_app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, StatusCode> {
     let adapter_type = match AdapterType::from_string(&adapter_type_str) {
         Ok(adapter_type) => adapter_type,
@@ -172,7 +171,7 @@ async fn get_adapter_status(
 
 async fn health_check_adapter(
     Path(adapter_type_str): Path<String>,
-    State(app_state): State<Arc<AppState>>,
+    State(_app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, StatusCode> {
     let adapter_type = match AdapterType::from_string(&adapter_type_str) {
         Ok(adapter_type) => adapter_type,

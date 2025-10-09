@@ -9,11 +9,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    AuditEngine, InMemoryStorage, StorageBackend, AuditEventType, AuditOutcome, AuditSeverity,
+    StorageBackend, AuditEventType, AuditOutcome, AuditSeverity,
     AuditEventMetadata, ComplianceInfo, IncidentCategory, ComplianceReportType,
     ComplianceScope, ExportFormat, AuditQuery, AuditSortBy, SortOrder,
     api::shared_state::AppState
@@ -572,7 +572,7 @@ pub async fn list_security_incidents(
 // Dashboard and Metrics Endpoints
 pub async fn get_dashboard_metrics(
     State(state): State<Arc<AppState>>,
-    Query(params): Query<MetricsQueryParams>,
+    Query(_params): Query<MetricsQueryParams>,
 ) -> Result<Json<Value>, StatusCode> {
     let engine = &state.audit_engine;
 

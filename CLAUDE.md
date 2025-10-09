@@ -304,3 +304,52 @@ Every new feature or update must be documented by updating existing principles o
 3. Priority 3: Create new DFID if no match found
 4. All matches enrich existing item with new data
 5. Multiple pushes from same entity accumulate data
+
+## Circuit Post-Action Webhook System
+
+### Core Webhook Principles
+1. Webhook system is completely optional for circuit owners/managers
+2. Post-action webhooks trigger after successful push operations
+3. Circuit owners configure which events trigger webhooks
+4. Multiple webhooks can be configured per circuit
+5. Webhooks include storage details and item metadata based on configuration
+
+### Webhook Configuration
+1. Circuit owners enable/disable webhook system per circuit
+2. Configure trigger events: ItemPushed, ItemApproved, ItemTokenized, ItemPublished
+3. Control what data is included: storage details, item metadata
+4. Each webhook has individual enable/disable flag
+5. Webhooks support authentication: None, BearerToken, ApiKey, BasicAuth, CustomHeader
+
+### Webhook Delivery
+1. Webhooks fire asynchronously after successful push operations
+2. Automatic retry with exponential backoff for failed deliveries
+3. Configurable retry parameters: max_retries, initial_delay, max_delay, backoff_multiplier
+4. Default: 3 retries with 1s initial delay, 30s max delay, 2x multiplier
+5. Delivery history tracked with status, response codes, and timestamps
+
+### Webhook Security
+1. URL validation prevents SSRF attacks (no localhost or private IPs)
+2. Only HTTPS and HTTP protocols allowed
+3. Authentication credentials encrypted at rest
+4. Only circuit owner and admins can configure webhooks
+5. Webhook test endpoint for validation before going live
+
+### Webhook Payload Structure
+1. event_type: Type of event that triggered webhook
+2. circuit_id and circuit_name: Circuit context
+3. timestamp: When event occurred
+4. item: DFID, local_id, identifiers, pushed_by
+5. storage: adapter_type, location, hash, CID, metadata (if enabled)
+6. operation_id: Reference to circuit operation
+7. status: Operation completion status
+
+### Webhook API Endpoints
+1. GET /api/circuits/:id/post-actions - Get post-action settings
+2. PUT /api/circuits/:id/post-actions - Update post-action settings
+3. POST /api/circuits/:id/post-actions/webhooks - Create webhook
+4. GET /api/circuits/:id/post-actions/webhooks/:webhook_id - Get webhook details
+5. PUT /api/circuits/:id/post-actions/webhooks/:webhook_id - Update webhook
+6. DELETE /api/circuits/:id/post-actions/webhooks/:webhook_id - Delete webhook
+7. POST /api/circuits/:id/post-actions/webhooks/:webhook_id/test - Test webhook
+8. GET /api/circuits/:id/post-actions/deliveries - View delivery history

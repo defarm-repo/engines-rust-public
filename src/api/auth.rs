@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{State, Extension},
     http::StatusCode,
     response::Json,
     routing::{post, get},
@@ -63,7 +63,11 @@ pub struct AuthState {
 impl AuthState {
     pub fn new() -> Self {
         let jwt_secret = std::env::var("JWT_SECRET")
-            .unwrap_or_else(|_| "your-secret-key-change-in-production".to_string());
+            .expect("JWT_SECRET environment variable must be set. Please set a secure secret key for JWT authentication.");
+
+        if jwt_secret.len() < 32 {
+            panic!("JWT_SECRET must be at least 32 characters long for security");
+        }
 
         Self {
             jwt_secret,
@@ -117,7 +121,8 @@ async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
     // Get user by username from shared storage
-    let storage = app_state.shared_storage.lock().unwrap();
+    let storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     if let Some(user) = storage.get_user_by_username(&payload.username)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
@@ -180,7 +185,8 @@ async fn register(
     State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
-    let mut storage = app_state.shared_storage.lock().unwrap();
+    let mut storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     // Check if username already exists
     if storage.get_user_by_username(&payload.username)
@@ -263,14 +269,14 @@ async fn register(
 }
 
 async fn get_profile(
-    State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
-    // TODO: Extract JWT token from headers via middleware
+    State((_auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<UserProfile>, (StatusCode, Json<Value>)> {
-    // For now, return demo user until JWT middleware is implemented
-    // TODO: Get actual user_id from JWT Claims in request extensions
-    let user_id = "hen-admin-001"; // Temporary until JWT middleware
+    // Extract user_id from JWT Claims injected by jwt_auth_middleware
+    let user_id = &claims.user_id;
 
-    let storage = app_state.shared_storage.lock().unwrap();
+    let storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     if let Some(user) = storage.get_user_account(user_id)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
@@ -289,13 +295,13 @@ async fn get_profile(
 
 async fn refresh_token(
     State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
-    // TODO: Extract JWT token from headers via middleware
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
-    // For now, use demo user until JWT middleware is implemented
-    // TODO: Get actual user_id from JWT Claims in request extensions
-    let user_id = "hen-admin-001"; // Temporary until JWT middleware
+    // Extract user_id from JWT Claims injected by jwt_auth_middleware
+    let user_id = &claims.user_id;
 
-    let storage = app_state.shared_storage.lock().unwrap();
+    let storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     if let Some(user) = storage.get_user_account(user_id)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?

@@ -1,12 +1,10 @@
 use crate::dfid_engine::DfidEngine;
 use crate::logging::{LoggingEngine, LogEntry};
 use crate::storage::{StorageError, StorageBackend};
-use crate::conflict_detection::ConflictDetectionEngine;
 use crate::types::{Item, Identifier, ItemStatus, ItemShare, SharedItemResponse, PendingItem, PendingReason};
 use crate::storage_history_manager::StorageHistoryManager;
-use crate::adapters::{AdapterInstance, StorageLocation, StorageAdapter};
+use crate::adapters::StorageLocation;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 use chrono::Utc;
 
@@ -241,7 +239,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         Ok(None)
     }
 
-    async fn retrieve_item_from_location(&self, dfid: &str, location: &StorageLocation) -> Result<Option<Item>, ItemsError> {
+    async fn retrieve_item_from_location(&self, _dfid: &str, _location: &StorageLocation) -> Result<Option<Item>, ItemsError> {
         // This method would use the appropriate adapter to retrieve the item
         // For now, we'll return None since we need to implement adapter integration
         // TODO: Create adapter instances and retrieve data from them
@@ -510,7 +508,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         &self,
         identifiers: &[Identifier],
         enriched_data: &Option<HashMap<String, serde_json::Value>>,
-        source_entry: Uuid,
+        _source_entry: Uuid,
     ) -> Result<Option<PendingReason>, ItemsError> {
         // Check for empty identifiers
         if identifiers.is_empty() {

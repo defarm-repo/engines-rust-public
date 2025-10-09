@@ -5,7 +5,8 @@ use defarm_engine::{
 use std::sync::Arc;
 use uuid::Uuid;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("=== Complete Engine System Demo with Events and Circuits ===\n");
 
     // Create storage for receipt engine and shared storage for new engines
@@ -132,7 +133,7 @@ fn main() {
         &demo_dfid,
         &circuit.circuit_id,
         "owner_123"
-    ).unwrap();
+    ).await.unwrap();
     println!("   Push operation created: {}", push_operation.operation_id);
 
     // Pull item from circuit

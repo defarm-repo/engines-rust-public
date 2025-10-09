@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::{ItemsEngine, InMemoryStorage, Item, ItemStatus, Identifier, ItemShare, SharedItemResponse, PendingItem, PendingReason};
+use crate::{ItemsEngine, InMemoryStorage, Item, ItemStatus, Identifier, PendingItem, PendingReason};
 use crate::items_engine::ResolutionAction;
 use crate::identifier_types::EnhancedIdentifier;
 use uuid::Uuid;
@@ -269,7 +269,8 @@ async fn create_item(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateItemRequest>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     let source_entry = uuid::Uuid::parse_str(&payload.source_entry)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid source entry UUID"}))))?;
@@ -289,7 +290,8 @@ async fn create_items_batch(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateItemsBatchRequest>,
 ) -> Result<Json<CreateItemsBatchResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
     let mut results = Vec::new();
     let mut success_count = 0;
     let mut failed_count = 0;
@@ -344,7 +346,8 @@ async fn get_item(
     State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock().unwrap();
+    let engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     match engine.get_item(&dfid) {
         Ok(Some(item)) => Ok(Json(item_to_response(item))),
@@ -358,7 +361,8 @@ async fn update_item(
     Path(dfid): Path<String>,
     Json(payload): Json<UpdateItemRequest>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     // Update enriched data if provided
     if let Some(enriched_data) = payload.enriched_data {
@@ -394,7 +398,8 @@ async fn delete_item(
     State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     match engine.deprecate_item(&dfid) {
         Ok(_) => Ok(Json(json!({"message": "Item deprecated successfully"}))),
@@ -406,7 +411,8 @@ async fn list_items(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ItemQueryParams>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock().unwrap();
+    let engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     match engine.list_items() {
         Ok(mut items) => {
@@ -447,7 +453,8 @@ async fn merge_items(
     Path(primary_dfid): Path<String>,
     Json(secondary_dfid): Json<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     match engine.merge_items(&primary_dfid, &secondary_dfid) {
         Ok(item) => Ok(Json(item_to_response(item))),
@@ -460,7 +467,8 @@ async fn split_item(
     Path(dfid): Path<String>,
     Json(split_request): Json<SplitItemRequest>,
 ) -> Result<Json<SplitItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     let identifiers: Vec<Identifier> = split_request.identifiers_for_new_item
         .into_iter()
@@ -482,7 +490,8 @@ async fn deprecate_item(
     State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     match engine.deprecate_item(&dfid) {
         Ok(item) => Ok(Json(item_to_response(item))),
@@ -502,7 +511,8 @@ async fn search_items(
 async fn get_item_stats(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<ItemStatsResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock().unwrap();
+    let engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     match engine.list_items() {
         Ok(items) => {
@@ -531,7 +541,8 @@ async fn get_items_by_identifier(
     State(state): State<Arc<AppState>>,
     Path((key, value)): Path<(String, String)>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock().unwrap();
+    let engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
     let identifier = Identifier::new(key, value);
 
     match engine.find_items_by_identifier(&identifier) {
@@ -552,7 +563,8 @@ async fn share_item(
     Path(dfid): Path<String>,
     Json(payload): Json<ShareItemRequest>,
 ) -> Result<Json<ShareItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     // For now, use a placeholder for the shared_by user ID
     // In a real application, this would come from authentication
@@ -573,7 +585,8 @@ async fn check_item_shared_with_user(
     State(state): State<Arc<AppState>>,
     Path((dfid, user_id)): Path<(String, String)>,
 ) -> Result<Json<SharedWithCheckResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock().unwrap();
+    let engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     match engine.is_item_shared_with_user(&dfid, &user_id) {
         Ok(is_shared) => {
@@ -603,7 +616,8 @@ pub async fn get_shared_items_for_user(
     State(state): State<Arc<AppState>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<SharedItemListResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock().unwrap();
+    let engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     match engine.get_shares_for_user(&user_id) {
         Ok(shared_items) => {
@@ -628,7 +642,8 @@ async fn list_pending_items(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PendingItemQueryParams>,
 ) -> Result<Json<Vec<PendingItemResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock().unwrap();
+    let engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     match engine.get_pending_items() {
         Ok(pending_items) => {
@@ -666,7 +681,8 @@ async fn get_pending_item(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<PendingItemResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock().unwrap();
+    let engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     let pending_id = match Uuid::parse_str(&id) {
         Ok(uuid) => uuid,
@@ -685,7 +701,8 @@ async fn resolve_pending_item(
     Path(id): Path<String>,
     Json(payload): Json<ResolvePendingItemRequest>,
 ) -> Result<Json<ResolvePendingItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     let pending_id = match Uuid::parse_str(&id) {
         Ok(uuid) => uuid,
@@ -752,7 +769,8 @@ async fn create_local_item(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateLocalItemRequest>,
 ) -> Result<Json<CreateLocalItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock().unwrap();
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     // Convert legacy identifiers
     let identifiers: Vec<Identifier> = payload.identifiers
@@ -808,7 +826,8 @@ async fn get_lid_dfid_mapping(
     State(state): State<Arc<AppState>>,
     Path(local_id_str): Path<String>,
 ) -> Result<Json<LidDfidMappingResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock().unwrap();
+    let engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
     let local_id = match Uuid::parse_str(&local_id_str) {
         Ok(uuid) => uuid,

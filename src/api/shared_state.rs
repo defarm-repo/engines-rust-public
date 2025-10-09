@@ -56,9 +56,13 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
         let api_key_storage = Arc::new(crate::api_key_storage::InMemoryApiKeyStorage::new());
         let rate_limiter = Arc::new(RateLimiter::new());
 
-        // Get JWT secret from environment
+        // Get JWT secret from environment - required for security
         let jwt_secret = std::env::var("JWT_SECRET")
-            .unwrap_or_else(|_| "your-secret-key-change-in-production".to_string());
+            .expect("JWT_SECRET environment variable must be set. Please set a secure secret key for JWT authentication.");
+
+        if jwt_secret.len() < 32 {
+            panic!("JWT_SECRET must be at least 32 characters long for security");
+        }
 
         Self {
             circuits_engine,

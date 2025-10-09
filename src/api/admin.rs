@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
-    routing::{get, post, put, delete},
+    routing::{get, post, put},
     Extension,
     Router,
 };
@@ -16,13 +16,12 @@ use crate::api::shared_state::AppState;
 use crate::api::auth::Claims;
 use crate::storage::StorageBackend;
 use crate::types::{
-    UserAccount, UserTier, AccountStatus, CreditTransaction, CreditTransactionType,
-    AdminAction, AdminActionType, SystemStatistics, TierLimits, AdapterType,
-    AdapterConfig, AdapterConnectionDetails, ContractConfigs, AuthType
+    UserAccount, UserTier, AccountStatus, CreditTransactionType,
+    AdminAction, AdminActionType, TierLimits, AdapterType,
+    AdapterConnectionDetails, ContractConfigs
 };
 use crate::credit_manager::CreditEngine;
-use crate::tier_permission_system::TierPermissionSystem;
-use crate::adapter_manager::{AdapterManager, AdapterManagerError};
+use crate::adapter_manager::{AdapterManager};
 use crate::logging::LoggingEngine;
 
 // ============================================================================
@@ -31,7 +30,8 @@ use crate::logging::LoggingEngine;
 
 /// Verify that the authenticated user is an admin
 fn verify_admin(claims: &Claims, app_state: &Arc<AppState>) -> Result<(), (StatusCode, Json<Value>)> {
-    let storage = app_state.shared_storage.lock().unwrap();
+    let storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
     let user = storage
         .get_user_account(&claims.user_id)
         .map_err(|e| (
@@ -181,7 +181,8 @@ async fn create_user(
         available_adapters: None, // Use tier defaults
     };
 
-    let mut storage = app_state.shared_storage.lock().unwrap();
+    let mut storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     // Check if username or email already exists
     if storage.get_user_by_username(&request.username).unwrap_or(None).is_some() {
@@ -231,7 +232,8 @@ async fn get_user(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let storage = app_state.shared_storage.lock().unwrap();
+    let storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     match storage.get_user_account(&user_id).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))? {
         Some(user) => {
@@ -271,7 +273,8 @@ async fn update_user(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
     let admin_user_id = claims.user_id;
-    let mut storage = app_state.shared_storage.lock().unwrap();
+    let mut storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     let mut user = match storage.get_user_account(&user_id).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))? {
         Some(user) => user,
@@ -357,7 +360,8 @@ async fn update_user(
     if let Ok(notification_engine) = app_state.notification_engine.lock() {
         // Get admin username for notification
         let admin_username = {
-            let storage = app_state.shared_storage.lock().unwrap();
+            let storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
             storage.get_user_account(&admin_user_id)
                 .ok()
                 .flatten()
@@ -392,7 +396,8 @@ async fn freeze_user(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
     let admin_user_id = claims.user_id;
-    let mut storage = app_state.shared_storage.lock().unwrap();
+    let mut storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     let mut user = match storage.get_user_account(&user_id).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))? {
         Some(user) => user,
@@ -464,7 +469,8 @@ async fn unfreeze_user(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
     let admin_user_id = claims.user_id;
-    let mut storage = app_state.shared_storage.lock().unwrap();
+    let mut storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     let mut user = match storage.get_user_account(&user_id).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))? {
         Some(user) => user,
@@ -534,7 +540,8 @@ async fn list_users(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
-    let storage = app_state.shared_storage.lock().unwrap();
+    let storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     let users = storage.list_user_accounts().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
 
@@ -610,7 +617,8 @@ async fn adjust_user_credits(
     match credit_engine.add_credits(&user_id, request.amount, &description).await {
         Ok(()) => {
             // Record admin action
-            let mut storage = app_state.shared_storage.lock().unwrap();
+            let mut storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
             let admin_action = AdminAction {
                 action_id: Uuid::new_v4().to_string(),
                 admin_user_id: admin_user_id.clone(),
@@ -695,7 +703,8 @@ async fn bulk_grant_credits(
     }
 
     // Record admin action
-    let mut storage = app_state.shared_storage.lock().unwrap();
+    let mut storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
     let admin_action = AdminAction {
         action_id: Uuid::new_v4().to_string(),
         admin_user_id,
@@ -760,7 +769,8 @@ async fn get_admin_dashboard_stats(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
-    let storage = app_state.shared_storage.lock().unwrap();
+    let storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     let users = storage.list_user_accounts().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
 
@@ -828,7 +838,8 @@ async fn get_admin_actions(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
-    let storage = app_state.shared_storage.lock().unwrap();
+    let storage = app_state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
 
     let admin_id = params.get("admin_id").map(|s| s.as_str());
     let limit = params.get("limit")

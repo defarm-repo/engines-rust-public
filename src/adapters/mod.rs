@@ -19,8 +19,6 @@ pub use stellar_mainnet_stellar_mainnet_adapter::*;
 use crate::types::*;
 use crate::storage::StorageError;
 use std::collections::HashMap;
-use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Debug)]
 pub enum AdapterInstance {

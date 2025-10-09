@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
+use base64::{Engine as _, engine::general_purpose};
 
 use crate::{Identifier, ReceiptEngine, InMemoryStorage, ReceiptError};
 
@@ -73,7 +74,7 @@ async fn create_receipt(
     Json(payload): Json<CreateReceiptRequest>,
 ) -> Result<Json<ReceiptResponse>, (StatusCode, Json<Value>)> {
     // Decode base64 data
-    let data = base64::decode(&payload.data)
+    let data = general_purpose::STANDARD.decode(&payload.data)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid base64 data"}))))?;
 
     // Convert identifiers
@@ -151,7 +152,7 @@ async fn verify_receipt(
         .and_then(|v| v.as_str())
         .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "Missing data field"}))))?;
 
-    let data = base64::decode(data_b64)
+    let data = general_purpose::STANDARD.decode(data_b64)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid base64 data"}))))?;
 
     let engine = state.engine.lock().unwrap();

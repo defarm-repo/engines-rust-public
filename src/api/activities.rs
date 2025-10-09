@@ -6,9 +6,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
-
-use crate::{CircuitsEngine, InMemoryStorage};
+use std::sync::Arc;
 use crate::api::circuits::{ActivityResponse, activity_to_response};
 use super::shared_state::AppState;
 

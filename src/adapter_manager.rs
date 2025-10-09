@@ -1,14 +1,13 @@
-use crate::storage::{StorageBackend, StorageError};
+use crate::storage::StorageBackend;
 use crate::types::{
-    AdapterConfig, AdapterConnectionDetails, ContractConfigs, ContractInfo, MethodConfig,
+    AdapterConfig, AdapterConnectionDetails, ContractConfigs, ContractInfo,
     AdapterType, AdapterTestResult, TestStatus, ConnectionTestResult, ContractTestResult,
-    AuthType, ParameterMapping, ParameterSource
+    AuthType
 };
 use crate::logging::LoggingEngine;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 use chrono::Utc;
-use std::collections::HashMap;
 
 pub struct AdapterManager<S: StorageBackend> {
     storage: Arc<Mutex<S>>,

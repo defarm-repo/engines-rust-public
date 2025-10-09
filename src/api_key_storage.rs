@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::api_key_engine::{ApiKey, ApiKeyError, ApiKeyMetadata};
+use crate::api_key_engine::{ApiKey, ApiKeyError};
 
 #[derive(Error, Debug)]
 pub enum ApiKeyStorageError {

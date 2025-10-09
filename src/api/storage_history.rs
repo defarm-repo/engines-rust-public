@@ -10,9 +10,8 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::adapters::{StorageLocation, AdapterInstance};
-use crate::storage_history_manager::StorageHistoryManager;
-use crate::types::{ItemStorageHistory, StorageRecord, AdapterType};
+use crate::adapters::StorageLocation;
+use crate::types::{ItemStorageHistory, AdapterType};
 use crate::api::shared_state::AppState;
 use crate::api::adapters::create_adapter_instance;
 use crate::storage::StorageBackend;

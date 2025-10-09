@@ -1,4 +1,4 @@
-use crate::types::{UserTier, UserAccount, TierLimits, AdapterType};
+use crate::types::{UserTier, UserAccount, TierLimits};
 use crate::storage::{StorageBackend, StorageError};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -307,7 +307,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
         let mut user = storage.get_user_account(user_id)?
             .ok_or_else(|| StorageError::NotFound)?;
 
-        let old_tier = user.tier.clone();
+        let _old_tier = user.tier.clone();
         user.tier = new_tier.clone();
         user.updated_at = chrono::Utc::now();
 
@@ -316,9 +316,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
 
         storage.update_user_account(&user)?;
 
-        // Log the tier change (could be an audit event)
-        println!("User {} upgraded from {:?} to {:?}", user_id, old_tier, new_tier);
-
+        // Tier change is tracked in storage and can be audited via user account history
         Ok(())
     }
 

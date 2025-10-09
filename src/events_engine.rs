@@ -59,7 +59,8 @@ impl<S: StorageBackend> EventsEngine<S> {
                 .with_context("event_id", event.event_id.to_string());
         }
 
-        let mut storage = self.storage.lock().unwrap();
+        let mut storage = self.storage.lock()
+        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .store_event(&event)
             .map_err(|e| EventsError::StorageError(e.to_string()))?;
@@ -76,7 +77,8 @@ impl<S: StorageBackend> EventsEngine<S> {
         event_id: &Uuid,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<Event, EventsError> {
-        let mut storage = self.storage.lock().unwrap();
+        let mut storage = self.storage.lock()
+        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         let mut event = storage
             .get_event(event_id)
             .map_err(|e| EventsError::StorageError(e.to_string()))?
@@ -97,21 +99,24 @@ impl<S: StorageBackend> EventsEngine<S> {
     }
 
     pub fn get_events_for_item(&self, dfid: &str) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock()
+        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_events_by_dfid(dfid)
             .map_err(|e| EventsError::StorageError(e.to_string()))
     }
 
     pub fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock()
+        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_events_by_type(event_type)
             .map_err(|e| EventsError::StorageError(e.to_string()))
     }
 
     pub fn get_events_by_visibility(&self, visibility: EventVisibility) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock()
+        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_events_by_visibility(visibility)
             .map_err(|e| EventsError::StorageError(e.to_string()))
@@ -122,7 +127,8 @@ impl<S: StorageBackend> EventsEngine<S> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock()
+        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_events_in_time_range(start, end)
             .map_err(|e| EventsError::StorageError(e.to_string()))
@@ -137,14 +143,16 @@ impl<S: StorageBackend> EventsEngine<S> {
     }
 
     pub fn list_all_events(&self) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock()
+        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .list_events()
             .map_err(|e| EventsError::StorageError(e.to_string()))
     }
 
     pub fn get_event(&self, event_id: &Uuid) -> Result<Option<Event>, EventsError> {
-        let storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock()
+        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_event(event_id)
             .map_err(|e| EventsError::StorageError(e.to_string()))

@@ -4,11 +4,8 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::Arc;
 use thiserror::Error;
 use uuid::Uuid;
-
-use crate::logging::{LoggingEngine, LogEntry, LogLevel};
 
 #[derive(Error, Debug)]
 pub enum ApiKeyError {

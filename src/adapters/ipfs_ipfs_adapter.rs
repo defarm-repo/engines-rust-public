@@ -42,35 +42,32 @@ impl StorageAdapter for IpfsIpfsAdapter {
         AdapterType::IpfsIpfs
     }
 
-    async fn store_item(&self, item: &Item) -> Result<AdapterResult<String>, StorageError> {
+    async fn store_item(&self, _item: &Item) -> Result<AdapterResult<String>, StorageError> {
+        // IPFS adapter not yet implemented
         // TODO: Implement IPFS storage
-        // 1. Serialize item to JSON
-        // 2. Upload to IPFS
-        // 3. Pin the content
-        // 4. Return CID
-
-        // Placeholder implementation
-        let mock_cid = format!("QmMockItem{}", item.dfid);
-        let metadata = self.create_metadata(&mock_cid);
-
-        Ok(AdapterResult::new(mock_cid, metadata))
+        // 1. Add IPFS client dependency (e.g., ipfs-api or kubo-rpc)
+        // 2. Serialize item to JSON
+        // 3. Upload to IPFS
+        // 4. Pin the content
+        // 5. Return CID
+        Err(StorageError::NotImplemented(
+            "IPFS adapter is not yet implemented. Please use LocalLocal, StellarMainnetStellarMainnet, or other available adapters.".to_string()
+        ))
     }
 
-    async fn store_event(&self, event: &Event, _item_id: &str) -> Result<AdapterResult<String>, StorageError> {
+    async fn store_event(&self, _event: &Event, _item_id: &str) -> Result<AdapterResult<String>, StorageError> {
+        // IPFS adapter not yet implemented
         // TODO: Implement IPFS storage for events
         // 1. Serialize event to JSON
         // 2. Upload to IPFS
         // 3. Pin the content
         // 4. Return CID
-
-        // Placeholder implementation
-        let mock_cid = format!("QmMockEvent{}", event.event_id);
-        let metadata = self.create_metadata(&mock_cid);
-
-        Ok(AdapterResult::new(mock_cid, metadata))
+        Err(StorageError::NotImplemented(
+            "IPFS adapter is not yet implemented. Please use LocalLocal, StellarMainnetStellarMainnet, or other available adapters.".to_string()
+        ))
     }
 
-    async fn get_item(&self, item_id: &str) -> Result<Option<AdapterResult<Item>>, StorageError> {
+    async fn get_item(&self, _item_id: &str) -> Result<Option<AdapterResult<Item>>, StorageError> {
         // TODO: Implement IPFS retrieval
         // 1. Fetch content from IPFS using CID
         // 2. Deserialize JSON to Item
@@ -79,12 +76,12 @@ impl StorageAdapter for IpfsIpfsAdapter {
         Err(StorageError::NotImplemented("IPFS get_item not yet implemented".to_string()))
     }
 
-    async fn get_event(&self, event_id: &str) -> Result<Option<AdapterResult<Event>>, StorageError> {
+    async fn get_event(&self, _event_id: &str) -> Result<Option<AdapterResult<Event>>, StorageError> {
         // TODO: Implement IPFS retrieval for events
         Err(StorageError::NotImplemented("IPFS get_event not yet implemented".to_string()))
     }
 
-    async fn get_item_events(&self, item_id: &str) -> Result<Vec<AdapterResult<Event>>, StorageError> {
+    async fn get_item_events(&self, _item_id: &str) -> Result<Vec<AdapterResult<Event>>, StorageError> {
         // TODO: Implement IPFS retrieval for item events
         // This might require an index stored separately
         Err(StorageError::NotImplemented("IPFS get_item_events not yet implemented".to_string()))
@@ -93,13 +90,14 @@ impl StorageAdapter for IpfsIpfsAdapter {
     async fn sync_status(&self) -> Result<SyncStatus, StorageError> {
         Ok(SyncStatus {
             adapter_type: AdapterType::IpfsIpfs,
-            is_synced: true, // TODO: Check actual IPFS sync status
+            is_synced: false,
             pending_operations: 0,
-            last_sync: Some(Utc::now()),
+            last_sync: None,
             error_count: 0,
             details: {
                 let mut details = HashMap::new();
-                details.insert("implementation_status".to_string(), serde_json::Value::String("placeholder".to_string()));
+                details.insert("implementation_status".to_string(), serde_json::Value::String("not_implemented".to_string()));
+                details.insert("message".to_string(), serde_json::Value::String("IPFS adapter requires implementation".to_string()));
                 details.insert("ipfs_node".to_string(), serde_json::Value::String("not_connected".to_string()));
                 details
             },
@@ -107,7 +105,13 @@ impl StorageAdapter for IpfsIpfsAdapter {
     }
 
     async fn health_check(&self) -> Result<bool, StorageError> {
-        // TODO: Check IPFS node connectivity
-        Ok(true) // Placeholder
+        // IPFS adapter not yet implemented
+        // TODO: Implement actual IPFS health check
+        // 1. Check IPFS node connectivity
+        // 2. Verify pinning service availability
+        // 3. Test basic read/write operations
+        Err(StorageError::NotImplemented(
+            "IPFS adapter health check not implemented".to_string()
+        ))
     }
 }

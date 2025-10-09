@@ -3,8 +3,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde_json::json;
-use std::fmt;
 use thiserror::Error;
 
 /// Comprehensive error types for the DeFarm system

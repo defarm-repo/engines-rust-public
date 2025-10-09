@@ -1,5 +1,5 @@
 use crate::storage::{StorageBackend, StorageError};
-use crate::types::{Item, Identifier};
+use crate::types::Item;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
