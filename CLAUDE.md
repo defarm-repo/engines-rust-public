@@ -1,5 +1,9 @@
 # Claude Instructions
 
+## 📋 Important Documentation References
+
+**Production Deployment Plan**: See [PRODUCTION_DEPLOYMENT_PLAN.md](./PRODUCTION_DEPLOYMENT_PLAN.md) for complete production deployment strategy including PostgreSQL implementation, infrastructure setup, and deployment checklist.
+
 ## System Documentation Rule
 Every new feature or update must be documented by updating existing principles or appending new ones in the appropriate section. Keep principles simple - one row per principle maximum.
 
