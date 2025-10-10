@@ -3,9 +3,16 @@
 # ============================================================================
 # Stage 1: Builder
 # ============================================================================
-FROM rust:1.75-bookworm as builder
+# Use explicit Rust 1.90 (Stellar CLI 23.1.4 requires rustc 1.89.0+)
+FROM rust:1.90-bookworm as builder
 
 WORKDIR /app
+
+# Install system dependencies required for Stellar CLI
+RUN apt-get update && apt-get install -y \
+    libdbus-1-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Stellar CLI (required for blockchain integration)
 RUN cargo install --locked stellar-cli
