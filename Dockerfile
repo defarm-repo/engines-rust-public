@@ -8,14 +8,16 @@ FROM rust:1.90-bookworm as builder
 
 WORKDIR /app
 
-# Install system dependencies required for Stellar CLI
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    libdbus-1-dev \
-    pkg-config \
+    ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Stellar CLI (required for blockchain integration)
-RUN cargo install --locked stellar-cli
+# Install Stellar CLI (pre-built binary - much faster than cargo install)
+RUN curl -L https://github.com/stellar/stellar-cli/releases/download/v23.1.4/stellar-cli-23.1.4-x86_64-unknown-linux-gnu.tar.gz \
+    | tar -xz -C /usr/local/bin && \
+    chmod +x /usr/local/bin/stellar
 
 # Copy dependency manifests
 COPY Cargo.toml Cargo.lock ./
@@ -54,7 +56,7 @@ RUN useradd -m -u 1000 defarm
 WORKDIR /app
 
 # Copy Stellar CLI from builder
-COPY --from=builder /usr/local/cargo/bin/stellar /usr/local/bin/stellar
+COPY --from=builder /usr/local/bin/stellar /usr/local/bin/stellar
 
 # Copy the built binary
 COPY --from=builder /app/target/release/defarm-api /app/defarm-api
