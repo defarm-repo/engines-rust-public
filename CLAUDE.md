@@ -4,6 +4,12 @@
 
 **Production Deployment Plan**: See [PRODUCTION_DEPLOYMENT_PLAN.md](./PRODUCTION_DEPLOYMENT_PLAN.md) for complete production deployment strategy including PostgreSQL implementation, infrastructure setup, and deployment checklist.
 
+**Production Deployment Guide**: See [PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md) for comprehensive step-by-step deployment instructions, SSL/TLS setup, monitoring, and troubleshooting.
+
+**Railway Deployment**: See [RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md) for cloud deployment guide using Railway.app with CLI and GitHub integration options.
+
+**Railway Dashboard Setup**: See [RAILWAY_DASHBOARD_SETUP.md](./RAILWAY_DASHBOARD_SETUP.md) for step-by-step Railway deployment using the web dashboard (recommended for initial setup).
+
 ## System Documentation Rule
 Every new feature or update must be documented by updating existing principles or appending new ones in the appropriate section. Keep principles simple - one row per principle maximum.
 
