@@ -1,8 +1,12 @@
 use crate::storage::{StorageBackend, InMemoryStorage};
-use crate::types::{UserAccount, UserTier, AccountStatus, TierLimits, CreditTransaction, CreditTransactionType};
+use crate::types::{
+    UserAccount, UserTier, AccountStatus, TierLimits, CreditTransaction, CreditTransactionType,
+    AdapterConfig, AdapterConnectionDetails, AdapterType, AuthType, ContractConfigs, ContractInfo
+};
 use chrono::Utc;
 use uuid::Uuid;
 use bcrypt::{hash, DEFAULT_COST};
+use std::collections::HashMap;
 
 pub fn initialize_default_admin(storage: &mut InMemoryStorage) -> Result<(), Box<dyn std::error::Error>> {
     let admin_user_id = "hen-admin-001".to_string();
@@ -197,11 +201,163 @@ pub fn initialize_sample_users(storage: &mut InMemoryStorage) -> Result<(), Box<
     Ok(())
 }
 
+pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔌 Initializing production adapters...");
+
+    // Read credentials from environment
+    let pinata_api_key = std::env::var("PINATA_API_KEY").ok();
+    let pinata_secret = std::env::var("PINATA_SECRET_KEY").ok();
+    let testnet_ipcm = std::env::var("STELLAR_TESTNET_IPCM_CONTRACT").ok();
+    let mainnet_ipcm = std::env::var("STELLAR_MAINNET_IPCM_CONTRACT").ok();
+    let mainnet_secret = std::env::var("STELLAR_MAINNET_SECRET_KEY").ok();
+
+    // Create IPFS-IPFS adapter config
+    if let (Some(api_key), Some(secret)) = (pinata_api_key.clone(), pinata_secret.clone()) {
+        let ipfs_config = AdapterConfig {
+            config_id: Uuid::new_v4(),
+            name: "Production IPFS (Pinata)".to_string(),
+            description: "IPFS storage via Pinata cloud".to_string(),
+            adapter_type: AdapterType::IpfsIpfs,
+            connection_details: AdapterConnectionDetails {
+                endpoint: "https://api.pinata.cloud".to_string(),
+                api_key: Some(api_key),
+                secret_key: Some(secret),
+                auth_type: AuthType::ApiKey,
+                timeout_ms: 60000,
+                retry_attempts: 3,
+                max_concurrent_requests: 10,
+                custom_headers: HashMap::new(),
+            },
+            contract_configs: None,
+            is_active: true,
+            is_default: false,
+            created_by: "system".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_tested_at: None,
+            test_status: None,
+        };
+        storage.store_adapter_config(&ipfs_config)?;
+        println!("   ✅ IPFS-IPFS adapter registered");
+    }
+
+    // Create Stellar Testnet + IPFS adapter config
+    if let (Some(api_key), Some(secret), Some(contract_addr)) = (pinata_api_key.clone(), pinata_secret.clone(), testnet_ipcm) {
+        // Get testnet configuration from environment
+        let testnet_secret = std::env::var("STELLAR_TESTNET_SECRET").ok();
+        let interface_address = std::env::var("DEFARM_OWNER_WALLET")
+            .unwrap_or_else(|_| "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string());
+
+        let mut custom_headers = HashMap::new();
+        if let Some(secret_key) = testnet_secret {
+            custom_headers.insert("stellar_secret".to_string(), secret_key);
+        }
+        custom_headers.insert("interface_address".to_string(), interface_address);
+        custom_headers.insert("source_account_identity".to_string(), "defarm-admin-testnet".to_string());
+
+        let testnet_config = AdapterConfig {
+            config_id: Uuid::new_v4(),
+            name: "Stellar Testnet + IPFS".to_string(),
+            description: "NFTs on Stellar testnet + IPFS events".to_string(),
+            adapter_type: AdapterType::StellarTestnetIpfs,
+            connection_details: AdapterConnectionDetails {
+                endpoint: "https://api.pinata.cloud".to_string(),
+                api_key: Some(api_key),
+                secret_key: Some(secret),
+                auth_type: AuthType::ApiKey,
+                timeout_ms: 60000,
+                retry_attempts: 3,
+                max_concurrent_requests: 10,
+                custom_headers,
+            },
+            contract_configs: Some(ContractConfigs {
+                mint_contract: None,
+                ipcm_contract: Some(ContractInfo {
+                    contract_address: contract_addr,
+                    contract_name: "IPCM".to_string(),
+                    abi: None,
+                    methods: HashMap::new(),
+                }),
+                network: "testnet".to_string(),
+                chain_id: None,
+            }),
+            is_active: true,
+            is_default: false,
+            created_by: "system".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_tested_at: None,
+            test_status: None,
+        };
+        storage.store_adapter_config(&testnet_config)?;
+        println!("   ✅ Stellar Testnet-IPFS adapter registered");
+    }
+
+    // Create Stellar Mainnet + IPFS adapter config
+    if let (Some(api_key), Some(secret), Some(contract_addr), Some(mainnet_key)) = (pinata_api_key, pinata_secret, mainnet_ipcm, mainnet_secret) {
+        let interface_address = std::env::var("DEFARM_OWNER_WALLET")
+            .unwrap_or_else(|_| "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string());
+
+        let mut custom_headers = HashMap::new();
+        custom_headers.insert("stellar_secret".to_string(), mainnet_key);
+        custom_headers.insert("interface_address".to_string(), interface_address);
+        custom_headers.insert("source_account_identity".to_string(), "defarm-admin-secure-v2".to_string());
+
+        let mainnet_config = AdapterConfig {
+            config_id: Uuid::new_v4(),
+            name: "Stellar Mainnet + IPFS (Production)".to_string(),
+            description: "Production NFTs on Stellar mainnet + IPFS".to_string(),
+            adapter_type: AdapterType::StellarMainnetIpfs,
+            connection_details: AdapterConnectionDetails {
+                endpoint: "https://api.pinata.cloud".to_string(),
+                api_key: Some(api_key),
+                secret_key: Some(secret),
+                auth_type: AuthType::ApiKey,
+                timeout_ms: 60000,
+                retry_attempts: 3,
+                max_concurrent_requests: 10,
+                custom_headers,
+            },
+            contract_configs: Some(ContractConfigs {
+                mint_contract: None,
+                ipcm_contract: Some(ContractInfo {
+                    contract_address: contract_addr,
+                    contract_name: "IPCM".to_string(),
+                    abi: None,
+                    methods: HashMap::new(),
+                }),
+                network: "mainnet".to_string(),
+                chain_id: None,
+            }),
+            is_active: true,
+            is_default: false,
+            created_by: "system".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_tested_at: None,
+            test_status: None,
+        };
+        storage.store_adapter_config(&mainnet_config)?;
+        println!("   ✅ Stellar Mainnet-IPFS adapter registered (Admin-only)");
+    }
+
+    println!("✅ Production adapters initialized successfully!");
+    println!();
+    println!("📋 Available Adapters:");
+    println!("   🌐 IPFS-IPFS: Available to all tiers");
+    println!("   🔷 Stellar Testnet-IPFS: Professional+ tiers");
+    println!("   ⭐ Stellar Mainnet-IPFS: Admin-only by default");
+    println!();
+
+    Ok(())
+}
+
 pub fn setup_development_data(storage: &mut InMemoryStorage) -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Setting up development data...");
 
     initialize_default_admin(storage)?;
     initialize_sample_users(storage)?;
+    initialize_production_adapters(storage)?;
 
     println!("🎉 Development data setup complete!");
     println!();

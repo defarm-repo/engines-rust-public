@@ -14,6 +14,7 @@ pub mod api_keys;
 pub mod user_credits;
 pub mod notifications;
 pub mod shared_state;
+pub mod test_blockchain;
 
 pub use auth::auth_routes;
 pub use receipts::receipt_routes;
@@ -30,3 +31,4 @@ pub use admin::admin_routes;
 pub use api_keys::*;
 pub use user_credits::routes as user_credits_routes;
 pub use notifications::{notifications_rest_routes, notifications_ws_route};
+pub use test_blockchain::test_blockchain_routes;

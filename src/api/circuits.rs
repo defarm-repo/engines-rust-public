@@ -438,7 +438,8 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id", put(update_circuit))
         .route("/:id/members", post(add_member))
         .route("/:id/push/:dfid", post(push_item))
-        // TODO: Fix push_local_item handler signature issue
+        // Temporarily disabled due to Handler trait issue with std::sync::Mutex across await
+        // Use /api/test/test-push endpoint for blockchain testing instead
         // .route("/:id/push-local", post(push_local_item))
         .route("/:id/pull/:dfid", post(pull_item))
         .route("/:id/operations", get(get_circuit_operations))
@@ -720,68 +721,82 @@ async fn pull_item(
     })))
 }
 
-async fn push_local_item(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    Json(payload): Json<PushLocalItemRequest>,
-) -> Result<Json<PushLocalItemResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
-
-    let local_id = Uuid::parse_str(&payload.local_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid local_id format"}))))?;
-
-    // Convert enhanced identifier requests to EnhancedIdentifier
-    let identifiers: Vec<EnhancedIdentifier> = payload.identifiers
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|req| {
-            match req.id_type.as_str() {
-                "Canonical" => Some(EnhancedIdentifier::canonical(&req.namespace, &req.key, &req.value)),
-                "Contextual" => Some(EnhancedIdentifier::contextual(&req.namespace, &req.key, &req.value)),
-                _ => None,
-            }
-        })
-        .collect();
-
-    // Call the push_local_item_to_circuit method
-    let result = {
-        let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
-        engine.push_local_item_to_circuit(
-            &local_id,
-            identifiers,
-            payload.enriched_data,
-            &circuit_id,
-            &payload.requester_id,
-        ).await
-        .map_err(|e| {
-            let status_code = match e {
-                crate::circuits_engine::CircuitsError::PermissionDenied(_) => StatusCode::FORBIDDEN,
-                crate::circuits_engine::CircuitsError::ValidationError(_) => StatusCode::BAD_REQUEST,
-                crate::circuits_engine::CircuitsError::CircuitNotFound => StatusCode::NOT_FOUND,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            (status_code, Json(json!({"error": format!("{}", e)})))
-        })?
-    };
-
-    let status_str = match result.status {
-        crate::circuits_engine::PushStatus::NewItemCreated => "NewItemCreated",
-        crate::circuits_engine::PushStatus::ExistingItemEnriched => "ExistingItemEnriched",
-        crate::circuits_engine::PushStatus::ConflictDetected { .. } => "ConflictDetected",
-    };
-
-    Ok(Json(PushLocalItemResponse {
-        success: true,
-        data: PushLocalItemData {
-            dfid: result.dfid,
-            status: status_str.to_string(),
-            operation_id: result.operation_id.to_string(),
-            local_id: result.local_id.to_string(),
-        },
-    }))
-}
+// Temporarily disabled due to Handler trait issue with std::sync::Mutex across await
+// Use /api/test/test-push endpoint for blockchain testing instead
+// async fn push_local_item(
+//     State(state): State<Arc<AppState>>,
+//     Path(id): Path<String>,
+//     Json(payload): Json<PushLocalItemRequest>,
+// ) -> Result<Json<PushLocalItemResponse>, (StatusCode, Json<Value>)> {
+//     let circuit_id = Uuid::parse_str(&id)
+//         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+//
+//     let local_id = Uuid::parse_str(&payload.local_id)
+//         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid local_id format"}))))?;
+//
+//     // Convert enhanced identifier requests to EnhancedIdentifier
+//     let identifiers: Vec<EnhancedIdentifier> = payload.identifiers
+//         .unwrap_or_default()
+//         .into_iter()
+//         .filter_map(|req| {
+//             match req.id_type.as_str() {
+//                 "Canonical" => Some(EnhancedIdentifier::canonical(&req.namespace, &req.key, &req.value)),
+//                 "Contextual" => Some(EnhancedIdentifier::contextual(&req.namespace, &req.key, &req.value)),
+//                 _ => None,
+//             }
+//         })
+//         .collect();
+//
+//     // Clone the Arc so we can use it after dropping the lock
+//     let engine_clone = Arc::clone(&state.circuits_engine);
+//
+//     // Call the push_local_item_to_circuit method
+//     // We need to use tokio::task::spawn_blocking or refactor to not hold mutex across await
+//     // For now, let's try to make the call without holding the lock by using interior mutability
+//     let result = {
+//         let mut engine = engine_clone.lock()
+//             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+//
+//         // Make the async call - this will fail with std::sync::Mutex
+//         // We need to use tokio::task::block_in_place to allow this
+//         tokio::task::block_in_place(|| {
+//             tokio::runtime::Handle::current().block_on(async {
+//                 engine.push_local_item_to_circuit(
+//                     &local_id,
+//                     identifiers,
+//                     payload.enriched_data,
+//                     &circuit_id,
+//                     &payload.requester_id,
+//                 ).await
+//             })
+//         })
+//         .map_err(|e| {
+//             let status_code = match e {
+//                 crate::circuits_engine::CircuitsError::PermissionDenied(_) => StatusCode::FORBIDDEN,
+//                 crate::circuits_engine::CircuitsError::ValidationError(_) => StatusCode::BAD_REQUEST,
+//                 crate::circuits_engine::CircuitsError::CircuitNotFound => StatusCode::NOT_FOUND,
+//                 _ => StatusCode::INTERNAL_SERVER_ERROR,
+//             };
+//             (status_code, Json(json!({"error": format!("{}", e)})))
+//         })?
+//     };
+//
+//     let status_str = match result.status {
+//         crate::circuits_engine::PushStatus::NewItemCreated => "NewItemCreated",
+//         crate::circuits_engine::PushStatus::ExistingItemEnriched => "ExistingItemEnriched",
+//         crate::circuits_engine::PushStatus::ConflictDetected { .. } => "ConflictDetected",
+//     };
+//
+//     Ok(Json(PushLocalItemResponse {
+//         success: true,
+//         data: PushLocalItemData {
+//             dfid: result.dfid,
+//             status: status_str.to_string(),
+//             operation_id: result.operation_id.to_string(),
+//             local_id: result.local_id.to_string(),
+//         },
+//     }))
+// }
 
 async fn get_circuit_operations(
     State(state): State<Arc<AppState>>,

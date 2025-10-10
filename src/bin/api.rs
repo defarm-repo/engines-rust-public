@@ -12,7 +12,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber;
 
-use defarm_engine::api::{auth_routes, receipt_routes, event_routes, circuit_routes, item_routes, workspace_routes, activity_routes, audit_routes, zk_proof_routes, adapter_routes, storage_history_routes, admin_routes, user_credits_routes, notifications_rest_routes, notifications_ws_route, shared_state::AppState};
+use defarm_engine::api::{auth_routes, receipt_routes, event_routes, circuit_routes, item_routes, workspace_routes, activity_routes, audit_routes, zk_proof_routes, adapter_routes, storage_history_routes, admin_routes, user_credits_routes, notifications_rest_routes, notifications_ws_route, test_blockchain_routes, shared_state::AppState};
 use defarm_engine::auth_middleware::jwt_auth_middleware;
 use defarm_engine::db_init::setup_development_data;
 use std::sync::Arc;
@@ -26,6 +26,9 @@ async fn main() {
 
     // Load environment variables
     dotenv::dotenv().ok();
+
+    // Check Stellar CLI configuration at startup
+    defarm_engine::stellar_health_check::check_stellar_cli_configuration().await;
 
     // Initialize shared state
     let app_state = Arc::new(AppState::new());
@@ -58,6 +61,7 @@ async fn main() {
         .nest("/api/proofs", zk_proof_routes(app_state.clone()))
         .nest("/api/adapters", adapter_routes(app_state.clone()))
         .nest("/api/storage-history", storage_history_routes(app_state.clone()))
+        .nest("/api/test", test_blockchain_routes(app_state.clone()))
         // Notification REST API routes (protected by JWT middleware)
         .nest("/api/notifications", notifications_rest_routes().with_state(app_state.clone()))
         .merge(user_credits_routes().with_state(app_state.clone()))

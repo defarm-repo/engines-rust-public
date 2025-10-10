@@ -28,6 +28,10 @@ pub enum StorageError {
     NotFound,
     AlreadyExists(String),
     NotImplemented(String),
+    ConnectionError(String),
+    ConfigurationError(String),
+    WriteError(String),
+    ReadError(String),
 }
 
 impl From<std::io::Error> for StorageError {
@@ -51,6 +55,10 @@ impl std::fmt::Display for StorageError {
             StorageError::NotFound => write!(f, "Record not found"),
             StorageError::AlreadyExists(e) => write!(f, "Already exists: {}", e),
             StorageError::NotImplemented(e) => write!(f, "Not implemented: {}", e),
+            StorageError::ConnectionError(e) => write!(f, "Connection error: {}", e),
+            StorageError::ConfigurationError(e) => write!(f, "Configuration error: {}", e),
+            StorageError::WriteError(e) => write!(f, "Write error: {}", e),
+            StorageError::ReadError(e) => write!(f, "Read error: {}", e),
         }
     }
 }

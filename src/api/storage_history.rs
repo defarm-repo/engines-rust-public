@@ -130,7 +130,16 @@ async fn migrate_item_storage(
     State(app_state): State<Arc<AppState>>,
     Json(request): Json<MigrateItemRequest>,
 ) -> Result<Json<Value>, StatusCode> {
-    let adapter_instance = create_adapter_instance(&request.target_adapter_type);
+    let adapter_instance = match create_adapter_instance(&request.target_adapter_type) {
+        Ok(instance) => instance,
+        Err(e) => {
+            return Ok(Json(json!({
+                "success": false,
+                "error": format!("Failed to create adapter: {}", e),
+                "dfid": dfid
+            })));
+        }
+    };
 
     match app_state.storage_history_manager.migrate_to_circuit_adapter(
         &dfid,

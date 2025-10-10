@@ -11,6 +11,7 @@ use crate::types::{
     Item, MemberRole, Notification, NotificationType, OperationStatus, OperationType, Permission, CustomRole, AdapterType, UserTier, Identifier, ItemStatus,
     PostActionTrigger, WebhookPayload, WebhookItemData, WebhookStorageData,
 };
+use crate::adapters::{StorageAdapter, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter, LocalLocalAdapter, LocalIpfsAdapter, StellarMainnetStellarMainnetAdapter};
 use chrono::Utc;
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -486,6 +487,113 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         storage.store_circuit_item(&circuit_item)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
+        // 6.5. CALL ADAPTER TO ACTUALLY UPLOAD TO BLOCKCHAIN/IPFS
+        // This is where the REAL blockchain integration happens!
+        let storage_details = if let Some(circuit_adapter_config) = storage.get_circuit_adapter_config(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+        {
+            if let Some(adapter_type) = circuit_adapter_config.adapter_type {
+                // Get the full adapter configuration by type
+                let adapter_configs = storage.get_adapter_configs_by_type(&adapter_type)
+                    .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+                let full_adapter_config = adapter_configs.into_iter().find(|c| c.is_active);
+                // Get the item from storage to upload it
+                let item = storage.get_item_by_dfid(&dfid)
+                    .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+                    .ok_or(CircuitsError::ItemNotFound)?;
+
+                // Create adapter instance based on type
+                let upload_result = match adapter_type {
+                    AdapterType::IpfsIpfs => {
+                        let adapter = IpfsIpfsAdapter::new()
+                            .map_err(|e| CircuitsError::StorageError(format!("Failed to create IPFS adapter: {}", e)))?;
+                        adapter.store_item(&item).await
+                            .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to IPFS: {}", e)))?
+                    },
+                    AdapterType::StellarTestnetIpfs => {
+                        let adapter = StellarTestnetIpfsAdapter::new_with_config(full_adapter_config.as_ref())
+                            .map_err(|e| CircuitsError::StorageError(format!("Failed to create Stellar Testnet adapter: {}", e)))?;
+                        adapter.store_item(&item).await
+                            .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Stellar Testnet: {}", e)))?
+                    },
+                    AdapterType::StellarMainnetIpfs => {
+                        let adapter = StellarMainnetIpfsAdapter::new_with_config(full_adapter_config.as_ref())
+                            .map_err(|e| CircuitsError::StorageError(format!("Failed to create Stellar Mainnet adapter: {}", e)))?;
+                        adapter.store_item(&item).await
+                            .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Stellar Mainnet: {}", e)))?
+                    },
+                    AdapterType::LocalLocal => {
+                        let adapter = LocalLocalAdapter::new();
+                        adapter.store_item(&item).await
+                            .map_err(|e| CircuitsError::StorageError(format!("Failed to store locally: {}", e)))?
+                    },
+                    AdapterType::LocalIpfs => {
+                        let adapter = LocalIpfsAdapter::new();
+                        adapter.store_item(&item).await
+                            .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Local-IPFS: {}", e)))?
+                    },
+                    AdapterType::StellarMainnetStellarMainnet => {
+                        let adapter = StellarMainnetStellarMainnetAdapter::new();
+                        adapter.store_item(&item).await
+                            .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Stellar Mainnet-Mainnet: {}", e)))?
+                    },
+                    _ => {
+                        return Err(CircuitsError::StorageError(format!("Unsupported adapter type: {:?}", adapter_type)));
+                    }
+                };
+
+                // Extract storage location from adapter result
+                let storage_location = upload_result.metadata.item_location.clone();
+                let storage_hash = match &storage_location {
+                    crate::adapters::StorageLocation::IPFS { cid, .. } => cid.clone(),
+                    crate::adapters::StorageLocation::Stellar { transaction_id, .. } => transaction_id.clone(),
+                    crate::adapters::StorageLocation::Local { id } => id.clone(),
+                    crate::adapters::StorageLocation::Arweave { transaction_id } => transaction_id.clone(),
+                    crate::adapters::StorageLocation::Ethereum { transaction_hash, .. } => transaction_hash.clone(),
+                };
+
+                // Record in storage history
+                let storage_record = crate::types::StorageRecord {
+                    adapter_type: adapter_type.clone(),
+                    storage_location: storage_location.clone(),
+                    stored_at: Utc::now(),
+                    triggered_by: "circuit_push".to_string(),
+                    triggered_by_id: Some(circuit_id.to_string()),
+                    events_range: None,
+                    is_active: true,
+                    metadata: HashMap::new(),
+                };
+
+                storage.add_storage_record(&dfid, storage_record)
+                    .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+                self.logger.borrow_mut().info("circuits_engine", "adapter_upload_success", "Item uploaded to adapter")
+                    .with_context("dfid", dfid.clone())
+                    .with_context("adapter_type", format!("{:?}", adapter_type))
+                    .with_context("storage_hash", storage_hash.clone());
+
+                Some(WebhookStorageData {
+                    adapter_type: format!("{:?}", adapter_type),
+                    location: format!("{:?}", upload_result.metadata.item_location),
+                    hash: storage_hash.clone(),
+                    cid: if matches!(storage_location, crate::adapters::StorageLocation::IPFS { .. }) {
+                        Some(storage_hash.clone())
+                    } else {
+                        None
+                    },
+                    metadata: {
+                        let mut map = HashMap::new();
+                        map.insert("stored_at".to_string(), serde_json::json!(upload_result.metadata.created_at.to_rfc3339()));
+                        map
+                    },
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // 7. Create and store operation
         let mut operation = CircuitOperation::new(
             *circuit_id,
@@ -558,7 +666,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             requester_id,
             &operation.operation_id,
             trigger_event,
-            None, // TODO: extract storage details from adapter if needed
+            storage_details, // NOW INCLUDES REAL STORAGE DETAILS!
         ).await;
 
         Ok(PushResult {
@@ -846,9 +954,11 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     .with_context("target_adapter", format!("{:?}", adapter_config.adapter_type));
 
                 // Use the storage history manager to handle migration
+                let adapter_instance = create_adapter_instance(&adapter_config.adapter_type)
+                    .map_err(|e| format!("Failed to create adapter instance: {}", e))?;
                 history_manager.migrate_to_circuit_adapter(
                     dfid,
-                    &create_adapter_instance(&adapter_config.adapter_type),
+                    &adapter_instance,
                     circuit.circuit_id,
                     user_id,
                 ).await.map_err(|e| e.to_string())?;

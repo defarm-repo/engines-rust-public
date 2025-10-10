@@ -14,7 +14,7 @@ use crate::adapters::{AdapterInstance, LocalLocalAdapter, IpfsIpfsAdapter, Stell
 use crate::types::{AdapterType, StorageBackendType, UserTier};
 use crate::api::shared_state::AppState;
 use crate::api::auth::Claims;
-use crate::storage::StorageBackend;
+use crate::storage::{StorageBackend, StorageError};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdapterInfo {
@@ -149,7 +149,16 @@ async fn get_adapter_status(
     };
 
     // Create a temporary adapter instance to check status
-    let adapter_instance = create_adapter_instance(&adapter_type);
+    let adapter_instance = match create_adapter_instance(&adapter_type) {
+        Ok(instance) => instance,
+        Err(e) => {
+            return Ok(Json(json!({
+                "success": false,
+                "adapter_type": adapter_type,
+                "error": format!("Failed to create adapter: {}", e)
+            })));
+        }
+    };
 
     match adapter_instance.sync_status().await {
         Ok(status) => {
@@ -178,7 +187,16 @@ async fn health_check_adapter(
         Err(_) => return Err(StatusCode::BAD_REQUEST),
     };
 
-    let adapter_instance = create_adapter_instance(&adapter_type);
+    let adapter_instance = match create_adapter_instance(&adapter_type) {
+        Ok(instance) => instance,
+        Err(e) => {
+            return Ok(Json(json!({
+                "success": false,
+                "adapter_type": adapter_type,
+                "error": format!("Failed to create adapter: {}", e)
+            })));
+        }
+    };
 
     match adapter_instance.health_check().await {
         Ok(healthy) => {
@@ -285,16 +303,16 @@ fn get_client_available_adapters(
     }
 }
 
-pub fn create_adapter_instance(adapter_type: &AdapterType) -> AdapterInstance {
+pub fn create_adapter_instance(adapter_type: &AdapterType) -> Result<AdapterInstance, StorageError> {
     match adapter_type {
-        AdapterType::LocalLocal => AdapterInstance::LocalLocal(LocalLocalAdapter::new()),
-        AdapterType::IpfsIpfs => AdapterInstance::IpfsIpfs(IpfsIpfsAdapter::new()),
-        AdapterType::StellarTestnetIpfs => AdapterInstance::StellarTestnetIpfs(StellarTestnetIpfsAdapter::new()),
-        AdapterType::StellarMainnetIpfs => AdapterInstance::StellarMainnetIpfs(StellarMainnetIpfsAdapter::new()),
-        AdapterType::LocalIpfs => AdapterInstance::LocalIpfs(LocalIpfsAdapter::new()),
-        AdapterType::StellarMainnetStellarMainnet => AdapterInstance::StellarMainnetStellarMainnet(StellarMainnetStellarMainnetAdapter::new()),
-        AdapterType::Custom(_) => AdapterInstance::LocalLocal(LocalLocalAdapter::new()), // Fallback
-        _ => AdapterInstance::LocalLocal(LocalLocalAdapter::new()), // Fallback
+        AdapterType::LocalLocal => Ok(AdapterInstance::LocalLocal(LocalLocalAdapter::new())),
+        AdapterType::IpfsIpfs => Ok(AdapterInstance::IpfsIpfs(IpfsIpfsAdapter::new()?)),
+        AdapterType::StellarTestnetIpfs => Ok(AdapterInstance::StellarTestnetIpfs(StellarTestnetIpfsAdapter::new()?)),
+        AdapterType::StellarMainnetIpfs => Ok(AdapterInstance::StellarMainnetIpfs(StellarMainnetIpfsAdapter::new()?)),
+        AdapterType::LocalIpfs => Ok(AdapterInstance::LocalIpfs(LocalIpfsAdapter::new())),
+        AdapterType::StellarMainnetStellarMainnet => Ok(AdapterInstance::StellarMainnetStellarMainnet(StellarMainnetStellarMainnetAdapter::new())),
+        AdapterType::Custom(_) => Ok(AdapterInstance::LocalLocal(LocalLocalAdapter::new())), // Fallback
+        _ => Ok(AdapterInstance::LocalLocal(LocalLocalAdapter::new())), // Fallback
     }
 }
 
