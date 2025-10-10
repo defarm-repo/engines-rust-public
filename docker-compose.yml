@@ -1,0 +1,123 @@
+# Docker Compose configuration for DeFarm Engines
+# Production-ready stack with PostgreSQL, API, and nginx
+
+version: '3.8'
+
+services:
+  # ============================================================================
+  # PostgreSQL Database
+  # ============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: defarm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: defarm
+      POSTGRES_USER: defarm
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U defarm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - defarm-network
+
+  # ============================================================================
+  # DeFarm API
+  # ============================================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: defarm-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgres://defarm:${DB_PASSWORD:-changeme}@postgres:5432/defarm
+      DATABASE_POOL_SIZE: 16
+
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+
+      # IPFS/Pinata
+      IPFS_ENDPOINT: https://api.pinata.cloud
+      IPFS_GATEWAY: https://gateway.pinata.cloud/ipfs
+      PINATA_API_KEY: ${PINATA_API_KEY}
+      PINATA_SECRET_KEY: ${PINATA_SECRET_KEY}
+      PINATA_JWT: ${PINATA_JWT}
+
+      # Stellar Testnet
+      STELLAR_TESTNET_RPC_URL: https://soroban-testnet.stellar.org
+      STELLAR_TESTNET_NETWORK: testnet
+      STELLAR_TESTNET_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+      STELLAR_TESTNET_IPCM_CONTRACT: ${STELLAR_TESTNET_IPCM_CONTRACT}
+      STELLAR_TESTNET_SECRET: ${STELLAR_TESTNET_SECRET}
+
+      # Stellar Mainnet
+      STELLAR_MAINNET_RPC_URL: https://soroban-mainnet.stellar.org
+      STELLAR_MAINNET_NETWORK: mainnet
+      STELLAR_MAINNET_NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015"
+      STELLAR_MAINNET_IPCM_CONTRACT: ${STELLAR_MAINNET_IPCM_CONTRACT}
+      STELLAR_MAINNET_SECRET_KEY: ${STELLAR_MAINNET_SECRET_KEY}
+      DEFARM_OWNER_WALLET: ${DEFARM_OWNER_WALLET}
+
+      # Rust logging
+      RUST_LOG: info
+
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./migrations:/app/migrations:ro
+    networks:
+      - defarm-network
+    command: >
+      sh -c "
+      echo 'Configuring Stellar CLI networks...' &&
+      stellar network add testnet --rpc-url https://soroban-testnet.stellar.org --network-passphrase 'Test SDF Network ; September 2015' 2>/dev/null || true &&
+      stellar network add mainnet --rpc-url https://soroban-mainnet.stellar.org --network-passphrase 'Public Global Stellar Network ; September 2015' 2>/dev/null || true &&
+      echo 'Starting DeFarm API...' &&
+      /app/defarm-api
+      "
+
+  # ============================================================================
+  # Nginx Reverse Proxy
+  # ============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: defarm-nginx
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
+    networks:
+      - defarm-network
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  defarm-network:
+    driver: bridge
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  postgres_data:
+    driver: local

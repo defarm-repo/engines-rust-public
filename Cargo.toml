@@ -56,3 +56,8 @@ sha2 = "0.10"
 # Stellar/Soroban integration (TODO: Add stellar-xdr for native Rust implementation)
 # For now using stellar CLI subprocess - faster to ship, replace later with:
 # stellar-xdr = { version = "21", default-features = false, features = ["curr"] }
+
+# PostgreSQL database
+tokio-postgres = "0.7"
+deadpool-postgres = "0.12"
+refinery = { version = "0.8", features = ["tokio-postgres"] }
