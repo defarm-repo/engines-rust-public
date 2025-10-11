@@ -1,0 +1,62 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files
+*.test
+test-*.sh
+/tmp/
+
+# Documentation (not needed in container)
+*.md
+docs/
+
+# Docker
+docker-compose.yml
+.dockerignore
+Dockerfile
+
+# Environment
+.env
+.env.local
+.env.example
+
+# Logs
+*.log
+logs/
+
+# Nginx config (only needed for docker-compose, not Railway)
+nginx/
+
+# Temporary files
+tmp/
+temp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Railway config (already in repository)
+railway.json
+railway.toml
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
