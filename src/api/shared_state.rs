@@ -7,7 +7,6 @@ use crate::api_key_storage::ApiKeyStorage;
 use crate::logging::LoggingEngine;
 use crate::rate_limiter::RateLimiter;
 use crate::api::notifications::NotificationMessage;
-use crate::postgres_persistence::PostgresPersistence;
 
 pub struct AppState<S: ApiKeyStorage = crate::api_key_storage::InMemoryApiKeyStorage> {
     pub circuits_engine: Arc<Mutex<CircuitsEngine<InMemoryStorage>>>,
@@ -22,7 +21,6 @@ pub struct AppState<S: ApiKeyStorage = crate::api_key_storage::InMemoryApiKeySto
     pub notification_engine: Arc<Mutex<NotificationEngine<InMemoryStorage>>>,
     pub notification_tx: broadcast::Sender<NotificationMessage>,
     pub jwt_secret: String,
-    pub postgres_persistence: Option<Arc<PostgresPersistence>>,
 }
 
 impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
@@ -79,11 +77,6 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
             notification_engine,
             notification_tx,
             jwt_secret,
-            postgres_persistence: None, // Set later via set_postgres_persistence()
         }
-    }
-
-    pub fn set_postgres_persistence(&mut self, pg: Arc<PostgresPersistence>) {
-        self.postgres_persistence = Some(pg);
     }
 }
