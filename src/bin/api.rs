@@ -87,6 +87,9 @@ async fn main() {
     info!("🚀 DeFarm API server starting on {} (PORT={})", addr, port);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    info!("✅ Server listening and ready to accept connections on {}", addr);
+    info!("🏥 Health check endpoint: http://{}:{}/health", addr.ip(), addr.port());
+
     axum::serve(listener, app).await.unwrap();
 }
 

@@ -1,7 +1,70 @@
 # 📦 DeFarm Engines Deployment Status
 
-**Last Updated**: Phase 5 - Testing & Railway Deployment
-**Status**: ✅ Production-Ready, Testing in Progress
+**Last Updated**: 2025-10-11 16:50 UTC
+**Status**: 🔴 **DEPLOYMENT BLOCKED - MANUAL INTERVENTION REQUIRED**
+
+---
+
+## 🚨 IMMEDIATE ACTION REQUIRED
+
+**The API is NOT responding (502 errors). You need to manually trigger deployment from Railway Dashboard.**
+
+### Quick Fix Steps:
+1. Go to Railway Dashboard: https://railway.app/project/2e6d7cdb-f993-4411-bcf4-1844f5b38011
+2. Click on `defarm-engines-api` service
+3. Click "Deployments" tab
+4. **Trigger manual deployment** or **enable GitHub auto-deploy**
+5. Monitor build logs for successful startup
+
+---
+
+## ✅ What's Already Fixed (Ready to Deploy)
+
+### 1. Application Code PORT Fix (Commit: `e03eeb5`)
+**File**: `src/bin/api.rs:80-87`
+
+The app now reads Railway's dynamic PORT environment variable:
+```rust
+let port = std::env::var("PORT")
+    .ok()
+    .and_then(|p| p.parse::<u16>().ok())
+    .unwrap_or(3000);
+let addr = SocketAddr::from(([0, 0, 0, 0], port));
+```
+
+### 2. Docker Healthcheck PORT Fix (Commit: `0f1ac6d`)
+**File**: `Dockerfile:79-81`
+
+The Docker healthcheck now uses dynamic PORT:
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
+```
+
+### 3. PostgreSQL Temporarily Disabled (Commit: `3aeb030`)
+**Files**: `Cargo.toml`, `src/lib.rs`, `src/storage_factory.rs`
+
+- Using in-memory storage for faster development iteration
+- No database migrations needed during development
+- Can re-enable PostgreSQL later when application matures
+
+All fixes are committed and pushed to GitHub main branch ✅
+
+---
+
+## ❌ Why API Returns 502 Errors
+
+**Problem**: Application is not running on Railway
+
+**Evidence**:
+```bash
+$ curl https://connect.defarm.net/health
+{"status":"error","code":502,"message":"Application failed to respond"}
+```
+
+**Root Cause**: Railway GitHub auto-deploy is not triggering new builds after our fixes
+
+**Previous Deployment**: Container started but was immediately stopped due to healthcheck failure (old code before PORT fix)
 
 ---
 
