@@ -58,13 +58,26 @@ async fn main() {
     };
 
     // Initialize shared state
-    let app_state = Arc::new(AppState::new());
+    let mut app_state = AppState::new();
+
+    // Set PostgreSQL persistence in AppState if available
+    if let Some(pg) = postgres_persistence.clone() {
+        app_state.set_postgres_persistence(pg);
+    }
+
+    let app_state = Arc::new(app_state);
 
     // Setup development data (hen admin + sample users)
     {
         let mut storage = app_state.shared_storage.lock().unwrap();
         if let Err(e) = setup_development_data(&mut storage) {
             tracing::error!("Failed to setup development data: {}", e);
+        }
+
+        // Persist test data to PostgreSQL if available
+        if let Some(ref pg) = app_state.postgres_persistence {
+            info!("💾 PostgreSQL persistence enabled - data will be persisted on creation");
+            info!("🎉 Ready for frontend testing!");
         }
     }
 
