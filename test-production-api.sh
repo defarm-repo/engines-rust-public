@@ -149,7 +149,7 @@ print_section "3. USER & CREDITS TESTS"
 # =============================================================================
 
 # Test 3.1: Get user credits
-response=$(api_call GET "/api/users/$ADMIN_USER/credits" "" "$ADMIN_TOKEN")
+response=$(api_call GET "/users/me/credits/balance" "" "$ADMIN_TOKEN")
 if echo "$response" | grep -q "balance\|credits"; then
     print_test "Get user credits" "PASS"
     echo "   Credits: $(echo $response | jq -r '.balance // .credits // "N/A"')"
@@ -158,7 +158,7 @@ else
 fi
 
 # Test 3.2: Get credit history
-response=$(api_call GET "/api/users/$ADMIN_USER/credits/history" "" "$ADMIN_TOKEN")
+response=$(api_call GET "/users/me/credits/history" "" "$ADMIN_TOKEN")
 if echo "$response" | grep -q "transactions\|\[\]"; then
     print_test "Get credit history" "PASS"
 else
@@ -195,19 +195,7 @@ echo -e "${YELLOW}🔷 Creating test circuit...${NC}"
 CIRCUIT_DATA='{
   "name": "Test Production Circuit",
   "description": "Automated test circuit for production API",
-  "default_namespace": "bovino",
-  "alias_config": {
-    "required_canonical": ["sisbov"],
-    "required_contextual": ["lote"],
-    "allowed_namespaces": ["bovino", "generic"],
-    "auto_apply_namespace": true,
-    "use_fingerprint": true
-  },
-  "permissions": {
-    "require_approval_for_push": false,
-    "require_approval_for_pull": false,
-    "allow_public_visibility": true
-  }
+  "owner_id": "hen-admin-001"
 }'
 
 CIRCUIT_RESPONSE=$(api_call POST "/api/circuits" "$CIRCUIT_DATA" "$ADMIN_TOKEN")
@@ -327,17 +315,13 @@ ITEM_DATA='{
       "namespace": "bovino",
       "key": "sisbov",
       "value": "BR12345678901234",
-      "identifier_type": "Canonical",
-      "confidence": 1.0,
-      "source": "test-production-script"
+      "id_type": "Canonical"
     },
     {
       "namespace": "bovino",
       "key": "lote",
       "value": "LOTE-2025-001",
-      "identifier_type": "Contextual",
-      "confidence": 1.0,
-      "source": "test-production-script"
+      "id_type": "Contextual"
     }
   ],
   "enriched_data": {
@@ -349,13 +333,15 @@ ITEM_DATA='{
 }'
 
 ITEM_RESPONSE=$(api_call POST "/api/items/local" "$ITEM_DATA" "$ADMIN_TOKEN")
-LOCAL_ID=$(echo "$ITEM_RESPONSE" | jq -r '.local_id // .lid')
-TEMP_DFID=$(echo "$ITEM_RESPONSE" | jq -r '.dfid')
+LOCAL_ID=$(echo "$ITEM_RESPONSE" | jq -r '.data.local_id // .local_id // .lid')
+TEMP_DFID=$(echo "$ITEM_RESPONSE" | jq -r '.data.dfid // .dfid')
 
 if [ -n "$LOCAL_ID" ] && [ "$LOCAL_ID" != "null" ]; then
     print_test "Create local item" "PASS"
     echo "   Local ID: $LOCAL_ID"
-    echo "   Temp DFID: $TEMP_DFID"
+    if [ "$TEMP_DFID" != "null" ] && [ -n "$TEMP_DFID" ]; then
+        echo "   Temp DFID: $TEMP_DFID"
+    fi
 else
     print_test "Create local item" "FAIL"
     echo "   Response: $ITEM_RESPONSE"
