@@ -88,11 +88,26 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
     info!("🚀 DeFarm API server starting on {} (PORT={})", addr, port);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    info!("✅ Server listening and ready to accept connections on {}", addr);
-    info!("🏥 Health check endpoint: http://{}:{}/health", addr.ip(), addr.port());
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => {
+            info!("✅ Server listening and ready to accept connections on {}", addr);
+            info!("🏥 Health check endpoint: http://[{}]:{}/health", addr.ip(), addr.port());
+            l
+        }
+        Err(e) => {
+            tracing::error!("❌ Failed to bind to {}: {}", addr, e);
+            std::process::exit(1);
+        }
+    };
 
-    axum::serve(listener, app).await.unwrap();
+    info!("🚀 Starting Axum server...");
+    match axum::serve(listener, app).await {
+        Ok(_) => info!("✅ Server stopped gracefully"),
+        Err(e) => {
+            tracing::error!("❌ Server error: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 async fn root() -> Json<Value> {
