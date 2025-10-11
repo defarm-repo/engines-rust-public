@@ -15,7 +15,8 @@ pub mod adapters;
 pub mod ipfs_client;
 pub mod stellar_client;
 pub mod stellar_health_check;
-pub mod postgres_storage;
+// TEMPORARILY DISABLED: PostgreSQL implementation needs type fixes
+// pub mod postgres_storage;
 pub mod storage_factory;
 pub mod storage_history_manager;
 pub mod credit_manager;

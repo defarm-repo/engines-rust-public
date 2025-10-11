@@ -7,6 +7,7 @@ use serde_json;
 
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::*;
+use crate::logging::{LogEntry, LogLevel};
 
 /// PostgreSQL-backed storage implementation
 /// Implements all StorageBackend methods with connection pooling
@@ -18,7 +19,7 @@ impl PostgresStorage {
     /// Create a new PostgreSQL storage with connection pool
     pub async fn new(database_url: &str) -> Result<Self, StorageError> {
         let config = database_url.parse::<tokio_postgres::Config>()
-            .map_err(|e| StorageError::DatabaseError(format!("Invalid database URL: {}", e)))?;
+            .map_err(|e| StorageError::ConfigurationError(format!("Invalid database URL: {}", e)))?;
 
         let manager_config = ManagerConfig {
             recycling_method: RecyclingMethod::Fast,
@@ -30,7 +31,7 @@ impl PostgresStorage {
             .max_size(16)
             .runtime(Runtime::Tokio1)
             .build()
-            .map_err(|e| StorageError::DatabaseError(format!("Failed to create pool: {}", e)))?;
+            .map_err(|e| StorageError::ConnectionError(format!("Failed to create pool: {}", e)))?;
 
         Ok(Self { pool })
     }
@@ -38,12 +39,12 @@ impl PostgresStorage {
     /// Get a connection from the pool
     async fn get_conn(&self) -> Result<deadpool_postgres::Client, StorageError> {
         self.pool.get().await
-            .map_err(|e| StorageError::DatabaseError(format!("Failed to get connection: {}", e)))
+            .map_err(|e| StorageError::ConnectionError(format!("Failed to get connection: {}", e)))
     }
 
     /// Convert PostgreSQL error to StorageError
     fn map_pg_error(e: PgError) -> StorageError {
-        StorageError::DatabaseError(format!("PostgreSQL error: {}", e))
+        StorageError::ReadError(format!("PostgreSQL error: {}", e))
     }
 }
 
@@ -56,8 +57,9 @@ impl PostgresStorage {
     fn row_to_receipt(row: &tokio_postgres::Row) -> Result<Receipt, StorageError> {
         Ok(Receipt {
             id: row.get("id"),
-            data_hash: row.get("data_hash"),
+            hash: row.get("data_hash"),
             timestamp: row.get("timestamp"),
+            data_size: row.get::<_, i64>("data_size") as usize,
             identifiers: Vec::new(), // Loaded separately
         })
     }
@@ -74,9 +76,10 @@ impl PostgresStorage {
         let context_data: Option<serde_json::Value> = row.get("context_data");
         let context = context_data.and_then(|v| {
             serde_json::from_value(v).ok()
-        }).unwrap_or_else(Vec::new);
+        }).unwrap_or_else(std::collections::HashMap::new);
 
         Ok(LogEntry {
+            id: row.get("id"),
             timestamp: row.get("timestamp"),
             level,
             engine: row.get("engine"),
@@ -99,17 +102,37 @@ impl PostgresStorage {
         let enriched_data: Option<serde_json::Value> = row.get("enriched_data");
         let enriched_data_map = enriched_data.and_then(|v| {
             serde_json::from_value(v).ok()
-        });
+        }).unwrap_or_else(std::collections::HashMap::new);
+
+        // Convert bigint timestamps to DateTime<Utc>
+        let created_at_ts: i64 = row.get("created_at_ts");
+        let last_updated_ts: i64 = row.get("last_updated_ts");
+
+        use chrono::TimeZone;
+        let creation_timestamp = Utc.timestamp_millis_opt(created_at_ts)
+            .single()
+            .unwrap_or_else(|| Utc::now());
+        let last_modified = Utc.timestamp_millis_opt(last_updated_ts)
+            .single()
+            .unwrap_or_else(|| Utc::now());
+
+        // Use item_hash as fingerprint for now
+        let item_hash: String = row.get("item_hash");
 
         Ok(Item {
             dfid: row.get("dfid"),
+            local_id: None, // Not in DB schema yet
+            legacy_mode: true, // Assume legacy mode for existing items
             identifiers: Vec::new(), // Loaded separately
-            item_hash: row.get("item_hash"),
-            status,
-            created_at: row.get("created_at_ts"),
-            last_updated: row.get("last_updated_ts"),
-            source_entries: Vec::new(), // Loaded separately
+            enhanced_identifiers: Vec::new(), // Not in DB schema yet
+            aliases: Vec::new(), // Not in DB schema yet
+            fingerprint: Some(item_hash),
             enriched_data: enriched_data_map,
+            creation_timestamp,
+            last_modified,
+            source_entries: Vec::new(), // Loaded separately
+            confidence_score: 1.0, // Not in DB schema yet
+            status,
         })
     }
 }
@@ -125,9 +148,9 @@ impl StorageBackend for PostgresStorage {
 
             // Insert receipt
             client.execute(
-                "INSERT INTO receipts (id, data_hash, timestamp) VALUES ($1, $2, $3)
-                 ON CONFLICT (id) DO UPDATE SET data_hash = $2, timestamp = $3",
-                &[&receipt.id, &receipt.data_hash, &receipt.timestamp]
+                "INSERT INTO receipts (id, data_hash, timestamp, data_size) VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (id) DO UPDATE SET data_hash = $2, timestamp = $3, data_size = $4",
+                &[&receipt.id, &receipt.hash, &receipt.timestamp, &(receipt.data_size as i64)]
             ).await.map_err(Self::map_pg_error)?;
 
             // Insert identifiers
@@ -149,7 +172,7 @@ impl StorageBackend for PostgresStorage {
 
             // Get receipt
             let row = client.query_opt(
-                "SELECT id, data_hash, timestamp FROM receipts WHERE id = $1",
+                "SELECT id, data_hash, timestamp, data_size FROM receipts WHERE id = $1",
                 &[id]
             ).await.map_err(Self::map_pg_error)?;
 
@@ -181,7 +204,7 @@ impl StorageBackend for PostgresStorage {
             let client = self.get_conn().await?;
 
             let rows = client.query(
-                "SELECT DISTINCT r.id, r.data_hash, r.timestamp
+                "SELECT DISTINCT r.id, r.data_hash, r.timestamp, r.data_size
                  FROM receipts r
                  JOIN receipt_identifiers ri ON r.id = ri.receipt_id
                  WHERE ri.key = $1 AND ri.value = $2",
@@ -217,7 +240,7 @@ impl StorageBackend for PostgresStorage {
             let client = self.get_conn().await?;
 
             let rows = client.query(
-                "SELECT id, data_hash, timestamp FROM receipts ORDER BY timestamp DESC",
+                "SELECT id, data_hash, timestamp, data_size FROM receipts ORDER BY timestamp DESC",
                 &[]
             ).await.map_err(Self::map_pg_error)?;
 
@@ -426,9 +449,16 @@ impl StorageBackend for PostgresStorage {
             let client = self.get_conn().await?;
 
             let status_str = format!("{:?}", item.status);
-            let enriched_json = item.enriched_data.as_ref()
-                .map(|d| serde_json::to_value(d).ok())
-                .flatten();
+            let enriched_json = serde_json::to_value(&item.enriched_data).ok();
+
+            // Use fingerprint as item_hash, or compute from dfid if not available
+            let item_hash = item.fingerprint.as_ref()
+                .map(|s| s.clone())
+                .unwrap_or_else(|| blake3::hash(item.dfid.as_bytes()).to_string());
+
+            // Convert DateTime<Utc> to timestamp (milliseconds since epoch)
+            let created_at_ts = item.creation_timestamp.timestamp_millis();
+            let last_updated_ts = item.last_modified.timestamp_millis();
 
             // Insert item
             client.execute(
@@ -437,7 +467,7 @@ impl StorageBackend for PostgresStorage {
                  VALUES ($1, $2, $3, $4, $5, $6)
                  ON CONFLICT (dfid) DO UPDATE SET
                  item_hash = $2, status = $3, last_updated_ts = $5, enriched_data = $6, updated_at = NOW()",
-                &[&item.dfid, &item.item_hash, &status_str, &item.created_at, &item.last_updated, &enriched_json]
+                &[&item.dfid, &item_hash, &status_str, &created_at_ts, &last_updated_ts, &enriched_json]
             ).await.map_err(Self::map_pg_error)?;
 
             // Delete old identifiers and source entries
