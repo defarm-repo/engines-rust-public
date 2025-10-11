@@ -30,33 +30,6 @@ async fn main() {
     // Check Stellar CLI configuration at startup
     defarm_engine::stellar_health_check::check_stellar_cli_configuration().await;
 
-    // Initialize PostgreSQL persistence (if DATABASE_URL is set)
-    let postgres_persistence = if let Ok(database_url) = std::env::var("DATABASE_URL") {
-        info!("🗄️  Connecting to PostgreSQL database...");
-        match defarm_engine::postgres_persistence::PostgresPersistence::new(&database_url).await {
-            Ok(pg) => {
-                info!("✅ PostgreSQL connected successfully");
-
-                // Run migrations
-                match pg.run_migrations().await {
-                    Ok(_) => info!("✅ Database migrations completed"),
-                    Err(e) => {
-                        tracing::warn!("⚠️  Migration warning: {}. Continuing with existing schema.", e);
-                    }
-                }
-
-                Some(Arc::new(pg))
-            }
-            Err(e) => {
-                tracing::warn!("⚠️  PostgreSQL connection failed: {}. Using in-memory storage only.", e);
-                None
-            }
-        }
-    } else {
-        info!("ℹ️  No DATABASE_URL found, using in-memory storage only");
-        None
-    };
-
     // Initialize shared state
     let app_state = Arc::new(AppState::new());
 
@@ -113,13 +86,6 @@ async fn main() {
     // Use IPv6 [::] (0.0.0.0 equivalent) for Railway compatibility
     // Railway healthchecks use hostname healthcheck.railway.app
     let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
-
-    if postgres_persistence.is_some() {
-        info!("🗄️  PostgreSQL persistence: ENABLED");
-    } else {
-        info!("💾 Storage mode: IN-MEMORY ONLY");
-    }
-
     info!("🚀 DeFarm API server starting on {} (PORT={})", addr, port);
 
     let listener = match tokio::net::TcpListener::bind(addr).await {

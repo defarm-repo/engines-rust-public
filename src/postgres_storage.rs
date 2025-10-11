@@ -7,7 +7,6 @@ use serde_json;
 
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::*;
-use crate::identifier_types::*;
 use crate::logging::{LogEntry, LogLevel};
 
 /// PostgreSQL-backed storage implementation
