@@ -1,8 +1,15 @@
 # 🎛️ Railway Dashboard Setup Guide
 
-**Purpose**: Step-by-step guide to deploy DeFarm Engines API using Railway Dashboard (Web UI)
+## 🔴 Current Issue
 
-**Why Dashboard?**: Railway CLI requires interactive input for service creation. The dashboard provides better visibility and is the recommended approach for initial deployment setup.
+The Railway CLI `railway up` command is **timing out during the indexing phase**. This is because:
+- The project directory is 5.4GB (including `target/` build artifacts)
+- Railway CLI needs to scan and upload all files before building
+- Even with `.dockerignore`, the CLI indexing process times out after 2 minutes
+
+## ✅ Solution: Use GitHub Integration
+
+**Recommended approach**: Set up **GitHub integration** for automatic deployments. This avoids CLI upload issues and is the production-standard deployment method.
 
 ---
 
@@ -11,77 +18,69 @@
 ✅ **Authenticated**: gabriel rondon (grondon@gmail.com)
 ✅ **Project**: defarm (ID: 2e6d7cdb-f993-4411-bcf4-1844f5b38011)
 ✅ **Environment**: production
-✅ **Existing Services**: Redis, defarm-core, glaciers, defarm, eu food
+✅ **Service**: defarm-engines-api (already created)
+✅ **Public Domain**: connect.defarm.net
+⚠️ **Status**: No deployments yet (GitHub integration needed)
 
 ---
 
-## Deployment Steps
+## Quick Fix Steps
 
 ### Step 1: Access Railway Dashboard
 
-1. Open your browser and go to: [https://railway.app/dashboard](https://railway.app/dashboard)
-2. You should already be logged in as gabriel rondon
-3. Select the **"defarm"** project from your project list
-
----
-
-### Step 2: Create New Service for DeFarm Engines API
-
-1. Inside the **defarm** project, click **"+ New"** button
-2. Select **"Empty Service"**
-3. Name it: `defarm-engines-api`
-4. Click **"Create"**
-
----
-
-### Step 3: Configure Service to Use Dockerfile
-
-**Option A: Deploy from GitHub Repository (Recommended for CI/CD)**
-
-1. In the `defarm-engines-api` service, click **"Settings"**
-2. Go to **"Source"** section
-3. Click **"Connect GitHub Repo"**
-4. Select your repository: `gabrielrondon/rust/engines` (or your GitHub org/repo)
-5. Select branch: `main`
-6. Railway will auto-detect the `Dockerfile` in the root directory
-
-**Option B: Deploy from Local Directory (Using CLI)**
-
-We'll use this approach since we already have the Railway CLI authenticated:
-
-```bash
-# From your project directory (/Users/gabrielrondon/rust/engines)
-railway link defarm-engines-api
-railway up
+**Direct Link to Your Project**:
+```
+https://railway.app/project/2e6d7cdb-f993-4411-bcf4-1844f5b38011
 ```
 
-**For this guide, we'll continue with Option A (GitHub) for automatic deployments.**
+1. Open the link above in your browser
+2. You should see the **defarm** project dashboard
+3. Click on the **defarm-engines-api** service
 
 ---
 
-### Step 4: Add PostgreSQL Database
+### Step 2: Connect GitHub Repository
 
-1. In your **defarm** project dashboard, click **"+ New"**
-2. Select **"Database"**
-3. Choose **"PostgreSQL"**
-4. Click **"Add PostgreSQL"**
-5. Railway will create a managed PostgreSQL instance
+**This is the critical step to fix the deployment issue!**
 
-**Important**: Railway automatically creates a `DATABASE_URL` environment variable that all services in the project can reference.
+1. In the `defarm-engines-api` service, click **"Settings"** tab
+2. Scroll to **"Source"** section
+3. Click **"Connect GitHub Repo"** button
+4. Authorize Railway to access your GitHub account (if prompted)
+5. Select repository: **`gabrielrondon/defarm-rust-engine`**
+6. Select branch: **`main`**
+7. Click **"Connect"**
+
+✅ **Result**: Railway will automatically detect the `Dockerfile` and trigger the first deployment!
 
 ---
 
-### Step 5: Link Database to defarm-engines-api Service
+### Step 3: Verify PostgreSQL Database
 
-1. Go to your `defarm-engines-api` service
-2. Click **"Variables"** tab
-3. Click **"+ New Variable"**
-4. Click **"Add Reference"**
-5. Select the PostgreSQL database
-6. Choose `DATABASE_URL`
-7. Click **"Add"**
+✅ **Already configured!** Your service already has:
+- PostgreSQL database connected
+- `DATABASE_URL` environment variable set to: `postgresql://postgres:***@postgres.railway.internal:5432/railway`
 
-This creates a reference to the PostgreSQL database's connection string.
+No action needed for this step.
+
+---
+
+### Step 4: Verify Environment Variables
+
+✅ **Already configured!** The following variables are already set:
+
+**Core**:
+- ✅ `DATABASE_URL`
+- ✅ `JWT_SECRET`
+
+**IPFS/Pinata**:
+- ✅ `PINATA_API_KEY`, `PINATA_SECRET_KEY`, `PINATA_JWT`
+- ✅ `IPFS_ENDPOINT`, `IPFS_GATEWAY`
+
+**Stellar Configuration** (Testnet + Mainnet):
+- ✅ All Stellar variables configured
+
+No action needed for this step.
 
 ---
 
@@ -130,21 +129,18 @@ openssl rand -base64 32
 
 ---
 
-### Step 7: Configure Build Settings
+### Step 5: Verify Build Settings
 
-1. Go to **"Settings"** tab in `defarm-engines-api` service
-2. Under **"Build"** section:
-   - **Builder**: Should auto-detect as `Dockerfile`
-   - **Dockerfile Path**: `Dockerfile` (default)
-   - **Build Command**: (leave empty, Dockerfile handles it)
+Once GitHub is connected, Railway will auto-detect these settings from `railway.json` and `railway.toml`:
 
-3. Under **"Deploy"** section:
-   - **Start Command**: `/app/defarm-api` (Railway should read from `railway.toml`)
-   - **Health Check Path**: `/health`
-   - **Health Check Timeout**: 100 seconds
-   - **Restart Policy**: `ON_FAILURE`
+✅ **Builder**: Dockerfile
+✅ **Dockerfile Path**: `Dockerfile`
+✅ **Start Command**: `/app/defarm-api`
+✅ **Health Check Path**: `/health`
+✅ **Health Check Timeout**: 100 seconds
+✅ **Restart Policy**: ON_FAILURE
 
-**Note**: These settings should already be configured from your `railway.toml` file.
+To verify, go to **Settings** → **Build** and **Settings** → **Deploy**.
 
 ---
 
@@ -160,27 +156,27 @@ openssl rand -base64 32
 
 ---
 
-### Step 9: Deploy the Service
+### Step 7: Monitor the Automatic Deployment
 
-**If using GitHub integration**:
-1. Railway will automatically trigger a deployment when you push to the `main` branch
-2. You can also manually trigger deployment:
-   - Go to **"Deployments"** tab
-   - Click **"Trigger Deploy"**
+**Railway will automatically start building as soon as GitHub is connected!**
 
-**If using CLI**:
-```bash
-# Make sure you're in the project directory
-cd /Users/gabrielrondon/rust/engines
+1. Go to **"Deployments"** tab in your service
+2. You should see a deployment in progress
+3. Click on it to view real-time build logs
 
-# Link to the service (first time only)
-railway link
-
-# Select: defarm project → production environment → defarm-engines-api service
-
-# Deploy
-railway up
+**Build phases**:
 ```
+Phase 1: Cloning from GitHub (1-2 minutes)
+Phase 2: Building Docker image
+  - Stage 1: Rust builder (~10-15 minutes)
+    - Installing Stellar CLI (pre-built binary)
+    - Compiling Rust application
+  - Stage 2: Runtime image (~2 minutes)
+Phase 3: Deploying container
+Phase 4: Health check (/health endpoint)
+```
+
+**Total expected time**: ~15-20 minutes for first build
 
 ---
 
