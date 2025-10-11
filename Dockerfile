@@ -76,9 +76,9 @@ USER defarm
 # Expose API port (Railway provides dynamic PORT via environment variable)
 EXPOSE 3000
 
-# Health check - use PORT environment variable if set, fallback to 3000
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
+# Railway handles health checks via HTTP (see railway.json)
+# Docker HEALTHCHECK removed to avoid conflicts with Railway's healthcheck system
+# Railway will query /health endpoint directly using its own mechanism
 
 # Run the API
 CMD ["/app/defarm-api"]
