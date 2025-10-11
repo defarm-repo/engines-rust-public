@@ -114,7 +114,7 @@ print_section "2. AUTHENTICATION TESTS"
 
 # Test 2.1: Admin login
 echo -e "${YELLOW}📝 Logging in as admin (hen)...${NC}"
-ADMIN_TOKEN=$(api_call POST "/api/auth/login" "{\"user_id\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r '.token')
+ADMIN_TOKEN=$(api_call POST "/api/auth/login" "{\"username\":\"hen\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r '.token')
 
 if [ -n "$ADMIN_TOKEN" ] && [ "$ADMIN_TOKEN" != "null" ]; then
     print_test "Admin login" "PASS"
@@ -127,7 +127,7 @@ fi
 
 # Test 2.2: Professional user login
 echo -e "${YELLOW}📝 Logging in as professional user (pullet)...${NC}"
-PRO_TOKEN=$(api_call POST "/api/auth/login" "{\"user_id\":\"$PRO_USER\",\"password\":\"$PRO_PASSWORD\"}" | jq -r '.token')
+PRO_TOKEN=$(api_call POST "/api/auth/login" "{\"username\":\"$PRO_USER\",\"password\":\"$PRO_PASSWORD\"}" | jq -r '.token')
 
 if [ -n "$PRO_TOKEN" ] && [ "$PRO_TOKEN" != "null" ]; then
     print_test "Professional user login" "PASS"
@@ -137,7 +137,7 @@ else
 fi
 
 # Test 2.3: Invalid credentials
-response=$(api_call POST "/api/auth/login" '{"user_id":"invalid","password":"wrong"}')
+response=$(api_call POST "/api/auth/login" '{"username":"invalid","password":"wrong"}')
 if echo "$response" | grep -q "error\|Invalid\|Unauthorized"; then
     print_test "Invalid credentials rejection" "PASS"
 else
