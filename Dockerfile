@@ -74,7 +74,8 @@ USER defarm
 # This will be handled by docker-compose environment variables
 
 # Expose API port (Railway provides dynamic PORT via environment variable)
-EXPOSE 3000
+# Note: Railway sets PORT dynamically, this is just documentation
+EXPOSE 8080
 
 # Railway handles health checks via HTTP (see railway.json)
 # Docker HEALTHCHECK removed to avoid conflicts with Railway's healthcheck system
