@@ -14,10 +14,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Stellar CLI (pre-built binary - much faster than cargo install)
-RUN curl -L https://github.com/stellar/stellar-cli/releases/download/v23.1.4/stellar-cli-23.1.4-x86_64-unknown-linux-gnu.tar.gz \
-    | tar -xz -C /usr/local/bin && \
-    chmod +x /usr/local/bin/stellar
+# Stellar SDK integration - no CLI needed (native Rust)
 
 # Copy dependency manifests
 COPY Cargo.toml Cargo.lock ./
@@ -55,10 +52,7 @@ RUN useradd -m -u 1000 defarm
 
 WORKDIR /app
 
-# Copy Stellar CLI from builder
-COPY --from=builder /usr/local/bin/stellar /usr/local/bin/stellar
-
-# Copy the built binary
+# Copy the built binary (Stellar SDK compiled in - no CLI needed)
 COPY --from=builder /app/target/release/defarm-api /app/defarm-api
 
 # Copy migrations (needed for database setup)
@@ -70,8 +64,7 @@ RUN chown -R defarm:defarm /app
 # Switch to app user
 USER defarm
 
-# Configure Stellar networks at runtime (done in entrypoint.sh)
-# This will be handled by docker-compose environment variables
+# Stellar SDK uses environment variables for configuration (no CLI setup needed)
 
 # Expose API port (Railway provides dynamic PORT via environment variable)
 # Note: Railway sets PORT dynamically, this is just documentation

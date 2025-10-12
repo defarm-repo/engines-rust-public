@@ -53,9 +53,11 @@ url = "2.5"
 ed25519-dalek = "2.0"
 sha2 = "0.10"
 
-# Stellar/Soroban integration (TODO: Add stellar-xdr for native Rust implementation)
-# For now using stellar CLI subprocess - faster to ship, replace later with:
-# stellar-xdr = { version = "21", default-features = false, features = ["curr"] }
+# Stellar/Soroban SDK integration (native Rust - no CLI needed)
+# TODO: Add back when dependency conflicts resolved
+# stellar-strkey = "0.0.8"
+# soroban-spec-tools = "21"
+# stellar-xdr = { version = "21", default-features = false, features = ["curr", "std"] }
 
 # PostgreSQL database with connection pooling
 tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"] }

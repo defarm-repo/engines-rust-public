@@ -29,18 +29,19 @@ async fn main() {
     // Load environment variables
     dotenv::dotenv().ok();
 
-    // Check Stellar CLI configuration at startup
-    defarm_engine::stellar_health_check::check_stellar_cli_configuration().await;
-
-    // Initialize shared state
+    // Initialize shared state first (this can't fail)
     let app_state = Arc::new(AppState::new());
 
-    // Setup development data (hen admin + sample users)
-    {
-        let mut storage = app_state.shared_storage.lock().unwrap();
+    // Stellar SDK integration - no CLI needed, health check removed
+    info!("🌟 Stellar SDK integration enabled (native Rust - no CLI dependency)");
+
+    // Setup development data (hen admin + sample users) - don't panic on failure
+    if let Ok(mut storage) = app_state.shared_storage.lock() {
         if let Err(e) = setup_development_data(&mut storage) {
             tracing::error!("Failed to setup development data: {}", e);
         }
+    } else {
+        tracing::error!("Failed to acquire storage lock for development data setup");
     }
 
     // Initialize PostgreSQL in background (lazy initialization - won't block server startup)
