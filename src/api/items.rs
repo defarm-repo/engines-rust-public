@@ -769,57 +769,66 @@ async fn create_local_item(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateLocalItemRequest>,
 ) -> Result<Json<CreateLocalItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    // Create item in in-memory storage (must not hold lock across await)
+    let item = {
+        let mut engine = state.items_engine.lock()
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
 
-    // Convert legacy identifiers
-    let identifiers: Vec<Identifier> = payload.identifiers
-        .unwrap_or_default()
-        .into_iter()
-        .map(|id| Identifier::new(id.key, id.value))
-        .collect();
+        // Convert legacy identifiers
+        let identifiers: Vec<Identifier> = payload.identifiers
+            .unwrap_or_default()
+            .into_iter()
+            .map(|id| Identifier::new(id.key, id.value))
+            .collect();
 
-    // Convert enhanced identifiers
-    let enhanced_identifiers: Vec<EnhancedIdentifier> = payload.enhanced_identifiers
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|req| {
-            match req.id_type.as_str() {
-                "Canonical" => Some(EnhancedIdentifier::canonical(&req.namespace, &req.key, &req.value)),
-                "Contextual" => Some(EnhancedIdentifier::contextual(&req.namespace, &req.key, &req.value)),
-                _ => None,
-            }
-        })
-        .collect();
-
-    // Generate source entry
-    let source_entry = Uuid::new_v4();
-
-    match engine.create_local_item(identifiers, enhanced_identifiers, payload.enriched_data, source_entry) {
-        Ok(item) => {
-            let local_id = item.local_id.unwrap_or_else(|| {
-                // Extract from temporary DFID format "LID-{uuid}"
-                let dfid = &item.dfid;
-                if dfid.starts_with("LID-") {
-                    Uuid::parse_str(&dfid[4..]).unwrap_or_else(|_| Uuid::new_v4())
-                } else {
-                    Uuid::new_v4()
+        // Convert enhanced identifiers
+        let enhanced_identifiers: Vec<EnhancedIdentifier> = payload.enhanced_identifiers
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|req| {
+                match req.id_type.as_str() {
+                    "Canonical" => Some(EnhancedIdentifier::canonical(&req.namespace, &req.key, &req.value)),
+                    "Contextual" => Some(EnhancedIdentifier::contextual(&req.namespace, &req.key, &req.value)),
+                    _ => None,
                 }
-            });
+            })
+            .collect();
 
-            Ok(Json(CreateLocalItemResponse {
-                success: true,
-                data: LocalItemData {
-                    local_id: local_id.to_string(),
-                    status: "LocalOnly".to_string(),
-                },
-            }))
+        // Generate source entry
+        let source_entry = Uuid::new_v4();
+
+        engine.create_local_item(identifiers, enhanced_identifiers, payload.enriched_data, source_entry)
+            .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to create local item: {}", e)}))))?
+    }; // Lock dropped here
+
+    // Write-through cache: Also persist to PostgreSQL if available
+    let pg_lock = state.postgres_persistence.read().await;
+    if let Some(pg) = &*pg_lock {
+        if let Err(e) = pg.persist_item(&item).await {
+            tracing::warn!("Failed to persist item to PostgreSQL: {}", e);
+            // Don't fail the request - in-memory write succeeded
         }
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Failed to create local item: {}", e)})),
-        )),
     }
+    drop(pg_lock);
+
+    // Extract local_id from item
+    let local_id = item.local_id.unwrap_or_else(|| {
+        // Extract from temporary DFID format "LID-{uuid}"
+        let dfid = &item.dfid;
+        if dfid.starts_with("LID-") {
+            Uuid::parse_str(&dfid[4..]).unwrap_or_else(|_| Uuid::new_v4())
+        } else {
+            Uuid::new_v4()
+        }
+    });
+
+    Ok(Json(CreateLocalItemResponse {
+        success: true,
+        data: LocalItemData {
+            local_id: local_id.to_string(),
+            status: "LocalOnly".to_string(),
+        },
+    }))
 }
 
 async fn get_lid_dfid_mapping(

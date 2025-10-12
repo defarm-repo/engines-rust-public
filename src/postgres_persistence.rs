@@ -459,6 +459,121 @@ impl PostgresPersistence {
         Ok(users)
     }
 
+    /// Persist item to PostgreSQL (write-through cache)
+    pub async fn persist_item(&self, item: &crate::types::Item) -> Result<(), String> {
+        if !self.is_connected().await {
+            return Err("PostgreSQL not connected".to_string());
+        }
+
+        let client = self.get_client().await?;
+
+        // Calculate item hash using BLAKE3
+        let item_hash = blake3::hash(item.dfid.as_bytes()).to_hex().to_string();
+
+        // Insert/update main item record
+        client.execute(
+            "INSERT INTO items (dfid, item_hash, status, created_at_ts, last_updated_ts, enriched_data)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (dfid) DO UPDATE SET
+                status = EXCLUDED.status,
+                last_updated_ts = EXCLUDED.last_updated_ts,
+                enriched_data = EXCLUDED.enriched_data,
+                updated_at = NOW()",
+            &[
+                &item.dfid,
+                &item_hash,
+                &format!("{:?}", item.status),
+                &item.creation_timestamp.timestamp(),
+                &item.last_modified.timestamp(),
+                &serde_json::to_value(&item.enriched_data).unwrap_or(serde_json::Value::Null),
+            ],
+        ).await
+        .map_err(|e| format!("Failed to persist item: {}", e))?;
+
+        // Insert identifiers (delete old ones first)
+        client.execute(
+            "DELETE FROM item_identifiers WHERE dfid = $1",
+            &[&item.dfid],
+        ).await
+        .map_err(|e| format!("Failed to delete old identifiers: {}", e))?;
+
+        for identifier in &item.identifiers {
+            client.execute(
+                "INSERT INTO item_identifiers (dfid, key, value) VALUES ($1, $2, $3)",
+                &[&item.dfid, &identifier.key, &identifier.value],
+            ).await
+            .map_err(|e| format!("Failed to insert identifier: {}", e))?;
+        }
+
+        // Insert source entries (delete old ones first)
+        client.execute(
+            "DELETE FROM item_source_entries WHERE dfid = $1",
+            &[&item.dfid],
+        ).await
+        .map_err(|e| format!("Failed to delete old source entries: {}", e))?;
+
+        for entry_id in &item.source_entries {
+            client.execute(
+                "INSERT INTO item_source_entries (dfid, entry_id) VALUES ($1, $2)",
+                &[&item.dfid, entry_id],
+            ).await
+            .map_err(|e| format!("Failed to insert source entry: {}", e))?;
+        }
+
+        // Insert LID mapping if exists
+        if let Some(local_id) = item.local_id {
+            client.execute(
+                "INSERT INTO lid_dfid_mappings (local_id, dfid) VALUES ($1, $2)
+                 ON CONFLICT (local_id) DO UPDATE SET dfid = EXCLUDED.dfid",
+                &[&local_id, &item.dfid],
+            ).await
+            .map_err(|e| format!("Failed to insert LID mapping: {}", e))?;
+        }
+
+        Ok(())
+    }
+
+    /// Persist event to PostgreSQL (write-through cache)
+    pub async fn persist_event(&self, event: &crate::types::Event) -> Result<(), String> {
+        if !self.is_connected().await {
+            return Err("PostgreSQL not connected".to_string());
+        }
+
+        let client = self.get_client().await?;
+
+        // Serialize encrypted_data if encrypted
+        let encrypted_data: Option<Vec<u8>> = if event.is_encrypted {
+            // For now, we'll store the content_hash as encrypted_data
+            Some(event.content_hash.as_bytes().to_vec())
+        } else {
+            None
+        };
+
+        client.execute(
+            "INSERT INTO events (event_id, event_type, dfid, timestamp, visibility, encrypted_data, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (event_id) DO UPDATE SET
+                event_type = EXCLUDED.event_type,
+                dfid = EXCLUDED.dfid,
+                timestamp = EXCLUDED.timestamp,
+                visibility = EXCLUDED.visibility,
+                encrypted_data = EXCLUDED.encrypted_data,
+                metadata = EXCLUDED.metadata",
+            &[
+                &event.event_id,
+                &format!("{:?}", event.event_type),
+                &event.dfid,
+                &event.timestamp.timestamp(),
+                &format!("{:?}", event.visibility),
+                &encrypted_data,
+                &serde_json::to_value(&event.metadata).unwrap_or(serde_json::Value::Null),
+            ],
+        ).await
+        .map_err(|e| format!("Failed to persist event: {}", e))?;
+
+        Ok(())
+    }
+
     fn row_to_user(&self, row: &Row) -> Result<UserAccount, String> {
         let tier_str: String = row.get("tier");
         let tier = UserTier::from_str(&tier_str)?;

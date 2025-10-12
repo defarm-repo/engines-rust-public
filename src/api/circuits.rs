@@ -621,13 +621,26 @@ async fn create_circuit(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    // Create circuit in in-memory storage (must not hold lock across await)
+    let circuit = {
+        let mut engine = state.circuits_engine.lock()
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
 
-    match engine.create_circuit(payload.name, payload.description, payload.owner_id) {
-        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create circuit: {}", e)})))),
+        engine.create_circuit(payload.name, payload.description, payload.owner_id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create circuit: {}", e)}))))?
+    }; // Lock dropped here
+
+    // Write-through cache: Also persist to PostgreSQL if available
+    let pg_lock = state.postgres_persistence.read().await;
+    if let Some(pg) = &*pg_lock {
+        if let Err(e) = pg.persist_circuit(&circuit).await {
+            tracing::warn!("Failed to persist circuit to PostgreSQL: {}", e);
+            // Don't fail the request - in-memory write succeeded
+        }
     }
+    drop(pg_lock);
+
+    Ok(Json(circuit_to_response(circuit)))
 }
 
 async fn get_circuit(
