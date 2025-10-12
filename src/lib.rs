@@ -14,7 +14,8 @@ pub mod zk_proof_engine;
 pub mod adapters;
 pub mod ipfs_client;
 pub mod stellar_client;
-pub mod stellar_health_check;
+// Stellar health check disabled - using SDK not CLI
+// pub mod stellar_health_check;
 // Disabled postgres_storage due to type mismatches - using postgres_persistence instead
 // pub mod postgres_storage;
 pub mod postgres_persistence;
