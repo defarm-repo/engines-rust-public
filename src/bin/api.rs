@@ -95,9 +95,8 @@ async fn main() {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(3000);
 
-    // Use IPv6 [::] (0.0.0.0 equivalent) for Railway compatibility
-    // Railway healthchecks use hostname healthcheck.railway.app
-    let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
+    // Bind to 0.0.0.0 for Railway compatibility (IPv4)
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("🚀 DeFarm API server starting on {} (PORT={})", addr, port);
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
