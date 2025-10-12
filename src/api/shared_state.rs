@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, RwLock};
-use crate::{CircuitsEngine, ItemsEngine, AuditEngine, InMemoryStorage, NotificationEngine};
+use crate::{CircuitsEngine, ItemsEngine, AuditEngine, InMemoryStorage, NotificationEngine, EventsEngine};
 use crate::storage_history_manager::StorageHistoryManager;
 use crate::api_key_engine::ApiKeyEngine;
 use crate::api_key_storage::ApiKeyStorage;
@@ -12,6 +12,7 @@ use crate::postgres_persistence::PostgresPersistence;
 pub struct AppState<S: ApiKeyStorage = crate::api_key_storage::InMemoryApiKeyStorage> {
     pub circuits_engine: Arc<Mutex<CircuitsEngine<InMemoryStorage>>>,
     pub items_engine: Arc<Mutex<ItemsEngine<Arc<Mutex<InMemoryStorage>>>>>,
+    pub events_engine: Arc<Mutex<EventsEngine<InMemoryStorage>>>,
     pub audit_engine: AuditEngine<InMemoryStorage>,
     pub shared_storage: Arc<Mutex<InMemoryStorage>>,
     pub storage_history_manager: StorageHistoryManager<InMemoryStorage>,
@@ -37,10 +38,12 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
         // The engines will wrap the storage in Arc<Mutex<>> internally
         let storage_for_circuits = Arc::clone(&shared_storage);
         let storage_for_items = Arc::clone(&shared_storage);
+        let storage_for_events = Arc::clone(&shared_storage);
         let storage_for_audit = Arc::clone(&shared_storage);
 
         let circuits_engine = Arc::new(Mutex::new(CircuitsEngine::new(storage_for_circuits)));
         let items_engine = Arc::new(Mutex::new(ItemsEngine::new(storage_for_items)));
+        let events_engine = Arc::new(Mutex::new(EventsEngine::new(storage_for_events)));
         let audit_engine = AuditEngine::new(storage_for_audit);
 
         let storage_for_history = Arc::clone(&shared_storage);
@@ -70,6 +73,7 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
         Self {
             circuits_engine,
             items_engine,
+            events_engine,
             audit_engine,
             shared_storage,
             storage_history_manager,
@@ -81,6 +85,14 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
             notification_tx,
             jwt_secret,
             postgres_persistence: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Call this after PostgreSQL connection is established to enable event persistence
+    pub fn enable_event_persistence(&self) {
+        if let Ok(mut engine) = self.events_engine.lock() {
+            *engine = EventsEngine::new(Arc::clone(&self.shared_storage))
+                .with_postgres(Arc::clone(&self.postgres_persistence));
         }
     }
 }

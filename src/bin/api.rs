@@ -57,7 +57,7 @@ async fn main() {
     // Protected routes (require JWT authentication)
     let protected_routes = Router::new()
         .nest("/api/receipts", receipt_routes())
-        .nest("/api/events", event_routes())
+        .nest("/api/events", event_routes(app_state.clone()))
         .nest("/api/circuits", circuit_routes(app_state.clone()))
         .nest("/api/items", item_routes(app_state.clone()))
         .nest("/api/workspaces", workspace_routes())
@@ -235,6 +235,11 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                 // Store the connected persistence instance
                 let mut pg_lock = app_state.postgres_persistence.write().await;
                 *pg_lock = Some(pg_persistence);
+                drop(pg_lock);
+
+                // Enable event persistence now that PostgreSQL is connected
+                app_state.enable_event_persistence();
+                tracing::info!("✅ Event persistence enabled - events will now persist to PostgreSQL");
 
                 tracing::info!("🎉 PostgreSQL persistence fully operational!");
             }

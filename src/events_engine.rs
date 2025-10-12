@@ -1,10 +1,12 @@
 use crate::logging::LoggingEngine;
 use crate::storage::StorageBackend;
 use crate::types::{Event, EventType, EventVisibility};
+use crate::postgres_persistence::PostgresPersistence;
 use chrono::{DateTime, Utc};
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -31,12 +33,22 @@ impl std::error::Error for EventsError {}
 pub struct EventsEngine<S: StorageBackend> {
     storage: Arc<std::sync::Mutex<S>>,
     logger: std::cell::RefCell<LoggingEngine>,
+    postgres: Option<Arc<RwLock<Option<PostgresPersistence>>>>,
 }
 
 impl<S: StorageBackend> EventsEngine<S> {
     pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
         let logger = LoggingEngine::new();
-        Self { storage, logger: std::cell::RefCell::new(logger) }
+        Self {
+            storage,
+            logger: std::cell::RefCell::new(logger),
+            postgres: None,
+        }
+    }
+
+    pub fn with_postgres(mut self, postgres: Arc<RwLock<Option<PostgresPersistence>>>) -> Self {
+        self.postgres = Some(postgres);
+        self
     }
 
     pub fn create_event(
@@ -59,15 +71,32 @@ impl<S: StorageBackend> EventsEngine<S> {
                 .with_context("event_id", event.event_id.to_string());
         }
 
+        // Store in in-memory storage first
         let mut storage = self.storage.lock()
         .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .store_event(&event)
             .map_err(|e| EventsError::StorageError(e.to_string()))?;
+        drop(storage); // Release lock before async operation
 
         self.logger.borrow_mut().info("events_engine", "event_created", "Event created successfully")
             .with_context("event_id", event.event_id.to_string())
-            .with_context("dfid", dfid);
+            .with_context("dfid", dfid.clone());
+
+        // Write-through cache: Persist to PostgreSQL asynchronously (non-blocking)
+        if let Some(pg_ref) = &self.postgres {
+            let pg = Arc::clone(pg_ref);
+            let event_clone = event.clone();
+            tokio::spawn(async move {
+                let pg_lock = pg.read().await;
+                if let Some(pg_persistence) = &*pg_lock {
+                    if let Err(e) = pg_persistence.persist_event(&event_clone).await {
+                        tracing::warn!("Failed to persist event to PostgreSQL: {}", e);
+                        // Don't fail the request - in-memory write succeeded
+                    }
+                }
+            });
+        }
 
         Ok(event)
     }

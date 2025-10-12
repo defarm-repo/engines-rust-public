@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::{EventsEngine, InMemoryStorage, EventType, EventVisibility, Event};
+use super::shared_state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateEventRequest {
@@ -42,22 +43,7 @@ pub struct EventQueryParams {
     pub visibility: Option<String>,
 }
 
-pub struct EventState {
-    pub engine: Arc<Mutex<EventsEngine<InMemoryStorage>>>,
-}
-
-impl EventState {
-    pub fn new() -> Self {
-        let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
-        Self {
-            engine: Arc::new(Mutex::new(EventsEngine::new(storage))),
-        }
-    }
-}
-
-pub fn event_routes() -> Router {
-    let state = Arc::new(EventState::new());
-
+pub fn event_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", post(create_event))
         .route("/item/:dfid", get(get_events_for_item))
@@ -68,7 +54,7 @@ pub fn event_routes() -> Router {
         .route("/private", get(get_private_events))
         .route("/:event_id", get(get_event))
         .route("/:event_id/metadata", post(add_event_metadata))
-        .with_state(state)
+        .with_state(app_state)
 }
 
 fn parse_event_type(event_type_str: &str) -> Result<EventType, String> {
@@ -108,7 +94,7 @@ fn event_to_response(event: Event) -> EventResponse {
 }
 
 async fn create_event(
-    State(state): State<Arc<EventState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateEventRequest>,
 ) -> Result<Json<EventResponse>, (StatusCode, Json<Value>)> {
     let event_type = parse_event_type(&payload.event_type)
@@ -117,7 +103,7 @@ async fn create_event(
     let visibility = parse_event_visibility(&payload.visibility)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.events_engine.lock().unwrap();
 
     match engine.create_event(payload.dfid, event_type, payload.source, visibility) {
         Ok(mut event) => {
@@ -140,10 +126,10 @@ async fn create_event(
 }
 
 async fn get_events_for_item(
-    State(state): State<Arc<EventState>>,
+    State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.events_engine.lock().unwrap();
 
     match engine.get_events_for_item(&dfid) {
         Ok(events) => {
@@ -158,13 +144,13 @@ async fn get_events_for_item(
 }
 
 async fn get_events_by_type(
-    State(state): State<Arc<EventState>>,
+    State(state): State<Arc<AppState>>,
     Path(event_type_str): Path<String>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
     let event_type = parse_event_type(&event_type_str)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let engine = state.engine.lock().unwrap();
+    let engine = state.events_engine.lock().unwrap();
 
     match engine.get_events_by_type(event_type) {
         Ok(events) => {
@@ -179,13 +165,13 @@ async fn get_events_by_type(
 }
 
 async fn get_events_by_visibility(
-    State(state): State<Arc<EventState>>,
+    State(state): State<Arc<AppState>>,
     Path(visibility_str): Path<String>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
     let visibility = parse_event_visibility(&visibility_str)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let engine = state.engine.lock().unwrap();
+    let engine = state.events_engine.lock().unwrap();
 
     match engine.get_events_by_visibility(visibility) {
         Ok(events) => {
@@ -200,10 +186,10 @@ async fn get_events_by_visibility(
 }
 
 async fn get_events_timeline(
-    State(state): State<Arc<EventState>>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<EventQueryParams>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.events_engine.lock().unwrap();
 
     match (params.start_date, params.end_date) {
         (Some(start), Some(end)) => {
@@ -240,9 +226,9 @@ async fn get_events_timeline(
 }
 
 async fn get_public_events(
-    State(state): State<Arc<EventState>>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.events_engine.lock().unwrap();
 
     match engine.get_public_events() {
         Ok(events) => {
@@ -257,9 +243,9 @@ async fn get_public_events(
 }
 
 async fn get_private_events(
-    State(state): State<Arc<EventState>>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
+    let engine = state.events_engine.lock().unwrap();
 
     match engine.get_private_events() {
         Ok(events) => {
@@ -274,13 +260,13 @@ async fn get_private_events(
 }
 
 async fn get_event(
-    State(state): State<Arc<EventState>>,
+    State(state): State<Arc<AppState>>,
     Path(event_id): Path<String>,
 ) -> Result<Json<EventResponse>, (StatusCode, Json<Value>)> {
     let event_uuid = Uuid::parse_str(&event_id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid event ID format"}))))?;
 
-    let engine = state.engine.lock().unwrap();
+    let engine = state.events_engine.lock().unwrap();
 
     match engine.get_event(&event_uuid) {
         Ok(Some(event)) => Ok(Json(event_to_response(event))),
@@ -290,14 +276,14 @@ async fn get_event(
 }
 
 async fn add_event_metadata(
-    State(state): State<Arc<EventState>>,
+    State(state): State<Arc<AppState>>,
     Path(event_id): Path<String>,
     Json(metadata): Json<HashMap<String, serde_json::Value>>,
 ) -> Result<Json<EventResponse>, (StatusCode, Json<Value>)> {
     let event_uuid = Uuid::parse_str(&event_id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid event ID format"}))))?;
 
-    let mut engine = state.engine.lock().unwrap();
+    let mut engine = state.events_engine.lock().unwrap();
 
     match engine.add_event_metadata(&event_uuid, metadata) {
         Ok(event) => Ok(Json(event_to_response(event))),
