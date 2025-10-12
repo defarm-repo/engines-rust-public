@@ -47,12 +47,16 @@ async fn main() {
     initialize_postgres_background(app_state.clone());
 
 
+    // Health endpoints with state
+    let health_routes = Router::new()
+        .route("/health/db", get(health_check_db))
+        .with_state(app_state.clone());
+
     // Public routes (no authentication required)
     let public_routes = Router::new()
         .route("/", get(root))
         .route("/health", get(health_check))
-        .route("/health/db", get(health_check_db))
-        .with_state(app_state.clone())
+        .merge(health_routes)
         .nest("/api/auth", auth_routes(app_state.clone()))
         // WebSocket route does NOT use JWT middleware (verifies token from query param)
         .nest("/api/notifications", notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()));
