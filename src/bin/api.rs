@@ -35,16 +35,8 @@ async fn main() {
     // Stellar SDK integration - no CLI needed, health check removed
     info!("🌟 Stellar SDK integration enabled (native Rust - no CLI dependency)");
 
-    // Setup development data (hen admin + sample users) - don't panic on failure
-    if let Ok(mut storage) = app_state.shared_storage.lock() {
-        if let Err(e) = setup_development_data(&mut storage) {
-            tracing::error!("Failed to setup development data: {}", e);
-        }
-    } else {
-        tracing::error!("Failed to acquire storage lock for development data setup");
-    }
-
     // Initialize PostgreSQL in background (lazy initialization - won't block server startup)
+    // Development data will be set up after PostgreSQL connects (or in-memory if no DB)
     initialize_postgres_background(app_state.clone());
 
 
@@ -210,15 +202,34 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                 tracing::info!("✅ PostgreSQL persistence enabled");
 
                 // Try to load existing data from PostgreSQL
-                match load_data_from_postgres(&pg_persistence, &app_state).await {
-                    Ok(()) => tracing::info!("✅ Loaded existing data from PostgreSQL"),
-                    Err(e) => tracing::warn!("⚠️  Could not load data from PostgreSQL: {}", e),
-                }
+                let data_loaded = match load_data_from_postgres(&pg_persistence, &app_state).await {
+                    Ok(count) if count > 0 => {
+                        tracing::info!("✅ Loaded {} users from PostgreSQL", count);
+                        true
+                    }
+                    Ok(_) => {
+                        tracing::info!("💡 PostgreSQL database is empty");
+                        false
+                    }
+                    Err(e) => {
+                        tracing::warn!("⚠️  Could not load data from PostgreSQL: {}", e);
+                        false
+                    }
+                };
 
-                // Sync current in-memory data to PostgreSQL
-                match sync_to_postgres(&pg_persistence, &app_state).await {
-                    Ok(()) => tracing::info!("✅ Synced in-memory data to PostgreSQL"),
-                    Err(e) => tracing::warn!("⚠️  Could not sync to PostgreSQL: {}", e),
+                // If database is empty, initialize development data directly to PostgreSQL
+                if !data_loaded {
+                    tracing::info!("🚀 Initializing development data in PostgreSQL...");
+                    match initialize_development_data_to_postgres(&pg_persistence).await {
+                        Ok(()) => tracing::info!("✅ Development data initialized in PostgreSQL"),
+                        Err(e) => tracing::error!("❌ Failed to initialize development data: {}", e),
+                    }
+
+                    // Load the newly created data into in-memory storage
+                    match load_data_from_postgres(&pg_persistence, &app_state).await {
+                        Ok(count) => tracing::info!("✅ Loaded {} users into in-memory cache", count),
+                        Err(e) => tracing::warn!("⚠️  Could not load data: {}", e),
+                    }
                 }
 
                 // Store the connected persistence instance
@@ -231,16 +242,24 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                 tracing::error!("❌ PostgreSQL connection failed: {}", e);
                 tracing::warn!("⚠️  Continuing with in-memory storage only");
                 tracing::warn!("⚠️  Data will not persist between restarts");
+
+                // Fallback: Setup development data in in-memory storage
+                if let Ok(mut storage) = app_state.shared_storage.lock() {
+                    if let Err(e) = setup_development_data(&mut storage) {
+                        tracing::error!("Failed to setup development data: {}", e);
+                    }
+                }
             }
         }
     });
 }
 
 /// Load existing data from PostgreSQL into in-memory storage
+/// Returns the number of users loaded
 async fn load_data_from_postgres(
     pg: &PostgresPersistence,
     app_state: &AppState,
-) -> Result<(), String> {
+) -> Result<usize, String> {
     // Load users
     let users = pg.load_users().await?;
     let user_count = users.len();
@@ -269,6 +288,155 @@ async fn load_data_from_postgres(
         }
         tracing::info!("📥 Loaded {} circuits from PostgreSQL", circuit_count);
     }
+
+    Ok(user_count)
+}
+
+/// Initialize development data directly to PostgreSQL
+async fn initialize_development_data_to_postgres(
+    pg: &PostgresPersistence,
+) -> Result<(), String> {
+    use bcrypt::{hash, DEFAULT_COST};
+    use chrono::Utc;
+    use defarm_engine::types::{UserAccount, UserTier, AccountStatus, TierLimits};
+
+    println!("🚀 Setting up development data in PostgreSQL...");
+
+    // Create hen admin
+    println!("🐔 Initializing default admin user 'hen'...");
+    let hen_password_hash = hash("demo123", DEFAULT_COST)
+        .map_err(|e| format!("Failed to hash password: {}", e))?;
+
+    let hen_admin = UserAccount {
+        user_id: "hen-admin-001".to_string(),
+        username: "hen".to_string(),
+        email: "hen@defarm.com".to_string(),
+        password_hash: hen_password_hash,
+        tier: UserTier::Admin,
+        status: AccountStatus::Active,
+        credits: 1_000_000,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        last_login: None,
+        subscription: None,
+        limits: TierLimits::for_tier(&UserTier::Admin),
+        is_admin: true,
+        workspace_id: Some("hen-workspace".to_string()),
+        available_adapters: None,
+    };
+
+    pg.persist_user(&hen_admin).await?;
+    println!("✅ Default admin 'hen' created in PostgreSQL!");
+
+    // Create sample users
+    println!("🌱 Creating sample users...");
+    let demo_password_hash = hash("demo123", DEFAULT_COST)
+        .map_err(|e| format!("Failed to hash password: {}", e))?;
+
+    let sample_users = vec![
+        UserAccount {
+            user_id: "pullet-user-001".to_string(),
+            username: "pullet".to_string(),
+            email: "pullet@defarm.io".to_string(),
+            password_hash: demo_password_hash.clone(),
+            tier: UserTier::Professional,
+            status: AccountStatus::Active,
+            credits: 5000,
+            created_at: Utc::now() - chrono::Duration::days(15),
+            updated_at: Utc::now(),
+            last_login: Some(Utc::now() - chrono::Duration::hours(3)),
+            subscription: None,
+            limits: TierLimits::for_tier(&UserTier::Professional),
+            is_admin: false,
+            workspace_id: Some("pullet-workspace".to_string()),
+            available_adapters: None,
+        },
+        UserAccount {
+            user_id: "cock-user-001".to_string(),
+            username: "cock".to_string(),
+            email: "cock@defarm.io".to_string(),
+            password_hash: demo_password_hash.clone(),
+            tier: UserTier::Enterprise,
+            status: AccountStatus::Active,
+            credits: 50000,
+            created_at: Utc::now() - chrono::Duration::days(60),
+            updated_at: Utc::now(),
+            last_login: Some(Utc::now() - chrono::Duration::hours(1)),
+            subscription: None,
+            limits: TierLimits::for_tier(&UserTier::Enterprise),
+            is_admin: false,
+            workspace_id: Some("cock-workspace".to_string()),
+            available_adapters: None,
+        },
+        UserAccount {
+            user_id: "basic-farmer-001".to_string(),
+            username: "basic_farmer".to_string(),
+            email: "basic@farm.com".to_string(),
+            password_hash: demo_password_hash.clone(),
+            tier: UserTier::Basic,
+            status: AccountStatus::Active,
+            credits: 100,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_login: Some(Utc::now() - chrono::Duration::days(2)),
+            subscription: None,
+            limits: TierLimits::for_tier(&UserTier::Basic),
+            is_admin: false,
+            workspace_id: Some("basic-workspace".to_string()),
+            available_adapters: None,
+        },
+        UserAccount {
+            user_id: "pro-farmer-001".to_string(),
+            username: "pro_farmer".to_string(),
+            email: "pro@farm.com".to_string(),
+            password_hash: demo_password_hash.clone(),
+            tier: UserTier::Professional,
+            status: AccountStatus::Active,
+            credits: 5000,
+            created_at: Utc::now() - chrono::Duration::days(30),
+            updated_at: Utc::now(),
+            last_login: Some(Utc::now() - chrono::Duration::hours(6)),
+            subscription: None,
+            limits: TierLimits::for_tier(&UserTier::Professional),
+            is_admin: false,
+            workspace_id: Some("pro-workspace".to_string()),
+            available_adapters: None,
+        },
+        UserAccount {
+            user_id: "enterprise-farmer-001".to_string(),
+            username: "enterprise_farmer".to_string(),
+            email: "enterprise@farm.com".to_string(),
+            password_hash: demo_password_hash.clone(),
+            tier: UserTier::Enterprise,
+            status: AccountStatus::Active,
+            credits: 50000,
+            created_at: Utc::now() - chrono::Duration::days(90),
+            updated_at: Utc::now(),
+            last_login: Some(Utc::now() - chrono::Duration::hours(1)),
+            subscription: None,
+            limits: TierLimits::for_tier(&UserTier::Enterprise),
+            is_admin: false,
+            workspace_id: Some("enterprise-workspace".to_string()),
+            available_adapters: None,
+        },
+    ];
+
+    for user in sample_users {
+        let username = user.username.clone();
+        let tier = user.tier.as_str();
+        let credits = user.credits;
+        pg.persist_user(&user).await?;
+        println!("   ✅ Created {} user: {} ({})", tier, username, credits);
+    }
+
+    println!("✅ Development data initialized in PostgreSQL!");
+    println!("📋 Available test accounts (all use password: demo123):");
+    println!("   🐔 Admin:      hen / demo123");
+    println!("   🐣 Pro:        pullet / demo123");
+    println!("   🐓 Enterprise: cock / demo123");
+    println!("   🌱 Basic:      basic_farmer / demo123");
+    println!("   🚀 Pro:        pro_farmer / demo123");
+    println!("   🏢 Enterprise: enterprise_farmer / demo123");
 
     Ok(())
 }
