@@ -8,6 +8,7 @@ use serde_json;
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::*;
 use crate::logging::{LogEntry, LogLevel};
+use crate::identifier_types::EnhancedIdentifier;
 
 /// PostgreSQL-backed storage implementation
 /// Implements all StorageBackend methods with connection pooling

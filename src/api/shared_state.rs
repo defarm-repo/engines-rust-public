@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use crate::{CircuitsEngine, ItemsEngine, AuditEngine, InMemoryStorage, NotificationEngine};
 use crate::storage_history_manager::StorageHistoryManager;
 use crate::api_key_engine::ApiKeyEngine;
@@ -7,6 +7,7 @@ use crate::api_key_storage::ApiKeyStorage;
 use crate::logging::LoggingEngine;
 use crate::rate_limiter::RateLimiter;
 use crate::api::notifications::NotificationMessage;
+use crate::postgres_persistence::PostgresPersistence;
 
 pub struct AppState<S: ApiKeyStorage = crate::api_key_storage::InMemoryApiKeyStorage> {
     pub circuits_engine: Arc<Mutex<CircuitsEngine<InMemoryStorage>>>,
@@ -21,6 +22,8 @@ pub struct AppState<S: ApiKeyStorage = crate::api_key_storage::InMemoryApiKeySto
     pub notification_engine: Arc<Mutex<NotificationEngine<InMemoryStorage>>>,
     pub notification_tx: broadcast::Sender<NotificationMessage>,
     pub jwt_secret: String,
+    /// Optional PostgreSQL persistence layer - lazy initialized
+    pub postgres_persistence: Arc<RwLock<Option<PostgresPersistence>>>,
 }
 
 impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
@@ -77,6 +80,7 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
             notification_engine,
             notification_tx,
             jwt_secret,
+            postgres_persistence: Arc::new(RwLock::new(None)),
         }
     }
 }
