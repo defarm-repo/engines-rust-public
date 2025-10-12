@@ -8,14 +8,14 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- RECEIPTS
 -- ============================================================================
 
-CREATE TABLE receipts (
+CREATE TABLE IF NOT EXISTS receipts (
     id UUID PRIMARY KEY,
     data_hash VARCHAR(64) NOT NULL,
     timestamp BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE receipt_identifiers (
+CREATE TABLE IF NOT EXISTS receipt_identifiers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     receipt_id UUID NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
     key VARCHAR(255) NOT NULL,
@@ -23,14 +23,14 @@ CREATE TABLE receipt_identifiers (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_receipt_identifiers_key_value ON receipt_identifiers(key, value);
-CREATE INDEX idx_receipt_identifiers_receipt_id ON receipt_identifiers(receipt_id);
+CREATE INDEX IF NOT EXISTS idx_receipt_identifiers_key_value ON receipt_identifiers(key, value);
+CREATE INDEX IF NOT EXISTS idx_receipt_identifiers_receipt_id ON receipt_identifiers(receipt_id);
 
 -- ============================================================================
 -- LOGS
 -- ============================================================================
 
-CREATE TABLE logs (
+CREATE TABLE IF NOT EXISTS logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     timestamp BIGINT NOT NULL,
     level VARCHAR(20) NOT NULL,
@@ -41,15 +41,15 @@ CREATE TABLE logs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_logs_engine ON logs(engine);
-CREATE INDEX idx_logs_level ON logs(level);
-CREATE INDEX idx_logs_timestamp ON logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_logs_engine ON logs(engine);
+CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
+CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
 
 -- ============================================================================
 -- DATA LAKE
 -- ============================================================================
 
-CREATE TABLE data_lake_entries (
+CREATE TABLE IF NOT EXISTS data_lake_entries (
     entry_id UUID PRIMARY KEY,
     data_hash VARCHAR(64) NOT NULL,
     receipt_id UUID NOT NULL REFERENCES receipts(id),
@@ -60,14 +60,14 @@ CREATE TABLE data_lake_entries (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_data_lake_status ON data_lake_entries(status);
-CREATE INDEX idx_data_lake_receipt_id ON data_lake_entries(receipt_id);
+CREATE INDEX IF NOT EXISTS idx_data_lake_status ON data_lake_entries(status);
+CREATE INDEX IF NOT EXISTS idx_data_lake_receipt_id ON data_lake_entries(receipt_id);
 
 -- ============================================================================
 -- ITEMS
 -- ============================================================================
 
-CREATE TABLE items (
+CREATE TABLE IF NOT EXISTS items (
     dfid VARCHAR(255) PRIMARY KEY,
     item_hash VARCHAR(64) NOT NULL,
     status VARCHAR(50) NOT NULL,
@@ -78,10 +78,10 @@ CREATE TABLE items (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_items_status ON items(status);
-CREATE INDEX idx_items_created_at ON items(created_at_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
+CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at_ts DESC);
 
-CREATE TABLE item_identifiers (
+CREATE TABLE IF NOT EXISTS item_identifiers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     dfid VARCHAR(255) NOT NULL REFERENCES items(dfid) ON DELETE CASCADE,
     key VARCHAR(255) NOT NULL,
@@ -89,35 +89,35 @@ CREATE TABLE item_identifiers (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_item_identifiers_dfid ON item_identifiers(dfid);
-CREATE INDEX idx_item_identifiers_key_value ON item_identifiers(key, value);
+CREATE INDEX IF NOT EXISTS idx_item_identifiers_dfid ON item_identifiers(dfid);
+CREATE INDEX IF NOT EXISTS idx_item_identifiers_key_value ON item_identifiers(key, value);
 
-CREATE TABLE item_source_entries (
+CREATE TABLE IF NOT EXISTS item_source_entries (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     dfid VARCHAR(255) NOT NULL REFERENCES items(dfid) ON DELETE CASCADE,
     entry_id UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_item_source_entries_dfid ON item_source_entries(dfid);
+CREATE INDEX IF NOT EXISTS idx_item_source_entries_dfid ON item_source_entries(dfid);
 
 -- ============================================================================
 -- LID-DFID MAPPINGS
 -- ============================================================================
 
-CREATE TABLE lid_dfid_mappings (
+CREATE TABLE IF NOT EXISTS lid_dfid_mappings (
     local_id UUID PRIMARY KEY,
     dfid VARCHAR(255) NOT NULL REFERENCES items(dfid),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_lid_dfid_mappings_dfid ON lid_dfid_mappings(dfid);
+CREATE INDEX IF NOT EXISTS idx_lid_dfid_mappings_dfid ON lid_dfid_mappings(dfid);
 
 -- ============================================================================
 -- IDENTIFIER MAPPINGS
 -- ============================================================================
 
-CREATE TABLE identifier_mappings (
+CREATE TABLE IF NOT EXISTS identifier_mappings (
     mapping_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     identifier_key VARCHAR(255) NOT NULL,
     identifier_value TEXT NOT NULL,
@@ -127,14 +127,14 @@ CREATE TABLE identifier_mappings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_identifier_mappings_key_value ON identifier_mappings(identifier_key, identifier_value);
-CREATE INDEX idx_identifier_mappings_dfid ON identifier_mappings(dfid);
+CREATE INDEX IF NOT EXISTS idx_identifier_mappings_key_value ON identifier_mappings(identifier_key, identifier_value);
+CREATE INDEX IF NOT EXISTS idx_identifier_mappings_dfid ON identifier_mappings(dfid);
 
 -- ============================================================================
 -- CONFLICT RESOLUTIONS
 -- ============================================================================
 
-CREATE TABLE conflict_resolutions (
+CREATE TABLE IF NOT EXISTS conflict_resolutions (
     conflict_id UUID PRIMARY KEY,
     identifier_key VARCHAR(255) NOT NULL,
     identifier_value TEXT NOT NULL,
@@ -147,13 +147,13 @@ CREATE TABLE conflict_resolutions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_conflict_resolutions_status ON conflict_resolutions(status);
+CREATE INDEX IF NOT EXISTS idx_conflict_resolutions_status ON conflict_resolutions(status);
 
 -- ============================================================================
 -- EVENTS
 -- ============================================================================
 
-CREATE TABLE events (
+CREATE TABLE IF NOT EXISTS events (
     event_id UUID PRIMARY KEY,
     event_type VARCHAR(100) NOT NULL,
     dfid VARCHAR(255) REFERENCES items(dfid),
@@ -164,16 +164,16 @@ CREATE TABLE events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_events_dfid ON events(dfid);
-CREATE INDEX idx_events_type ON events(event_type);
-CREATE INDEX idx_events_visibility ON events(visibility);
-CREATE INDEX idx_events_timestamp ON events(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_events_dfid ON events(dfid);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_visibility ON events(visibility);
+CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp DESC);
 
 -- ============================================================================
 -- CIRCUITS
 -- ============================================================================
 
-CREATE TABLE circuits (
+CREATE TABLE IF NOT EXISTS circuits (
     circuit_id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
@@ -190,10 +190,10 @@ CREATE TABLE circuits (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_circuits_owner_id ON circuits(owner_id);
-CREATE INDEX idx_circuits_status ON circuits(status);
+CREATE INDEX IF NOT EXISTS idx_circuits_owner_id ON circuits(owner_id);
+CREATE INDEX IF NOT EXISTS idx_circuits_status ON circuits(status);
 
-CREATE TABLE circuit_members (
+CREATE TABLE IF NOT EXISTS circuit_members (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     circuit_id UUID NOT NULL REFERENCES circuits(circuit_id) ON DELETE CASCADE,
     member_id VARCHAR(255) NOT NULL,
@@ -204,10 +204,10 @@ CREATE TABLE circuit_members (
     UNIQUE(circuit_id, member_id)
 );
 
-CREATE INDEX idx_circuit_members_circuit_id ON circuit_members(circuit_id);
-CREATE INDEX idx_circuit_members_member_id ON circuit_members(member_id);
+CREATE INDEX IF NOT EXISTS idx_circuit_members_circuit_id ON circuit_members(circuit_id);
+CREATE INDEX IF NOT EXISTS idx_circuit_members_member_id ON circuit_members(member_id);
 
-CREATE TABLE circuit_items (
+CREATE TABLE IF NOT EXISTS circuit_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     circuit_id UUID NOT NULL REFERENCES circuits(circuit_id) ON DELETE CASCADE,
     dfid VARCHAR(255) NOT NULL REFERENCES items(dfid),
@@ -217,10 +217,10 @@ CREATE TABLE circuit_items (
     UNIQUE(circuit_id, dfid)
 );
 
-CREATE INDEX idx_circuit_items_circuit_id ON circuit_items(circuit_id);
-CREATE INDEX idx_circuit_items_dfid ON circuit_items(dfid);
+CREATE INDEX IF NOT EXISTS idx_circuit_items_circuit_id ON circuit_items(circuit_id);
+CREATE INDEX IF NOT EXISTS idx_circuit_items_dfid ON circuit_items(dfid);
 
-CREATE TABLE circuit_operations (
+CREATE TABLE IF NOT EXISTS circuit_operations (
     operation_id UUID PRIMARY KEY,
     circuit_id UUID NOT NULL REFERENCES circuits(circuit_id) ON DELETE CASCADE,
     operation_type VARCHAR(50) NOT NULL,
@@ -233,10 +233,10 @@ CREATE TABLE circuit_operations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_circuit_operations_circuit_id ON circuit_operations(circuit_id);
-CREATE INDEX idx_circuit_operations_status ON circuit_operations(status);
+CREATE INDEX IF NOT EXISTS idx_circuit_operations_circuit_id ON circuit_operations(circuit_id);
+CREATE INDEX IF NOT EXISTS idx_circuit_operations_status ON circuit_operations(status);
 
-CREATE TABLE circuit_pending_items (
+CREATE TABLE IF NOT EXISTS circuit_pending_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     circuit_id UUID NOT NULL REFERENCES circuits(circuit_id) ON DELETE CASCADE,
     dfid VARCHAR(255) NOT NULL REFERENCES items(dfid),
@@ -249,10 +249,10 @@ CREATE TABLE circuit_pending_items (
     UNIQUE(circuit_id, dfid)
 );
 
-CREATE INDEX idx_circuit_pending_items_circuit_id ON circuit_pending_items(circuit_id);
-CREATE INDEX idx_circuit_pending_items_status ON circuit_pending_items(status);
+CREATE INDEX IF NOT EXISTS idx_circuit_pending_items_circuit_id ON circuit_pending_items(circuit_id);
+CREATE INDEX IF NOT EXISTS idx_circuit_pending_items_status ON circuit_pending_items(status);
 
-CREATE TABLE circuit_custom_roles (
+CREATE TABLE IF NOT EXISTS circuit_custom_roles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     circuit_id UUID NOT NULL REFERENCES circuits(circuit_id) ON DELETE CASCADE,
     role_name VARCHAR(100) NOT NULL,
@@ -261,13 +261,13 @@ CREATE TABLE circuit_custom_roles (
     UNIQUE(circuit_id, role_name)
 );
 
-CREATE INDEX idx_circuit_custom_roles_circuit_id ON circuit_custom_roles(circuit_id);
+CREATE INDEX IF NOT EXISTS idx_circuit_custom_roles_circuit_id ON circuit_custom_roles(circuit_id);
 
 -- ============================================================================
 -- USERS & AUTHENTICATION
 -- ============================================================================
 
-CREATE TABLE user_accounts (
+CREATE TABLE IF NOT EXISTS user_accounts (
     user_id VARCHAR(255) PRIMARY KEY,
     username VARCHAR(255) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
@@ -283,11 +283,11 @@ CREATE TABLE user_accounts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_user_accounts_username ON user_accounts(username);
-CREATE INDEX idx_user_accounts_email ON user_accounts(email);
-CREATE INDEX idx_user_accounts_tier ON user_accounts(tier);
+CREATE INDEX IF NOT EXISTS idx_user_accounts_username ON user_accounts(username);
+CREATE INDEX IF NOT EXISTS idx_user_accounts_email ON user_accounts(email);
+CREATE INDEX IF NOT EXISTS idx_user_accounts_tier ON user_accounts(tier);
 
-CREATE TABLE credit_balances (
+CREATE TABLE IF NOT EXISTS credit_balances (
     user_id VARCHAR(255) PRIMARY KEY REFERENCES user_accounts(user_id) ON DELETE CASCADE,
     credits BIGINT NOT NULL,
     updated_at_ts BIGINT NOT NULL,
@@ -295,7 +295,7 @@ CREATE TABLE credit_balances (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE credit_transactions (
+CREATE TABLE IF NOT EXISTS credit_transactions (
     transaction_id UUID PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL REFERENCES user_accounts(user_id),
     amount BIGINT NOT NULL,
@@ -306,14 +306,14 @@ CREATE TABLE credit_transactions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_credit_transactions_user_id ON credit_transactions(user_id);
-CREATE INDEX idx_credit_transactions_created_at ON credit_transactions(created_at_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_id ON credit_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_created_at ON credit_transactions(created_at_ts DESC);
 
 -- ============================================================================
 -- API KEYS
 -- ============================================================================
 
-CREATE TABLE api_keys (
+CREATE TABLE IF NOT EXISTS api_keys (
     key_id UUID PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL REFERENCES user_accounts(user_id) ON DELETE CASCADE,
     key_hash VARCHAR(64) NOT NULL UNIQUE,
@@ -332,11 +332,11 @@ CREATE TABLE api_keys (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_api_keys_user_id ON api_keys(user_id);
-CREATE INDEX idx_api_keys_key_hash ON api_keys(key_hash);
-CREATE INDEX idx_api_keys_is_active ON api_keys(is_active);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
 
-CREATE TABLE api_key_usage (
+CREATE TABLE IF NOT EXISTS api_key_usage (
     usage_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     key_id UUID NOT NULL REFERENCES api_keys(key_id) ON DELETE CASCADE,
     endpoint VARCHAR(255) NOT NULL,
@@ -347,14 +347,14 @@ CREATE TABLE api_key_usage (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_api_key_usage_key_id ON api_key_usage(key_id);
-CREATE INDEX idx_api_key_usage_timestamp ON api_key_usage(timestamp_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_api_key_usage_key_id ON api_key_usage(key_id);
+CREATE INDEX IF NOT EXISTS idx_api_key_usage_timestamp ON api_key_usage(timestamp_ts DESC);
 
 -- ============================================================================
 -- ADAPTERS
 -- ============================================================================
 
-CREATE TABLE adapter_configs (
+CREATE TABLE IF NOT EXISTS adapter_configs (
     config_id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
@@ -370,15 +370,15 @@ CREATE TABLE adapter_configs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_adapter_configs_adapter_type ON adapter_configs(adapter_type);
-CREATE INDEX idx_adapter_configs_is_active ON adapter_configs(is_active);
-CREATE INDEX idx_adapter_configs_is_default ON adapter_configs(is_default);
+CREATE INDEX IF NOT EXISTS idx_adapter_configs_adapter_type ON adapter_configs(adapter_type);
+CREATE INDEX IF NOT EXISTS idx_adapter_configs_is_active ON adapter_configs(is_active);
+CREATE INDEX IF NOT EXISTS idx_adapter_configs_is_default ON adapter_configs(is_default);
 
 -- ============================================================================
 -- STORAGE HISTORY
 -- ============================================================================
 
-CREATE TABLE storage_history (
+CREATE TABLE IF NOT EXISTS storage_history (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     dfid VARCHAR(255) NOT NULL REFERENCES items(dfid) ON DELETE CASCADE,
     adapter_type VARCHAR(100) NOT NULL,
@@ -393,15 +393,15 @@ CREATE TABLE storage_history (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_storage_history_dfid ON storage_history(dfid);
-CREATE INDEX idx_storage_history_adapter_type ON storage_history(adapter_type);
-CREATE INDEX idx_storage_history_is_active ON storage_history(is_active);
+CREATE INDEX IF NOT EXISTS idx_storage_history_dfid ON storage_history(dfid);
+CREATE INDEX IF NOT EXISTS idx_storage_history_adapter_type ON storage_history(adapter_type);
+CREATE INDEX IF NOT EXISTS idx_storage_history_is_active ON storage_history(is_active);
 
 -- ============================================================================
 -- ACTIVITIES
 -- ============================================================================
 
-CREATE TABLE activities (
+CREATE TABLE IF NOT EXISTS activities (
     activity_id UUID PRIMARY KEY,
     activity_type VARCHAR(100) NOT NULL,
     circuit_id UUID REFERENCES circuits(circuit_id),
@@ -414,15 +414,15 @@ CREATE TABLE activities (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_activities_circuit_id ON activities(circuit_id);
-CREATE INDEX idx_activities_performed_by ON activities(performed_by);
-CREATE INDEX idx_activities_timestamp ON activities(timestamp_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activities_circuit_id ON activities(circuit_id);
+CREATE INDEX IF NOT EXISTS idx_activities_performed_by ON activities(performed_by);
+CREATE INDEX IF NOT EXISTS idx_activities_timestamp ON activities(timestamp_ts DESC);
 
 -- ============================================================================
 -- NOTIFICATIONS
 -- ============================================================================
 
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     notification_id UUID PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL REFERENCES user_accounts(user_id) ON DELETE CASCADE,
     notification_type VARCHAR(100) NOT NULL,
@@ -435,15 +435,15 @@ CREATE TABLE notifications (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_notifications_user_id ON notifications(user_id);
-CREATE INDEX idx_notifications_is_read ON notifications(is_read);
-CREATE INDEX idx_notifications_created_at ON notifications(created_at_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at_ts DESC);
 
 -- ============================================================================
 -- WEBHOOKS
 -- ============================================================================
 
-CREATE TABLE webhook_configs (
+CREATE TABLE IF NOT EXISTS webhook_configs (
     webhook_id UUID PRIMARY KEY,
     circuit_id UUID NOT NULL REFERENCES circuits(circuit_id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
@@ -459,10 +459,10 @@ CREATE TABLE webhook_configs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_webhook_configs_circuit_id ON webhook_configs(circuit_id);
-CREATE INDEX idx_webhook_configs_enabled ON webhook_configs(enabled);
+CREATE INDEX IF NOT EXISTS idx_webhook_configs_circuit_id ON webhook_configs(circuit_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_configs_enabled ON webhook_configs(enabled);
 
-CREATE TABLE webhook_deliveries (
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
     delivery_id UUID PRIMARY KEY,
     webhook_id UUID NOT NULL REFERENCES webhook_configs(webhook_id) ON DELETE CASCADE,
     trigger_event VARCHAR(100) NOT NULL,
@@ -478,15 +478,15 @@ CREATE TABLE webhook_deliveries (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_webhook_deliveries_webhook_id ON webhook_deliveries(webhook_id);
-CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
-CREATE INDEX idx_webhook_deliveries_created_at ON webhook_deliveries(created_at_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_id ON webhook_deliveries(webhook_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_created_at ON webhook_deliveries(created_at_ts DESC);
 
 -- ============================================================================
 -- ADMIN ACTIONS
 -- ============================================================================
 
-CREATE TABLE admin_actions (
+CREATE TABLE IF NOT EXISTS admin_actions (
     action_id UUID PRIMARY KEY,
     admin_id VARCHAR(255) NOT NULL REFERENCES user_accounts(user_id),
     action_type VARCHAR(100) NOT NULL,
@@ -496,6 +496,6 @@ CREATE TABLE admin_actions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_admin_actions_admin_id ON admin_actions(admin_id);
-CREATE INDEX idx_admin_actions_action_type ON admin_actions(action_type);
-CREATE INDEX idx_admin_actions_performed_at ON admin_actions(performed_at_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_actions_admin_id ON admin_actions(admin_id);
+CREATE INDEX IF NOT EXISTS idx_admin_actions_action_type ON admin_actions(action_type);
+CREATE INDEX IF NOT EXISTS idx_admin_actions_performed_at ON admin_actions(performed_at_ts DESC);
