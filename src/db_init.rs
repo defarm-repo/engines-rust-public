@@ -241,6 +241,9 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
         println!("   ✅ IPFS-IPFS adapter registered");
     }
 
+    // TEMPORARILY DISABLED - Stellar adapters require CLI, testing Railway deployment without them
+    // TODO: Re-enable after implementing native SDK integration
+    /*
     // Create Stellar Testnet + IPFS adapter config
     if let (Some(api_key), Some(secret), Some(contract_addr)) = (pinata_api_key.clone(), pinata_secret.clone(), testnet_ipcm) {
         // Get testnet configuration from environment
@@ -340,13 +343,13 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
         storage.store_adapter_config(&mainnet_config)?;
         println!("   ✅ Stellar Mainnet-IPFS adapter registered (Admin-only)");
     }
+    */
 
     println!("✅ Production adapters initialized successfully!");
     println!();
     println!("📋 Available Adapters:");
     println!("   🌐 IPFS-IPFS: Available to all tiers");
-    println!("   🔷 Stellar Testnet-IPFS: Professional+ tiers");
-    println!("   ⭐ Stellar Mainnet-IPFS: Admin-only by default");
+    println!("   ⚠️  Stellar adapters temporarily disabled (CLI dependency issue)");
     println!();
 
     Ok(())
