@@ -294,6 +294,20 @@ async fn load_data_from_postgres(
         tracing::info!("📥 Loaded {} circuits from PostgreSQL", circuit_count);
     }
 
+    // Load adapter configs
+    let adapters = pg.load_adapter_configs().await?;
+    let adapter_count = adapters.len();
+    if !adapters.is_empty() {
+        let mut storage = app_state.shared_storage.lock()
+            .map_err(|e| format!("Failed to lock storage: {}", e))?;
+
+        for adapter in adapters {
+            storage.store_adapter_config(&adapter)
+                .map_err(|e| format!("Failed to store adapter config: {}", e))?;
+        }
+        tracing::info!("📥 Loaded {} adapter configs from PostgreSQL", adapter_count);
+    }
+
     Ok(user_count)
 }
 
@@ -434,6 +448,13 @@ async fn initialize_development_data_to_postgres(
         println!("   ✅ Created {} user: {} ({})", tier, username, credits);
     }
 
+    // Initialize production adapters
+    println!("🔌 Initializing production adapters...");
+    match initialize_adapters_to_postgres(pg).await {
+        Ok(adapter_count) => println!("✅ {} production adapters initialized!", adapter_count),
+        Err(e) => println!("⚠️  Failed to initialize adapters: {}", e),
+    }
+
     println!("✅ Development data initialized in PostgreSQL!");
     println!("📋 Available test accounts (all use password: demo123):");
     println!("   🐔 Admin:      hen / demo123");
@@ -444,6 +465,165 @@ async fn initialize_development_data_to_postgres(
     println!("   🏢 Enterprise: enterprise_farmer / demo123");
 
     Ok(())
+}
+
+/// Initialize production adapters to PostgreSQL
+async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usize, String> {
+    use defarm_engine::types::{AdapterConfig, AdapterType, AdapterConnectionDetails, AuthType, ContractConfigs, ContractInfo};
+    use std::collections::HashMap;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    let mut adapter_count = 0;
+
+    // Read credentials from environment
+    let pinata_api_key = std::env::var("PINATA_API_KEY").ok();
+    let pinata_secret = std::env::var("PINATA_SECRET_KEY").ok();
+    let testnet_ipcm = std::env::var("STELLAR_TESTNET_IPCM_CONTRACT").ok();
+    let mainnet_ipcm = std::env::var("STELLAR_MAINNET_IPCM_CONTRACT").ok();
+    let mainnet_secret = std::env::var("STELLAR_MAINNET_SECRET_KEY").ok();
+    let testnet_nft = std::env::var("STELLAR_TESTNET_NFT_CONTRACT").ok();
+    let mainnet_nft = std::env::var("STELLAR_MAINNET_NFT_CONTRACT").ok();
+
+    // 1. Create IPFS-IPFS adapter
+    if let (Some(api_key), Some(secret)) = (pinata_api_key.clone(), pinata_secret.clone()) {
+        let ipfs_config = AdapterConfig {
+            config_id: Uuid::new_v4(),
+            name: "Production IPFS (Pinata)".to_string(),
+            description: "IPFS storage via Pinata cloud".to_string(),
+            adapter_type: AdapterType::IpfsIpfs,
+            connection_details: AdapterConnectionDetails {
+                endpoint: "https://api.pinata.cloud".to_string(),
+                api_key: Some(api_key),
+                secret_key: Some(secret),
+                auth_type: AuthType::ApiKey,
+                timeout_ms: 60000,
+                retry_attempts: 3,
+                max_concurrent_requests: 10,
+                custom_headers: HashMap::new(),
+            },
+            contract_configs: None,
+            is_active: true,
+            is_default: false,
+            created_by: "system".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_tested_at: None,
+            test_status: None,
+        };
+        pg.persist_adapter_config(&ipfs_config).await?;
+        println!("   ✅ IPFS-IPFS adapter");
+        adapter_count += 1;
+    }
+
+    // 2. Create Stellar Testnet + IPFS adapter
+    if let (Some(api_key), Some(secret), Some(contract_addr)) = (pinata_api_key.clone(), pinata_secret.clone(), testnet_ipcm) {
+        let testnet_secret = std::env::var("STELLAR_TESTNET_SECRET").ok();
+        let interface_address = std::env::var("DEFARM_OWNER_WALLET")
+            .unwrap_or_else(|_| "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string());
+
+        let mut custom_headers = HashMap::new();
+        if let Some(secret_key) = testnet_secret {
+            custom_headers.insert("stellar_secret".to_string(), secret_key);
+        }
+        if let Some(nft_contract) = testnet_nft.clone() {
+            custom_headers.insert("nft_contract".to_string(), nft_contract);
+        }
+        custom_headers.insert("interface_address".to_string(), interface_address);
+        custom_headers.insert("source_account_identity".to_string(), "defarm-admin-testnet".to_string());
+
+        let testnet_config = AdapterConfig {
+            config_id: Uuid::new_v4(),
+            name: "Stellar Testnet + IPFS".to_string(),
+            description: "NFTs on Stellar testnet + IPFS events".to_string(),
+            adapter_type: AdapterType::StellarTestnetIpfs,
+            connection_details: AdapterConnectionDetails {
+                endpoint: "https://api.pinata.cloud".to_string(),
+                api_key: Some(api_key),
+                secret_key: Some(secret),
+                auth_type: AuthType::ApiKey,
+                timeout_ms: 60000,
+                retry_attempts: 3,
+                max_concurrent_requests: 10,
+                custom_headers,
+            },
+            contract_configs: Some(ContractConfigs {
+                mint_contract: None,
+                ipcm_contract: Some(ContractInfo {
+                    contract_address: contract_addr,
+                    contract_name: "IPCM".to_string(),
+                    abi: None,
+                    methods: HashMap::new(),
+                }),
+                network: "testnet".to_string(),
+                chain_id: None,
+            }),
+            is_active: true,
+            is_default: false,
+            created_by: "system".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_tested_at: None,
+            test_status: None,
+        };
+        pg.persist_adapter_config(&testnet_config).await?;
+        println!("   ✅ Stellar Testnet-IPFS adapter");
+        adapter_count += 1;
+    }
+
+    // 3. Create Stellar Mainnet + IPFS adapter
+    if let (Some(api_key), Some(secret), Some(contract_addr), Some(mainnet_key)) = (pinata_api_key, pinata_secret, mainnet_ipcm, mainnet_secret) {
+        let interface_address = std::env::var("DEFARM_OWNER_WALLET")
+            .unwrap_or_else(|_| "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string());
+
+        let mut custom_headers = HashMap::new();
+        custom_headers.insert("stellar_secret".to_string(), mainnet_key);
+        if let Some(nft_contract) = mainnet_nft.clone() {
+            custom_headers.insert("nft_contract".to_string(), nft_contract);
+        }
+        custom_headers.insert("interface_address".to_string(), interface_address);
+        custom_headers.insert("source_account_identity".to_string(), "defarm-admin-secure-v2".to_string());
+
+        let mainnet_config = AdapterConfig {
+            config_id: Uuid::new_v4(),
+            name: "Stellar Mainnet + IPFS (Production)".to_string(),
+            description: "Production NFTs on Stellar mainnet + IPFS".to_string(),
+            adapter_type: AdapterType::StellarMainnetIpfs,
+            connection_details: AdapterConnectionDetails {
+                endpoint: "https://api.pinata.cloud".to_string(),
+                api_key: Some(api_key),
+                secret_key: Some(secret),
+                auth_type: AuthType::ApiKey,
+                timeout_ms: 60000,
+                retry_attempts: 3,
+                max_concurrent_requests: 10,
+                custom_headers,
+            },
+            contract_configs: Some(ContractConfigs {
+                mint_contract: None,
+                ipcm_contract: Some(ContractInfo {
+                    contract_address: contract_addr,
+                    contract_name: "IPCM".to_string(),
+                    abi: None,
+                    methods: HashMap::new(),
+                }),
+                network: "mainnet".to_string(),
+                chain_id: None,
+            }),
+            is_active: true,
+            is_default: false,
+            created_by: "system".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_tested_at: None,
+            test_status: None,
+        };
+        pg.persist_adapter_config(&mainnet_config).await?;
+        println!("   ✅ Stellar Mainnet-IPFS adapter");
+        adapter_count += 1;
+    }
+
+    Ok(adapter_count)
 }
 
 /// Sync current in-memory data to PostgreSQL
