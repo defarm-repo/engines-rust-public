@@ -230,6 +230,29 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                         Ok(count) => tracing::info!("✅ Loaded {} users into in-memory cache", count),
                         Err(e) => tracing::warn!("⚠️  Could not load data: {}", e),
                     }
+                } else {
+                    // Database has existing data - check if adapters exist
+                    tracing::info!("🔍 Checking if production adapters need initialization...");
+                    match pg_persistence.load_adapter_configs().await {
+                        Ok(adapters) if adapters.is_empty() => {
+                            tracing::info!("🔌 No adapters found - initializing production adapters...");
+                            match initialize_adapters_to_postgres(&pg_persistence).await {
+                                Ok(count) => tracing::info!("✅ {} production adapters initialized!", count),
+                                Err(e) => tracing::error!("❌ Failed to initialize adapters: {}", e),
+                            }
+                            // Reload adapters into memory
+                            match load_data_from_postgres(&pg_persistence, &app_state).await {
+                                Ok(_) => tracing::info!("✅ Adapters loaded into memory"),
+                                Err(e) => tracing::warn!("⚠️  Could not reload adapters: {}", e),
+                            }
+                        }
+                        Ok(adapters) => {
+                            tracing::info!("✅ {} adapters already exist in database", adapters.len());
+                        }
+                        Err(e) => {
+                            tracing::warn!("⚠️  Could not check adapters: {}", e);
+                        }
+                    }
                 }
 
                 // Store the connected persistence instance
