@@ -164,8 +164,10 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         name: String,
         description: String,
         owner_id: String,
+        adapter_config: Option<CircuitAdapterConfig>,
+        alias_config: Option<CircuitAliasConfig>,
     ) -> Result<Circuit, CircuitsError> {
-        self.create_circuit_with_namespace(name, description, owner_id, "generic".to_string(), None)
+        self.create_circuit_with_namespace(name, description, owner_id, "generic".to_string(), adapter_config, alias_config)
     }
 
     pub fn create_circuit_with_namespace(
@@ -174,10 +176,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         description: String,
         owner_id: String,
         default_namespace: String,
+        adapter_config: Option<CircuitAdapterConfig>,
         alias_config: Option<CircuitAliasConfig>,
     ) -> Result<Circuit, CircuitsError> {
         let mut circuit = Circuit::new(name.clone(), description.clone(), owner_id.clone());
         circuit.default_namespace = default_namespace;
+        circuit.adapter_config = adapter_config;
         circuit.alias_config = alias_config;
 
         self.logger.borrow_mut().info("circuits_engine", "circuit_creation_started", &format!("Creating circuit: {}", name))
@@ -2062,6 +2066,8 @@ mod tests {
             "Test Circuit".to_string(),
             "A test circuit".to_string(),
             "owner123".to_string(),
+            None,
+            None,
         );
 
         assert!(result.is_ok());
@@ -2081,6 +2087,8 @@ mod tests {
             "Test Circuit".to_string(),
             "A test circuit".to_string(),
             "owner123".to_string(),
+            None,
+            None,
         ).unwrap();
 
         let result = circuits_engine.add_member_to_circuit(
@@ -2105,6 +2113,8 @@ mod tests {
             "Test Circuit".to_string(),
             "A test circuit".to_string(),
             "owner123".to_string(),
+            None,
+            None,
         ).unwrap();
 
         let result = circuits_engine.push_item_to_circuit("DFID-123", &circuit.circuit_id, "owner123").await;
@@ -2126,6 +2136,8 @@ mod tests {
             "Test Circuit".to_string(),
             "A test circuit".to_string(),
             "owner123".to_string(),
+            None,
+            None,
         ).unwrap();
 
         let result = circuits_engine.pull_item_from_circuit("DFID-123", &circuit.circuit_id, "owner123");
@@ -2147,6 +2159,8 @@ mod tests {
             "Test Circuit".to_string(),
             "A test circuit".to_string(),
             "owner123".to_string(),
+            None,
+            None,
         ).unwrap();
 
         let result = circuits_engine.push_item_to_circuit("DFID-123", &circuit.circuit_id, "unauthorized_user").await;

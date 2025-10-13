@@ -87,9 +87,12 @@ impl StellarTestnetIpfsAdapter {
                 .map_err(|e| StorageError::ConfigurationError(format!("Invalid Stellar keypair: {}", e)))?;
         }
 
-        // Configure with NFT contract if available (from env variable)
-        if let Some(nft_contract) = config.and_then(|c| c.connection_details.custom_headers.get("nft_contract")) {
-            stellar_client = stellar_client.with_nft_contract(nft_contract.to_string());
+        // Configure with NFT contract if available (from config or env variable)
+        let nft_contract = config.and_then(|c| c.connection_details.custom_headers.get("nft_contract").cloned())
+            .or_else(|| std::env::var("STELLAR_TESTNET_NFT_CONTRACT").ok());
+
+        if let Some(nft_contract) = nft_contract {
+            stellar_client = stellar_client.with_nft_contract(nft_contract.clone());
             tracing::info!("🎨 Stellar Testnet adapter configured with NFT contract: {}", nft_contract);
         } else {
             tracing::warn!("⚠️  Stellar Testnet adapter: No NFT contract configured (NFT minting will fail)");

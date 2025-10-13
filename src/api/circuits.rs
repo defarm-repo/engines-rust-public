@@ -12,16 +12,26 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::{CircuitsEngine, InMemoryStorage, MemberRole, Circuit, CircuitOperation};
-use crate::types::{Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitItem, CircuitPermissions, Permission, CustomRole, PublicSettings};
+use crate::types::{Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitItem, CircuitPermissions, Permission, CustomRole, PublicSettings, CircuitAdapterConfig};
 use crate::api::auth::Claims;
-use crate::identifier_types::EnhancedIdentifier;
+use crate::identifier_types::{EnhancedIdentifier, CircuitAliasConfig};
 use crate::storage::StorageBackend;
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCircuitAdapterConfigRequest {
+    pub adapter_type: Option<AdapterType>,
+    pub requires_approval: bool,
+    pub auto_migrate_existing: bool,
+    pub sponsor_adapter_access: bool,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitRequest {
     pub name: String,
     pub description: String,
     pub owner_id: String,
+    pub adapter_config: Option<CreateCircuitAdapterConfigRequest>,
+    pub alias_config: Option<CircuitAliasConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -624,9 +634,27 @@ async fn create_circuit(
         let mut engine = state.circuits_engine.lock()
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
 
-        engine.create_circuit(payload.name, payload.description, payload.owner_id)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create circuit: {}", e)}))))?
-    }; // Lock dropped here
+        // First create circuit without adapter_config
+        let circuit = engine.create_circuit(payload.name, payload.description, payload.owner_id.clone(), None, payload.alias_config)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create circuit: {}", e)}))))?;
+
+        // Set adapter config if provided
+        if let Some(adapter_req) = payload.adapter_config {
+            engine.set_circuit_adapter_config(
+                &circuit.circuit_id,
+                &payload.owner_id,
+                adapter_req.adapter_type,
+                adapter_req.auto_migrate_existing,
+                adapter_req.requires_approval,
+                adapter_req.sponsor_adapter_access,
+            ).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to set adapter config: {}", e)}))))?;
+        }
+
+        // Get updated circuit
+        engine.get_circuit(&circuit.circuit_id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
+            .ok_or((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuit not found after creation"}))))?
+    };
 
     // Write-through cache: Also persist to PostgreSQL if available
     let pg_lock = state.postgres_persistence.read().await;

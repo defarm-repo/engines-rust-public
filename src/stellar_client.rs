@@ -14,7 +14,7 @@ use soroban_client::{
     contract::{Contracts, ContractBehavior},
     transaction::{TransactionBuilder, TransactionBuilderBehavior, TransactionBehavior},
     soroban_rpc::TransactionStatus,
-    xdr::{ScVal, ScString},
+    xdr::{ScVal, ScString, ScAddress, AccountId, PublicKey, Uint256},
 };
 
 // Real contract addresses from .env configuration
@@ -166,11 +166,26 @@ impl StellarClient {
             .map_err(|e| StellarError::ContractError(format!("Invalid contract address: {:?}", e)))?;
 
         // Build ScVal arguments for the contract call
-        // Assuming IPCM contract has: update(dfid: String, cid: String)
-        let dfid_val = ScVal::String(ScString(dfid.try_into()
-            .map_err(|e| StellarError::SerializationError(format!("Failed to convert dfid: {:?}", e)))?));
+        // IPCM contract signature: update(env: Env, ipcm_key: String, cid: String, interface_address: Address)
+        let ipcm_key_val = ScVal::String(ScString(dfid.try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert ipcm_key: {:?}", e)))?));
         let cid_val = ScVal::String(ScString(cid.try_into()
             .map_err(|e| StellarError::SerializationError(format!("Failed to convert cid: {:?}", e)))?));
+
+        // Convert keypair's public key to Address ScVal
+        // Parse the G-address string into raw bytes and create ScAddress
+        let public_key_str = keypair.public_key();
+
+        // Decode the strkey (G-address) to get the raw 32-byte public key
+        let decoded = stellar_strkey::ed25519::PublicKey::from_string(&public_key_str)
+            .map_err(|e| StellarError::SerializationError(format!("Failed to decode public key: {:?}", e)))?;
+
+        let mut key_bytes = [0u8; 32];
+        key_bytes.copy_from_slice(&decoded.0);
+
+        // Create ScAddress from the public key bytes
+        let sc_address = ScAddress::Account(AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(key_bytes))));
+        let interface_addr_val = ScVal::Address(sc_address);
 
         // Get network for transaction builder
         let network = match self.network {
@@ -181,7 +196,7 @@ impl StellarClient {
         // Build transaction
         let tx = TransactionBuilder::new(Rc::new(RefCell::new(source_account)), network, None)
             .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
-            .add_operation(contract.call("update", Some(vec![dfid_val, cid_val])))
+            .add_operation(contract.call("update", Some(vec![ipcm_key_val, cid_val, interface_addr_val])))
             .build();
 
         // Prepare transaction (simulate and assemble)
@@ -237,6 +252,21 @@ impl StellarClient {
         let contract = Contracts::new(nft_contract)
             .map_err(|e| StellarError::ContractError(format!("Invalid NFT contract address: {:?}", e)))?;
 
+        // Extract valuechain from canonical identifiers or use "generic"
+        let valuechain_id = if !canonical_identifiers.is_empty() {
+            // Extract namespace from first canonical identifier (format: "namespace:key:value")
+            canonical_identifiers[0]
+                .split(':')
+                .next()
+                .unwrap_or("generic")
+                .to_string()
+        } else {
+            "generic".to_string()
+        };
+
+        // Generate unique token_id from timestamp (nanoseconds since epoch as u64)
+        let token_id = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u64;
+
         // Build metadata with canonical identifiers
         let metadata_str = metadata
             .map(|m| m.to_string())
@@ -255,14 +285,23 @@ impl StellarClient {
                 meta.to_string()
             });
 
+        // Ensure metadata fits within contract limits (512 chars max)
+        let metadata_str = if metadata_str.len() > 512 {
+            tracing::warn!("Metadata too long ({}), truncating to 512 chars", metadata_str.len());
+            metadata_str[..512].to_string()
+        } else {
+            metadata_str
+        };
+
         // Build ScVal arguments for the contract call
-        // NFT contract mint function: mint(to: Address, token_id: String, metadata: String)
-        let to_address_val = ScVal::String(ScString(keypair.public_key().as_str().try_into()
-            .map_err(|e| StellarError::SerializationError(format!("Failed to convert address: {:?}", e)))?));
-        let token_id_val = ScVal::String(ScString(dfid.try_into()
-            .map_err(|e| StellarError::SerializationError(format!("Failed to convert token_id: {:?}", e)))?));
-        let metadata_val = ScVal::String(ScString(metadata_str.as_str().try_into()
-            .map_err(|e| StellarError::SerializationError(format!("Failed to convert metadata: {:?}", e)))?));
+        // NFT contract mint function: mint(env: Env, valuechain_id: String, token_id: u64, ipcm_key: String, data: String)
+        let valuechain_id_val = ScVal::String(ScString(valuechain_id.as_str().try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert valuechain_id: {:?}", e)))?));
+        let token_id_val = ScVal::U64(token_id);
+        let ipcm_key_val = ScVal::String(ScString(dfid.try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert ipcm_key: {:?}", e)))?));
+        let data_val = ScVal::String(ScString(metadata_str.as_str().try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert data: {:?}", e)))?));
 
         // Get network for transaction builder
         let network = match self.network {
@@ -273,7 +312,7 @@ impl StellarClient {
         // Build transaction
         let tx = TransactionBuilder::new(Rc::new(RefCell::new(source_account)), network, None)
             .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
-            .add_operation(contract.call("mint", Some(vec![to_address_val, token_id_val, metadata_val])))
+            .add_operation(contract.call("mint", Some(vec![valuechain_id_val, token_id_val, ipcm_key_val, data_val])))
             .build();
 
         // Prepare transaction (simulate and assemble)

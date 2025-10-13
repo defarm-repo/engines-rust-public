@@ -605,6 +605,12 @@ impl StorageBackend for InMemoryStorage {
     // Circuit operations
     fn store_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
         self.circuits.insert(circuit.circuit_id, circuit.clone());
+
+        // Also store the adapter_config if present
+        if let Some(ref adapter_config) = circuit.adapter_config {
+            self.circuit_adapter_configs.insert(circuit.circuit_id, adapter_config.clone());
+        }
+
         Ok(())
     }
 
@@ -614,6 +620,12 @@ impl StorageBackend for InMemoryStorage {
 
     fn update_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
         self.circuits.insert(circuit.circuit_id, circuit.clone());
+
+        // Also update the adapter_config if present
+        if let Some(ref adapter_config) = circuit.adapter_config {
+            self.circuit_adapter_configs.insert(circuit.circuit_id, adapter_config.clone());
+        }
+
         Ok(())
     }
 
