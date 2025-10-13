@@ -1,9 +1,19 @@
-use ed25519_dalek::{Signer, SigningKey};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use std::collections::HashMap;
-use base64::{Engine as _, prelude::BASE64_STANDARD};
+use std::time::Duration;
+
+// Soroban client imports
+use soroban_client::{
+    Server, Options,
+    account::{Account, AccountBehavior},
+    keypair::{Keypair, KeypairBehavior},
+    network::Networks,
+    contract::{Contracts, ContractBehavior},
+    transaction::{TransactionBuilder, TransactionBuilderBehavior},
+    soroban_rpc::TransactionStatus,
+    xdr::ScVal,
+};
 
 // Real contract addresses from .env configuration
 pub const TESTNET_IPCM_CONTRACT: &str = "CAALVDSF7RLM7IRGE3GQKPRHWWZSPDSNHOBEIEDJU5MAM4I4PVFWJXLS";
@@ -73,11 +83,9 @@ pub struct StellarClient {
     network: StellarNetwork,
     contract_address: String, // IPCM contract address
     nft_contract_address: Option<String>, // NFT minting contract address
-    http_client: Client,
-    signing_key: Option<SigningKey>,
-    secret_key_string: Option<String>, // Store the original secret key for CLI usage
-    interface_address: Option<String>,
-    source_account: Option<String>,
+    server: Server,
+    keypair: Option<Keypair>,
+    source_account: Option<String>, // Identity string for the source account
 }
 
 impl std::fmt::Debug for StellarClient {
@@ -85,8 +93,7 @@ impl std::fmt::Debug for StellarClient {
         f.debug_struct("StellarClient")
             .field("network", &self.network)
             .field("contract_address", &self.contract_address)
-            .field("has_signing_key", &self.signing_key.is_some())
-            .field("interface_address", &self.interface_address)
+            .field("has_keypair", &self.keypair.is_some())
             .field("source_account", &self.source_account)
             .finish()
     }
@@ -94,14 +101,15 @@ impl std::fmt::Debug for StellarClient {
 
 impl StellarClient {
     pub fn new(network: StellarNetwork, contract_address: String) -> Self {
+        let server = Server::new(network.soroban_rpc_url(), Options::default())
+            .expect("Failed to create Soroban RPC server");
+
         Self {
             network,
             contract_address,
             nft_contract_address: None,
-            http_client: Client::new(),
-            signing_key: None,
-            secret_key_string: None,
-            interface_address: None,
+            server,
+            keypair: None,
             source_account: None,
         }
     }
@@ -112,19 +120,10 @@ impl StellarClient {
     }
 
     pub fn with_keypair(mut self, secret_key: &str) -> Result<Self, StellarError> {
-        // Parse Stellar secret key (starts with S)
-        let secret_bytes = stellar_strkey::ed25519::PrivateKey::from_string(secret_key)
-            .map_err(|e| StellarError::SigningError(format!("Invalid secret key: {}", e)))?;
-
-        let signing_key = SigningKey::from_bytes(&secret_bytes.0);
-        self.signing_key = Some(signing_key);
-        self.secret_key_string = Some(secret_key.to_string()); // Store the original string for CLI
+        let keypair = Keypair::from_secret(secret_key)
+            .map_err(|e| StellarError::SigningError(format!("Invalid secret key: {:?}", e)))?;
+        self.keypair = Some(keypair);
         Ok(self)
-    }
-
-    pub fn with_interface_address(mut self, interface_address: String) -> Self {
-        self.interface_address = Some(interface_address);
-        self
     }
 
     pub fn with_source_account(mut self, source_account: String) -> Self {
@@ -132,117 +131,99 @@ impl StellarClient {
         self
     }
 
-    /// Update IPCM contract with new CID for a DFID using native Soroban RPC
-    /// This uses direct Soroban RPC calls for production-ready performance
-    pub async fn update_ipcm(&self, dfid: &str, cid: &str) -> Result<String, StellarError> {
-        // For now, we'll use a simplified implementation that calls the Soroban RPC directly
-        // This avoids the complexity of the incomplete soroban-client high-level API
-
-        // Get the signing key
-        let signing_key = self.signing_key.as_ref()
-            .ok_or_else(|| StellarError::NotConfigured("Signing key not configured".to_string()))?;
-
-        // Get interface address or use default
-        let interface_address = self.interface_address.as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or_else(|| "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ");
-
-        // Get source account public key from signing key
-        let public_key = signing_key.verifying_key();
-        let public_key_bytes = public_key.to_bytes();
-
-        // Convert to Stellar address format using our local stellar_strkey implementation
-        let source_address = {
-            let mut payload = vec![0x30]; // Version byte for Ed25519 public key (G address)
-            payload.extend_from_slice(&public_key_bytes);
-
-            // Calculate CRC16-XModem checksum
-            let checksum = Self::crc16_xmodem(&payload);
-            payload.push((checksum & 0xFF) as u8);
-            payload.push(((checksum >> 8) & 0xFF) as u8);
-
-            // Encode with base32
-            base32::encode(base32::Alphabet::RFC4648 { padding: false }, &payload)
-        };
-
-        // Make direct Soroban RPC call to invoke contract
-        // For production, we should use the soroban_client SDK, but for now use HTTP directly
-
-        let rpc_url = self.network.soroban_rpc_url();
-
-        // Build the contract invocation payload
-        let payload = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "invoke",
-            "params": {
-                "contract_id": self.contract_address,
-                "function": "update",
-                "args": [
-                    {"string": dfid},
-                    {"string": cid},
-                    {"address": interface_address}
-                ],
-                "source_account": source_address
-            }
-        });
-
-        let response = self.http_client
-            .post(rpc_url)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| StellarError::NetworkError(format!("Failed to invoke contract: {}", e)))?;
-
-        let result: serde_json::Value = response.json()
-            .await
-            .map_err(|e| StellarError::SerializationError(format!("Failed to parse response: {}", e)))?;
-
-        // Extract transaction hash from response
-        let tx_hash = result["result"]["hash"]
-            .as_str()
-            .ok_or_else(|| StellarError::ContractError("No transaction hash in response".to_string()))?
-            .to_string();
-
-        tracing::info!(
-            "✅ Stellar transaction submitted successfully (native RPC). Network: {:?}, TX: {}, DFID: {}, CID: {}",
-            self.network, tx_hash, dfid, cid
-        );
-
-        Ok(tx_hash)
+    pub fn with_interface_address(mut self, _interface_address: String) -> Self {
+        // Not needed with soroban-client, kept for API compatibility
+        self
     }
 
-    /// Mint a new NFT with DFID as the token identifier
+    /// Update IPCM contract with new CID for a DFID using soroban-client
+    pub async fn update_ipcm(&self, dfid: &str, cid: &str) -> Result<String, StellarError> {
+        // Get keypair
+        let keypair = self.keypair.as_ref()
+            .ok_or_else(|| StellarError::NotConfigured("Keypair not configured".to_string()))?;
+
+        // Get source account from network
+        let source_account = self.server.get_account(&keypair.public_key())
+            .await
+            .map_err(|e| StellarError::NetworkError(format!("Failed to get account: {:?}", e)))?;
+
+        // Create contract instance
+        let contract = Contracts::new(&self.contract_address)
+            .map_err(|e| StellarError::ContractError(format!("Invalid contract address: {:?}", e)))?;
+
+        // Build ScVal arguments for the contract call
+        // Assuming IPCM contract has: update(dfid: String, cid: String, interface: Address)
+        let dfid_val: ScVal = dfid.try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert dfid: {:?}", e)))?;
+        let cid_val: ScVal = cid.try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert cid: {:?}", e)))?;
+
+        // Get network for transaction builder
+        let network = match self.network {
+            StellarNetwork::Testnet => Networks::testnet(),
+            StellarNetwork::Mainnet => Networks::public(),
+        };
+
+        // Build transaction
+        let tx = TransactionBuilder::new(source_account, network, None)
+            .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
+            .add_operation(contract.call("update", Some(vec![dfid_val, cid_val])))
+            .build();
+
+        // Prepare transaction (simulate and assemble)
+        let mut prepared_tx = self.server.prepare_transaction(&tx)
+            .await
+            .map_err(|e| StellarError::NetworkError(format!("Failed to prepare transaction: {:?}", e)))?;
+
+        // Sign transaction
+        prepared_tx.sign(&[keypair.clone()]);
+
+        // Send transaction
+        let response = self.server.send_transaction(prepared_tx)
+            .await
+            .map_err(|e| StellarError::NetworkError(format!("Failed to send transaction: {:?}", e)))?;
+
+        let tx_hash = response.hash.clone();
+
+        // Wait for transaction to complete
+        match self.server.wait_transaction(&tx_hash, Duration::from_secs(30)).await {
+            Ok(tx_result) if tx_result.status == TransactionStatus::Success => {
+                tracing::info!(
+                    "✅ IPCM updated successfully via soroban-client. Network: {:?}, TX: {}, DFID: {}, CID: {}",
+                    self.network, tx_hash, dfid, cid
+                );
+                Ok(tx_hash)
+            }
+            Ok(tx_result) => {
+                Err(StellarError::ContractError(format!("Transaction failed with status: {:?}", tx_result.status)))
+            }
+            Err(e) => {
+                Err(StellarError::NetworkError(format!("Failed to wait for transaction: {:?}", e)))
+            }
+        }
+    }
+
+    /// Mint a new NFT with DFID as the token identifier using soroban-client
     /// This should only be called once per DFID (when first tokenized)
     pub async fn mint_nft(&self, dfid: &str, creator: &str, metadata: Option<serde_json::Value>) -> Result<String, StellarError> {
         // Ensure NFT contract is configured
         let nft_contract = self.nft_contract_address.as_ref()
             .ok_or_else(|| StellarError::NotConfigured("NFT contract address not configured".to_string()))?;
 
-        // Get the signing key
-        let signing_key = self.signing_key.as_ref()
-            .ok_or_else(|| StellarError::NotConfigured("Signing key not configured".to_string()))?;
+        // Get keypair
+        let keypair = self.keypair.as_ref()
+            .ok_or_else(|| StellarError::NotConfigured("Keypair not configured".to_string()))?;
 
-        // Get source account public key from signing key
-        let public_key = signing_key.verifying_key();
-        let public_key_bytes = public_key.to_bytes();
+        // Get source account from network
+        let source_account = self.server.get_account(&keypair.public_key())
+            .await
+            .map_err(|e| StellarError::NetworkError(format!("Failed to get account: {:?}", e)))?;
 
-        // Convert to Stellar address format
-        let source_address = {
-            let mut payload = vec![0x30]; // Version byte for Ed25519 public key (G address)
-            payload.extend_from_slice(&public_key_bytes);
+        // Create contract instance for NFT contract
+        let contract = Contracts::new(nft_contract)
+            .map_err(|e| StellarError::ContractError(format!("Invalid NFT contract address: {:?}", e)))?;
 
-            // Calculate CRC16-XModem checksum
-            let checksum = Self::crc16_xmodem(&payload);
-            payload.push((checksum & 0xFF) as u8);
-            payload.push(((checksum >> 8) & 0xFF) as u8);
-
-            // Encode with base32
-            base32::encode(base32::Alphabet::RFC4648 { padding: false }, &payload)
-        };
-
-        // Build the NFT minting payload
-        // NFT contract mint function: mint(to: Address, token_id: String, metadata: String)
+        // Build metadata
         let metadata_str = metadata
             .map(|m| m.to_string())
             .unwrap_or_else(|| serde_json::json!({
@@ -251,65 +232,59 @@ impl StellarClient {
                 "minted_at": chrono::Utc::now().to_rfc3339()
             }).to_string());
 
-        let rpc_url = self.network.soroban_rpc_url();
+        // Build ScVal arguments for the contract call
+        // NFT contract mint function: mint(to: Address, token_id: String, metadata: String)
+        let to_address_val: ScVal = keypair.public_key().as_str().try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert address: {:?}", e)))?;
+        let token_id_val: ScVal = dfid.try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert token_id: {:?}", e)))?;
+        let metadata_val: ScVal = metadata_str.as_str().try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert metadata: {:?}", e)))?;
 
-        let payload = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "invoke",
-            "params": {
-                "contract_id": nft_contract,
-                "function": "mint",
-                "args": [
-                    {"address": source_address},  // to: recipient address
-                    {"string": dfid},             // token_id: DFID as unique identifier
-                    {"string": metadata_str}      // metadata: JSON string
-                ],
-                "source_account": source_address
+        // Get network for transaction builder
+        let network = match self.network {
+            StellarNetwork::Testnet => Networks::testnet(),
+            StellarNetwork::Mainnet => Networks::public(),
+        };
+
+        // Build transaction
+        let tx = TransactionBuilder::new(source_account, network, None)
+            .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
+            .add_operation(contract.call("mint", Some(vec![to_address_val, token_id_val, metadata_val])))
+            .build();
+
+        // Prepare transaction (simulate and assemble)
+        let mut prepared_tx = self.server.prepare_transaction(&tx)
+            .await
+            .map_err(|e| StellarError::NetworkError(format!("Failed to prepare NFT mint transaction: {:?}", e)))?;
+
+        // Sign transaction
+        prepared_tx.sign(&[keypair.clone()]);
+
+        // Send transaction
+        let response = self.server.send_transaction(prepared_tx)
+            .await
+            .map_err(|e| StellarError::NetworkError(format!("Failed to send NFT mint transaction: {:?}", e)))?;
+
+        let tx_hash = response.hash.clone();
+
+        // Wait for transaction to complete
+        match self.server.wait_transaction(&tx_hash, Duration::from_secs(30)).await {
+            Ok(tx_result) if tx_result.status == TransactionStatus::Success => {
+                tracing::info!(
+                    "✅ NFT minted successfully via soroban-client. Network: {:?}, TX: {}, DFID: {}, Creator: {}",
+                    self.network, tx_hash, dfid, creator
+                );
+                Ok(tx_hash)
             }
-        });
-
-        let response = self.http_client
-            .post(rpc_url)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| StellarError::NetworkError(format!("Failed to mint NFT: {}", e)))?;
-
-        let result: serde_json::Value = response.json()
-            .await
-            .map_err(|e| StellarError::SerializationError(format!("Failed to parse mint response: {}", e)))?;
-
-        // Extract transaction hash from response
-        let tx_hash = result["result"]["hash"]
-            .as_str()
-            .ok_or_else(|| StellarError::ContractError("No transaction hash in mint response".to_string()))?
-            .to_string();
-
-        tracing::info!(
-            "✅ NFT minted successfully (native RPC). Network: {:?}, TX: {}, DFID: {}, Creator: {}",
-            self.network, tx_hash, dfid, creator
-        );
-
-        Ok(tx_hash)
-    }
-
-    // CRC16-XModem checksum for Stellar encoding
-    fn crc16_xmodem(data: &[u8]) -> u16 {
-        let mut crc: u16 = 0x0000;
-        for byte in data {
-            crc ^= (*byte as u16) << 8;
-            for _ in 0..8 {
-                if (crc & 0x8000) != 0 {
-                    crc = (crc << 1) ^ 0x1021;
-                } else {
-                    crc <<= 1;
-                }
+            Ok(tx_result) => {
+                Err(StellarError::ContractError(format!("NFT mint failed with status: {:?}", tx_result.status)))
+            }
+            Err(e) => {
+                Err(StellarError::NetworkError(format!("Failed to wait for NFT mint transaction: {:?}", e)))
             }
         }
-        crc
     }
-
 
     /// Get IPCM entry for a DFID
     pub async fn get_ipcm(&self, dfid: &str) -> Result<Option<IpcmEntry>, StellarError> {
@@ -385,125 +360,5 @@ impl StellarClient {
         status.insert("network".to_string(), format!("{:?}", self.network));
 
         Ok(status)
-    }
-
-    fn sign_transaction(&self, transaction: &serde_json::Value, signing_key: &SigningKey) -> Result<String, StellarError> {
-        // Serialize transaction to XDR format
-        let tx_json = serde_json::to_string(transaction)
-            .map_err(|e| StellarError::SerializationError(format!("Failed to serialize tx: {}", e)))?;
-
-        // Hash transaction with network passphrase
-        let network_id = stellar_base::network::Network::new(self.network.network_passphrase().as_bytes());
-        let tx_hash = stellar_base::hashing::hash(&[network_id.network_id(), tx_json.as_bytes()].concat());
-
-        // Sign the hash
-        let signature = signing_key.sign(&tx_hash);
-
-        // Encode as base64 XDR envelope
-        let envelope = format!("{}:{}", tx_json, BASE64_STANDARD.encode(signature.to_bytes()));
-
-        Ok(envelope)
-    }
-}
-
-// Minimal stellar strkey implementation
-mod stellar_strkey {
-    pub mod ed25519 {
-        pub struct PrivateKey(pub [u8; 32]);
-        pub struct PublicKey(pub [u8; 32]);
-
-        impl PrivateKey {
-            pub fn from_string(s: &str) -> Result<Self, String> {
-                if !s.starts_with('S') {
-                    return Err("Secret key must start with S".to_string());
-                }
-
-                // Stellar uses base32 encoding (RFC 4648) without padding
-                let decoded = base32::decode(
-                    base32::Alphabet::RFC4648 { padding: false },
-                    s
-                ).ok_or_else(|| "Failed to decode base32".to_string())?;
-
-                // Stellar secret keys have: 1 byte version + 32 bytes key + 2 bytes checksum = 35 bytes
-                if decoded.len() < 33 {
-                    return Err(format!("Invalid key length: {} bytes", decoded.len()));
-                }
-
-                // Extract the 32-byte Ed25519 seed (skip version byte, ignore checksum)
-                let mut bytes = [0u8; 32];
-                bytes.copy_from_slice(&decoded[1..33]);
-                Ok(PrivateKey(bytes))
-            }
-        }
-
-        impl PublicKey {
-            pub fn to_string(&self) -> String {
-                // Stellar public keys: version byte (0x30) + 32 bytes key + 2 bytes checksum
-                let mut payload = vec![0x30]; // Version byte for Ed25519 public key
-                payload.extend_from_slice(&self.0);
-
-                // Calculate CRC16-XModem checksum
-                let checksum = Self::crc16_xmodem(&payload);
-                payload.push((checksum & 0xFF) as u8);
-                payload.push(((checksum >> 8) & 0xFF) as u8);
-
-                // Encode with base32
-                base32::encode(base32::Alphabet::RFC4648 { padding: false }, &payload)
-            }
-
-            // CRC16-XModem checksum for Stellar encoding
-            fn crc16_xmodem(data: &[u8]) -> u16 {
-                let mut crc: u16 = 0x0000;
-                for byte in data {
-                    crc ^= (*byte as u16) << 8;
-                    for _ in 0..8 {
-                        if (crc & 0x8000) != 0 {
-                            crc = (crc << 1) ^ 0x1021;
-                        } else {
-                            crc <<= 1;
-                        }
-                    }
-                }
-                crc
-            }
-        }
-    }
-}
-
-// Minimal stellar base implementation
-mod stellar_base {
-    pub mod network {
-        pub struct Network {
-            id: [u8; 32],
-        }
-
-        impl Network {
-            pub fn new(passphrase: &[u8]) -> Self {
-                use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(passphrase);
-                let result = hasher.finalize();
-                let mut id = [0u8; 32];
-                id.copy_from_slice(&result);
-                Network { id }
-            }
-
-            pub fn network_id(&self) -> &[u8] {
-                &self.id
-            }
-        }
-    }
-
-    pub mod hashing {
-        use sha2::{Digest, Sha256};
-
-        pub fn hash(data: &[u8]) -> [u8; 32] {
-            let mut hasher = Sha256::new();
-            hasher.update(data);
-            let result = hasher.finalize();
-            let mut hash = [0u8; 32];
-            hash.copy_from_slice(&result);
-            hash
-        }
     }
 }
