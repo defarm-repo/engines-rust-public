@@ -48,6 +48,14 @@ pub trait StorageAdapter: Send + Sync {
 
     async fn store_item(&self, item: &Item) -> Result<AdapterResult<String>, StorageError>;
 
+    /// Store item with knowledge of whether this is a new DFID (for NFT minting)
+    /// Default implementation calls store_item() for backwards compatibility
+    async fn store_new_item(&self, item: &Item, is_new_dfid: bool, creator: &str) -> Result<AdapterResult<String>, StorageError> {
+        // Default: ignore the is_new_dfid flag and just store normally
+        let _ = (is_new_dfid, creator); // Suppress unused warnings
+        self.store_item(item).await
+    }
+
     async fn store_event(&self, event: &Event, item_id: &str) -> Result<AdapterResult<String>, StorageError>;
 
     async fn get_item(&self, item_id: &str) -> Result<Option<AdapterResult<Item>>, StorageError>;

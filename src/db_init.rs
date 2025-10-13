@@ -210,6 +210,8 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
     let testnet_ipcm = std::env::var("STELLAR_TESTNET_IPCM_CONTRACT").ok();
     let mainnet_ipcm = std::env::var("STELLAR_MAINNET_IPCM_CONTRACT").ok();
     let mainnet_secret = std::env::var("STELLAR_MAINNET_SECRET_KEY").ok();
+    let testnet_nft = std::env::var("STELLAR_TESTNET_NFT_CONTRACT").ok();
+    let mainnet_nft = std::env::var("STELLAR_MAINNET_NFT_CONTRACT").ok();
 
     // Create IPFS-IPFS adapter config
     if let (Some(api_key), Some(secret)) = (pinata_api_key.clone(), pinata_secret.clone()) {
@@ -252,6 +254,9 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
         let mut custom_headers = HashMap::new();
         if let Some(secret_key) = testnet_secret {
             custom_headers.insert("stellar_secret".to_string(), secret_key);
+        }
+        if let Some(nft_contract) = testnet_nft.clone() {
+            custom_headers.insert("nft_contract".to_string(), nft_contract);
         }
         custom_headers.insert("interface_address".to_string(), interface_address);
         custom_headers.insert("source_account_identity".to_string(), "defarm-admin-testnet".to_string());
@@ -301,6 +306,9 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
 
         let mut custom_headers = HashMap::new();
         custom_headers.insert("stellar_secret".to_string(), mainnet_key);
+        if let Some(nft_contract) = mainnet_nft.clone() {
+            custom_headers.insert("nft_contract".to_string(), nft_contract);
+        }
         custom_headers.insert("interface_address".to_string(), interface_address);
         custom_headers.insert("source_account_identity".to_string(), "defarm-admin-secure-v2".to_string());
 

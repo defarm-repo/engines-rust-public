@@ -87,6 +87,14 @@ impl StellarMainnetIpfsAdapter {
                 .map_err(|e| StorageError::ConfigurationError(format!("Invalid Stellar keypair: {}", e)))?;
         }
 
+        // Configure with NFT contract if available (from env variable)
+        if let Some(nft_contract) = config.and_then(|c| c.connection_details.custom_headers.get("nft_contract")) {
+            stellar_client = stellar_client.with_nft_contract(nft_contract.to_string());
+            tracing::info!("🎨 Stellar Mainnet adapter configured with NFT contract: {} (⚠️ PRODUCTION!)", nft_contract);
+        } else {
+            tracing::warn!("⚠️  Stellar Mainnet adapter: No NFT contract configured (NFT minting will fail)");
+        }
+
         // Configure with interface and source account
         stellar_client = stellar_client
             .with_interface_address(interface_address.clone())
@@ -143,6 +151,41 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
         let metadata = self.create_metadata(&tx_hash, &cid);
 
         Ok(AdapterResult::new(item.dfid.clone(), metadata))
+    }
+
+    /// Store item with NFT minting for new DFIDs (PRODUCTION - uses real XLM!)
+    async fn store_new_item(&self, item: &Item, is_new_dfid: bool, creator: &str) -> Result<AdapterResult<String>, StorageError> {
+        if is_new_dfid {
+            // Step 1: Mint NFT for new DFID on MAINNET (⚠️ USES REAL FUNDS!)
+            let nft_tx_hash = self.stellar_client
+                .mint_nft(&item.dfid, creator, None)
+                .await
+                .map_err(|e| StorageError::WriteError(format!("Failed to mint NFT on Stellar Mainnet: {}", e)))?;
+
+            tracing::info!("🎨 NFT minted for new DFID on MAINNET: {} (TX: {})", item.dfid, nft_tx_hash);
+
+            // Step 2: Upload item to IPFS
+            let cid = self.ipfs_client
+                .upload_json(item)
+                .await
+                .map_err(|e| StorageError::WriteError(format!("Failed to upload to IPFS: {}", e)))?;
+
+            // Step 3: Register CID in IPCM contract on MAINNET
+            let ipcm_tx_hash = self.stellar_client
+                .update_ipcm(&item.dfid, &cid)
+                .await
+                .map_err(|e| StorageError::WriteError(format!("Failed to register on Stellar Mainnet: {}", e)))?;
+
+            // Create metadata with IPCM transaction
+            // NFT mint transaction is logged but not stored in metadata for now
+            let metadata = self.create_metadata(&ipcm_tx_hash, &cid);
+
+            Ok(AdapterResult::new(item.dfid.clone(), metadata))
+        } else {
+            // Existing DFID: just update IPCM pointer (no NFT minting)
+            tracing::info!("♻️  Updating existing DFID on MAINNET: {} (no NFT mint)", item.dfid);
+            self.store_item(item).await
+        }
     }
 
     async fn store_event(&self, event: &Event, item_id: &str) -> Result<AdapterResult<String>, StorageError> {

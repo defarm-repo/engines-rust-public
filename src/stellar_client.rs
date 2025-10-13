@@ -71,7 +71,8 @@ pub struct IpcmEntry {
 
 pub struct StellarClient {
     network: StellarNetwork,
-    contract_address: String,
+    contract_address: String, // IPCM contract address
+    nft_contract_address: Option<String>, // NFT minting contract address
     http_client: Client,
     signing_key: Option<SigningKey>,
     secret_key_string: Option<String>, // Store the original secret key for CLI usage
@@ -96,12 +97,18 @@ impl StellarClient {
         Self {
             network,
             contract_address,
+            nft_contract_address: None,
             http_client: Client::new(),
             signing_key: None,
             secret_key_string: None,
             interface_address: None,
             source_account: None,
         }
+    }
+
+    pub fn with_nft_contract(mut self, nft_contract: String) -> Self {
+        self.nft_contract_address = Some(nft_contract);
+        self
     }
 
     pub fn with_keypair(mut self, secret_key: &str) -> Result<Self, StellarError> {
@@ -200,6 +207,88 @@ impl StellarClient {
         tracing::info!(
             "✅ Stellar transaction submitted successfully (native RPC). Network: {:?}, TX: {}, DFID: {}, CID: {}",
             self.network, tx_hash, dfid, cid
+        );
+
+        Ok(tx_hash)
+    }
+
+    /// Mint a new NFT with DFID as the token identifier
+    /// This should only be called once per DFID (when first tokenized)
+    pub async fn mint_nft(&self, dfid: &str, creator: &str, metadata: Option<serde_json::Value>) -> Result<String, StellarError> {
+        // Ensure NFT contract is configured
+        let nft_contract = self.nft_contract_address.as_ref()
+            .ok_or_else(|| StellarError::NotConfigured("NFT contract address not configured".to_string()))?;
+
+        // Get the signing key
+        let signing_key = self.signing_key.as_ref()
+            .ok_or_else(|| StellarError::NotConfigured("Signing key not configured".to_string()))?;
+
+        // Get source account public key from signing key
+        let public_key = signing_key.verifying_key();
+        let public_key_bytes = public_key.to_bytes();
+
+        // Convert to Stellar address format
+        let source_address = {
+            let mut payload = vec![0x30]; // Version byte for Ed25519 public key (G address)
+            payload.extend_from_slice(&public_key_bytes);
+
+            // Calculate CRC16-XModem checksum
+            let checksum = Self::crc16_xmodem(&payload);
+            payload.push((checksum & 0xFF) as u8);
+            payload.push(((checksum >> 8) & 0xFF) as u8);
+
+            // Encode with base32
+            base32::encode(base32::Alphabet::RFC4648 { padding: false }, &payload)
+        };
+
+        // Build the NFT minting payload
+        // NFT contract mint function: mint(to: Address, token_id: String, metadata: String)
+        let metadata_str = metadata
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| serde_json::json!({
+                "dfid": dfid,
+                "creator": creator,
+                "minted_at": chrono::Utc::now().to_rfc3339()
+            }).to_string());
+
+        let rpc_url = self.network.soroban_rpc_url();
+
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "invoke",
+            "params": {
+                "contract_id": nft_contract,
+                "function": "mint",
+                "args": [
+                    {"address": source_address},  // to: recipient address
+                    {"string": dfid},             // token_id: DFID as unique identifier
+                    {"string": metadata_str}      // metadata: JSON string
+                ],
+                "source_account": source_address
+            }
+        });
+
+        let response = self.http_client
+            .post(rpc_url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| StellarError::NetworkError(format!("Failed to mint NFT: {}", e)))?;
+
+        let result: serde_json::Value = response.json()
+            .await
+            .map_err(|e| StellarError::SerializationError(format!("Failed to parse mint response: {}", e)))?;
+
+        // Extract transaction hash from response
+        let tx_hash = result["result"]["hash"]
+            .as_str()
+            .ok_or_else(|| StellarError::ContractError("No transaction hash in mint response".to_string()))?
+            .to_string();
+
+        tracing::info!(
+            "✅ NFT minted successfully (native RPC). Network: {:?}, TX: {}, DFID: {}, Creator: {}",
+            self.network, tx_hash, dfid, creator
         );
 
         Ok(tx_hash)

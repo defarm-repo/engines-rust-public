@@ -502,39 +502,42 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     .map_err(|e| CircuitsError::StorageError(e.to_string()))?
                     .ok_or(CircuitsError::ItemNotFound)?;
 
-                // Create adapter instance based on type
+                // Determine if this is a new DFID (for NFT minting)
+                let is_new_dfid = matches!(status, PushStatus::NewItemCreated);
+
+                // Create adapter instance based on type and call store_new_item with mint flag
                 let upload_result = match adapter_type {
                     AdapterType::IpfsIpfs => {
                         let adapter = IpfsIpfsAdapter::new()
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to create IPFS adapter: {}", e)))?;
-                        adapter.store_item(&item).await
+                        adapter.store_new_item(&item, is_new_dfid, requester_id).await
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to IPFS: {}", e)))?
                     },
                     AdapterType::StellarTestnetIpfs => {
                         let adapter = StellarTestnetIpfsAdapter::new_with_config(full_adapter_config.as_ref())
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to create Stellar Testnet adapter: {}", e)))?;
-                        adapter.store_item(&item).await
+                        adapter.store_new_item(&item, is_new_dfid, requester_id).await
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Stellar Testnet: {}", e)))?
                     },
                     AdapterType::StellarMainnetIpfs => {
                         let adapter = StellarMainnetIpfsAdapter::new_with_config(full_adapter_config.as_ref())
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to create Stellar Mainnet adapter: {}", e)))?;
-                        adapter.store_item(&item).await
+                        adapter.store_new_item(&item, is_new_dfid, requester_id).await
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Stellar Mainnet: {}", e)))?
                     },
                     AdapterType::LocalLocal => {
                         let adapter = LocalLocalAdapter::new();
-                        adapter.store_item(&item).await
+                        adapter.store_new_item(&item, is_new_dfid, requester_id).await
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to store locally: {}", e)))?
                     },
                     AdapterType::LocalIpfs => {
                         let adapter = LocalIpfsAdapter::new();
-                        adapter.store_item(&item).await
+                        adapter.store_new_item(&item, is_new_dfid, requester_id).await
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Local-IPFS: {}", e)))?
                     },
                     AdapterType::StellarMainnetStellarMainnet => {
                         let adapter = StellarMainnetStellarMainnetAdapter::new();
-                        adapter.store_item(&item).await
+                        adapter.store_new_item(&item, is_new_dfid, requester_id).await
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Stellar Mainnet-Mainnet: {}", e)))?
                     },
                     _ => {
