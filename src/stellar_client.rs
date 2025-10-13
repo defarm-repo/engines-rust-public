@@ -2,17 +2,19 @@ use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::time::Duration;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 // Soroban client imports
 use soroban_client::{
     Server, Options,
     account::{Account, AccountBehavior},
     keypair::{Keypair, KeypairBehavior},
-    network::Networks,
+    network::{Networks, NetworkPassphrase},
     contract::{Contracts, ContractBehavior},
-    transaction::{TransactionBuilder, TransactionBuilderBehavior},
+    transaction::{TransactionBuilder, TransactionBuilderBehavior, TransactionBehavior},
     soroban_rpc::TransactionStatus,
-    xdr::ScVal,
+    xdr::{ScVal, ScString},
 };
 
 // Real contract addresses from .env configuration
@@ -86,6 +88,7 @@ pub struct StellarClient {
     server: Server,
     keypair: Option<Keypair>,
     source_account: Option<String>, // Identity string for the source account
+    http_client: reqwest::Client, // For read-only operations
 }
 
 impl std::fmt::Debug for StellarClient {
@@ -104,6 +107,11 @@ impl StellarClient {
         let server = Server::new(network.soroban_rpc_url(), Options::default())
             .expect("Failed to create Soroban RPC server");
 
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("Failed to create HTTP client");
+
         Self {
             network,
             contract_address,
@@ -111,6 +119,7 @@ impl StellarClient {
             server,
             keypair: None,
             source_account: None,
+            http_client,
         }
     }
 
@@ -152,11 +161,11 @@ impl StellarClient {
             .map_err(|e| StellarError::ContractError(format!("Invalid contract address: {:?}", e)))?;
 
         // Build ScVal arguments for the contract call
-        // Assuming IPCM contract has: update(dfid: String, cid: String, interface: Address)
-        let dfid_val: ScVal = dfid.try_into()
-            .map_err(|e| StellarError::SerializationError(format!("Failed to convert dfid: {:?}", e)))?;
-        let cid_val: ScVal = cid.try_into()
-            .map_err(|e| StellarError::SerializationError(format!("Failed to convert cid: {:?}", e)))?;
+        // Assuming IPCM contract has: update(dfid: String, cid: String)
+        let dfid_val = ScVal::String(ScString(dfid.try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert dfid: {:?}", e)))?));
+        let cid_val = ScVal::String(ScString(cid.try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert cid: {:?}", e)))?));
 
         // Get network for transaction builder
         let network = match self.network {
@@ -165,7 +174,7 @@ impl StellarClient {
         };
 
         // Build transaction
-        let tx = TransactionBuilder::new(source_account, network, None)
+        let tx = TransactionBuilder::new(Rc::new(RefCell::new(source_account)), network, None)
             .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
             .add_operation(contract.call("update", Some(vec![dfid_val, cid_val])))
             .build();
@@ -234,12 +243,12 @@ impl StellarClient {
 
         // Build ScVal arguments for the contract call
         // NFT contract mint function: mint(to: Address, token_id: String, metadata: String)
-        let to_address_val: ScVal = keypair.public_key().as_str().try_into()
-            .map_err(|e| StellarError::SerializationError(format!("Failed to convert address: {:?}", e)))?;
-        let token_id_val: ScVal = dfid.try_into()
-            .map_err(|e| StellarError::SerializationError(format!("Failed to convert token_id: {:?}", e)))?;
-        let metadata_val: ScVal = metadata_str.as_str().try_into()
-            .map_err(|e| StellarError::SerializationError(format!("Failed to convert metadata: {:?}", e)))?;
+        let to_address_val = ScVal::String(ScString(keypair.public_key().as_str().try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert address: {:?}", e)))?));
+        let token_id_val = ScVal::String(ScString(dfid.try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert token_id: {:?}", e)))?));
+        let metadata_val = ScVal::String(ScString(metadata_str.as_str().try_into()
+            .map_err(|e| StellarError::SerializationError(format!("Failed to convert metadata: {:?}", e)))?));
 
         // Get network for transaction builder
         let network = match self.network {
@@ -248,7 +257,7 @@ impl StellarClient {
         };
 
         // Build transaction
-        let tx = TransactionBuilder::new(source_account, network, None)
+        let tx = TransactionBuilder::new(Rc::new(RefCell::new(source_account)), network, None)
             .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
             .add_operation(contract.call("mint", Some(vec![to_address_val, token_id_val, metadata_val])))
             .build();
