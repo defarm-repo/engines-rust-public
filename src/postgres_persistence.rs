@@ -618,4 +618,567 @@ impl PostgresPersistence {
             available_adapters: None, // TODO: Parse from available_adapters string array
         })
     }
+
+    // ========================================================================
+    // LID-DFID MAPPINGS PERSISTENCE
+    // ========================================================================
+
+    /// Persist LID-DFID mapping to PostgreSQL
+    pub async fn persist_lid_dfid_mapping(&self, local_id: &Uuid, dfid: &str) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        client.execute(
+            "INSERT INTO lid_dfid_mappings (local_id, dfid, created_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (local_id) DO UPDATE
+             SET dfid = EXCLUDED.dfid",
+            &[&local_id, &dfid],
+        )
+        .await
+        .map_err(|e| format!("Failed to persist LID-DFID mapping: {}", e))?;
+
+        tracing::debug!("✅ Persisted LID-DFID mapping {} -> {} to PostgreSQL", local_id, dfid);
+        Ok(())
+    }
+
+    /// Load LID-DFID mappings from PostgreSQL
+    pub async fn load_lid_dfid_mappings(&self) -> Result<Vec<(Uuid, String)>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query("SELECT local_id, dfid FROM lid_dfid_mappings", &[])
+            .await
+            .map_err(|e| format!("Failed to load LID-DFID mappings: {}", e))?;
+
+        let mappings = rows
+            .iter()
+            .map(|row| {
+                let local_id: Uuid = row.get("local_id");
+                let dfid: String = row.get("dfid");
+                (local_id, dfid)
+            })
+            .collect();
+
+        Ok(mappings)
+    }
+
+    // ========================================================================
+    // CIRCUIT OPERATIONS PERSISTENCE
+    // ========================================================================
+
+    /// Persist circuit operation to PostgreSQL
+    pub async fn persist_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        // Note: approved_at_ts, approver_id, completed_at_ts exist in schema but not in CircuitOperation struct yet
+        // They will be NULL for now until the struct is enhanced with approval tracking
+        client.execute(
+            "INSERT INTO circuit_operations
+             (operation_id, circuit_id, operation_type, requester_id, status, created_at_ts, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+             ON CONFLICT (operation_id) DO UPDATE
+             SET status = EXCLUDED.status",
+            &[
+                &operation.operation_id,
+                &operation.circuit_id,
+                &format!("{:?}", operation.operation_type),
+                &operation.requester_id,
+                &format!("{:?}", operation.status),
+                &operation.timestamp.timestamp(),
+            ],
+        )
+        .await
+        .map_err(|e| format!("Failed to persist circuit operation: {}", e))?;
+
+        tracing::debug!("✅ Persisted circuit operation {} to PostgreSQL", operation.operation_id);
+        Ok(())
+    }
+
+    /// Load circuit operations from PostgreSQL
+    pub async fn load_circuit_operations(&self, circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT operation_id, circuit_id, operation_type, requester_id, status, created_at_ts
+                 FROM circuit_operations
+                 WHERE circuit_id = $1
+                 ORDER BY created_at_ts DESC",
+                &[&circuit_id],
+            )
+            .await
+            .map_err(|e| format!("Failed to load circuit operations: {}", e))?;
+
+        let operations = rows
+            .iter()
+            .filter_map(|row| {
+                let operation_type_str: String = row.get("operation_type");
+                let operation_type = match operation_type_str.as_str() {
+                    "Push" => OperationType::Push,
+                    "Pull" => OperationType::Pull,
+                    _ => return None,
+                };
+
+                let status_str: String = row.get("status");
+                let status = match status_str.as_str() {
+                    "Pending" => OperationStatus::Pending,
+                    "Approved" => OperationStatus::Approved,
+                    "Rejected" => OperationStatus::Rejected,
+                    "Completed" => OperationStatus::Completed,
+                    _ => return None,
+                };
+
+                let created_at_ts: i64 = row.get("created_at_ts");
+
+                Some(CircuitOperation {
+                    operation_id: row.get("operation_id"),
+                    circuit_id: row.get("circuit_id"),
+                    dfid: "".to_string(), // Will be populated from circuit_pending_items if needed
+                    operation_type,
+                    requester_id: row.get("requester_id"),
+                    timestamp: DateTime::from_timestamp(created_at_ts, 0).unwrap_or_else(Utc::now),
+                    status,
+                    metadata: std::collections::HashMap::new(),
+                })
+            })
+            .collect();
+
+        Ok(operations)
+    }
+
+    // ========================================================================
+    // ACTIVITIES PERSISTENCE
+    // ========================================================================
+
+    /// Persist activity to PostgreSQL
+    pub async fn persist_activity(&self, activity: &Activity) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        let details_json = serde_json::to_value(&activity.details)
+            .map_err(|e| format!("Failed to serialize activity details: {}", e))?;
+
+        let activity_id_uuid = Uuid::parse_str(&activity.activity_id)
+            .unwrap_or_else(|_| Uuid::new_v4());
+
+        client.execute(
+            "INSERT INTO activities
+             (activity_id, activity_type, circuit_id, circuit_name, dfids,
+              performed_by, status, details, timestamp_ts, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+             ON CONFLICT (activity_id) DO UPDATE
+             SET status = EXCLUDED.status",
+            &[
+                &activity_id_uuid,
+                &format!("{:?}", activity.activity_type),
+                &activity.circuit_id,
+                &activity.circuit_name,
+                &activity.item_dfids,
+                &activity.user_id,
+                &format!("{:?}", activity.status),
+                &details_json,
+                &activity.timestamp.timestamp(),
+            ],
+        )
+        .await
+        .map_err(|e| format!("Failed to persist activity: {}", e))?;
+
+        tracing::debug!("✅ Persisted activity {} to PostgreSQL", activity.activity_id);
+        Ok(())
+    }
+
+    /// Load activities from PostgreSQL
+    pub async fn load_activities(&self, circuit_id: Option<&Uuid>) -> Result<Vec<Activity>, String> {
+        let client = self.get_client().await?;
+
+        let rows = if let Some(cid) = circuit_id {
+            client
+                .query(
+                    "SELECT activity_id, activity_type, circuit_id, circuit_name, dfids,
+                            performed_by, status, details, timestamp_ts
+                     FROM activities
+                     WHERE circuit_id = $1
+                     ORDER BY timestamp_ts DESC
+                     LIMIT 1000",
+                    &[&cid],
+                )
+                .await
+        } else {
+            client
+                .query(
+                    "SELECT activity_id, activity_type, circuit_id, circuit_name, dfids,
+                            performed_by, status, details, timestamp_ts
+                     FROM activities
+                     ORDER BY timestamp_ts DESC
+                     LIMIT 1000",
+                    &[],
+                )
+                .await
+        }
+        .map_err(|e| format!("Failed to load activities: {}", e))?;
+
+        let activities = rows
+            .iter()
+            .filter_map(|row| {
+                let activity_id_uuid: Uuid = row.get("activity_id");
+                let activity_type_str: String = row.get("activity_type");
+                let activity_type = match activity_type_str.as_str() {
+                    "Push" => ActivityType::Push,
+                    "Pull" => ActivityType::Pull,
+                    "Enrich" => ActivityType::Enrich,
+                    _ => return None,
+                };
+
+                let status_str: String = row.get("status");
+                let status = match status_str.as_str() {
+                    "Success" => ActivityStatus::Success,
+                    "Partial" => ActivityStatus::Partial,
+                    "Failed" => ActivityStatus::Failed,
+                    _ => return None,
+                };
+
+                let details_json: serde_json::Value = row.get("details");
+                let details: ActivityDetails = serde_json::from_value(details_json).ok()?;
+
+                let timestamp_ts: i64 = row.get("timestamp_ts");
+
+                Some(Activity {
+                    activity_id: activity_id_uuid.to_string(),
+                    activity_type,
+                    circuit_id: row.get("circuit_id"),
+                    circuit_name: row.get("circuit_name"),
+                    item_dfids: row.get("dfids"),
+                    user_id: row.get("performed_by"),
+                    timestamp: DateTime::from_timestamp(timestamp_ts, 0).unwrap_or_else(Utc::now),
+                    status,
+                    details,
+                })
+            })
+            .collect();
+
+        Ok(activities)
+    }
+
+    // ========================================================================
+    // STORAGE RECORDS PERSISTENCE
+    // ========================================================================
+
+    /// Persist storage record to PostgreSQL
+    pub async fn persist_storage_record(&self, dfid: &str, record: &StorageRecord) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        let storage_location_json = serde_json::to_value(&record.storage_location)
+            .map_err(|e| format!("Failed to serialize storage location: {}", e))?;
+
+        let metadata_json = serde_json::to_value(&record.metadata)
+            .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+
+        let (events_range_start, events_range_end) = record.events_range
+            .map(|(start, end)| (Some(start.timestamp()), end.map(|e| e.timestamp())))
+            .unwrap_or((None, None));
+
+        client.execute(
+            "INSERT INTO storage_history
+             (dfid, adapter_type, storage_location, stored_at_ts, triggered_by,
+              triggered_by_id, events_range_start, events_range_end, is_active, metadata, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())",
+            &[
+                &dfid,
+                &format!("{:?}", record.adapter_type),
+                &storage_location_json,
+                &record.stored_at.timestamp(),
+                &record.triggered_by,
+                &record.triggered_by_id,
+                &events_range_start,
+                &events_range_end,
+                &record.is_active,
+                &metadata_json,
+            ],
+        )
+        .await
+        .map_err(|e| format!("Failed to persist storage record: {}", e))?;
+
+        tracing::debug!("✅ Persisted storage record for {} to PostgreSQL", dfid);
+        Ok(())
+    }
+
+    /// Load storage records for a DFID from PostgreSQL
+    pub async fn load_storage_records(&self, dfid: &str) -> Result<Vec<StorageRecord>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT adapter_type, storage_location, stored_at_ts, triggered_by,
+                        triggered_by_id, events_range_start, events_range_end, is_active, metadata
+                 FROM storage_history
+                 WHERE dfid = $1
+                 ORDER BY stored_at_ts DESC",
+                &[&dfid],
+            )
+            .await
+            .map_err(|e| format!("Failed to load storage records: {}", e))?;
+
+        let records = rows
+            .iter()
+            .filter_map(|row| {
+                let adapter_type_str: String = row.get("adapter_type");
+                let adapter_type = match adapter_type_str.as_str() {
+                    "IpfsIpfs" => AdapterType::IpfsIpfs,
+                    "StellarTestnetIpfs" => AdapterType::StellarTestnetIpfs,
+                    "StellarMainnetIpfs" => AdapterType::StellarMainnetIpfs,
+                    "LocalLocal" => AdapterType::LocalLocal,
+                    "LocalIpfs" => AdapterType::LocalIpfs,
+                    _ => return None,
+                };
+
+                let storage_location_json: serde_json::Value = row.get("storage_location");
+                let storage_location = serde_json::from_value(storage_location_json).ok()?;
+
+                let stored_at_ts: i64 = row.get("stored_at_ts");
+                let events_range_start: Option<i64> = row.get("events_range_start");
+                let events_range_end: Option<i64> = row.get("events_range_end");
+
+                let events_range = match (events_range_start, events_range_end) {
+                    (Some(start), end) => Some((
+                        DateTime::from_timestamp(start, 0)?,
+                        end.and_then(|e| DateTime::from_timestamp(e, 0)),
+                    )),
+                    _ => None,
+                };
+
+                let metadata_json: serde_json::Value = row.get("metadata");
+                let metadata = serde_json::from_value(metadata_json).ok()?;
+
+                Some(StorageRecord {
+                    adapter_type,
+                    storage_location,
+                    stored_at: DateTime::from_timestamp(stored_at_ts, 0)?,
+                    triggered_by: row.get("triggered_by"),
+                    triggered_by_id: row.get("triggered_by_id"),
+                    events_range,
+                    is_active: row.get("is_active"),
+                    metadata,
+                })
+            })
+            .collect();
+
+        Ok(records)
+    }
+
+    // ========================================================================
+    // ADAPTER CONFIGS PERSISTENCE
+    // ========================================================================
+
+    /// Persist adapter config to PostgreSQL
+    pub async fn persist_adapter_config(&self, config: &AdapterConfig) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        let connection_details_json = serde_json::to_value(&config.connection_details)
+            .map_err(|e| format!("Failed to serialize connection details: {}", e))?;
+
+        let contract_configs_json = config.contract_configs.as_ref()
+            .map(|c| serde_json::to_value(c).ok())
+            .flatten();
+
+        client.execute(
+            "INSERT INTO adapter_configs
+             (config_id, name, description, adapter_type, connection_details,
+              contract_configs, is_active, is_default, created_by,
+              created_at_ts, updated_at_ts, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+             ON CONFLICT (config_id) DO UPDATE
+             SET name = EXCLUDED.name,
+                 description = EXCLUDED.description,
+                 connection_details = EXCLUDED.connection_details,
+                 contract_configs = EXCLUDED.contract_configs,
+                 is_active = EXCLUDED.is_active,
+                 is_default = EXCLUDED.is_default,
+                 updated_at_ts = EXCLUDED.updated_at_ts,
+                 updated_at = NOW()",
+            &[
+                &config.config_id,
+                &config.name,
+                &config.description,
+                &format!("{:?}", config.adapter_type),
+                &connection_details_json,
+                &contract_configs_json,
+                &config.is_active,
+                &config.is_default,
+                &config.created_by,
+                &config.created_at.timestamp(),
+                &config.updated_at.timestamp(),
+            ],
+        )
+        .await
+        .map_err(|e| format!("Failed to persist adapter config: {}", e))?;
+
+        tracing::debug!("✅ Persisted adapter config {} to PostgreSQL", config.config_id);
+        Ok(())
+    }
+
+    /// Load adapter configs from PostgreSQL
+    pub async fn load_adapter_configs(&self) -> Result<Vec<AdapterConfig>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT config_id, name, description, adapter_type, connection_details,
+                        contract_configs, is_active, is_default, created_by,
+                        created_at_ts, updated_at_ts
+                 FROM adapter_configs
+                 ORDER BY created_at_ts DESC",
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to load adapter configs: {}", e))?;
+
+        let configs = rows
+            .iter()
+            .filter_map(|row| {
+                let adapter_type_str: String = row.get("adapter_type");
+                let adapter_type = match adapter_type_str.as_str() {
+                    "IpfsIpfs" => AdapterType::IpfsIpfs,
+                    "StellarTestnetIpfs" => AdapterType::StellarTestnetIpfs,
+                    "StellarMainnetIpfs" => AdapterType::StellarMainnetIpfs,
+                    "LocalLocal" => AdapterType::LocalLocal,
+                    "LocalIpfs" => AdapterType::LocalIpfs,
+                    _ => return None,
+                };
+
+                let connection_details_json: serde_json::Value = row.get("connection_details");
+                let connection_details = serde_json::from_value(connection_details_json).ok()?;
+
+                let contract_configs_json: Option<serde_json::Value> = row.get("contract_configs");
+                let contract_configs = contract_configs_json
+                    .and_then(|j| serde_json::from_value(j).ok());
+
+                let created_at_ts: i64 = row.get("created_at_ts");
+                let updated_at_ts: i64 = row.get("updated_at_ts");
+
+                Some(AdapterConfig {
+                    config_id: row.get("config_id"),
+                    name: row.get("name"),
+                    description: row.get("description"),
+                    adapter_type,
+                    connection_details,
+                    contract_configs,
+                    is_active: row.get("is_active"),
+                    is_default: row.get("is_default"),
+                    created_by: row.get("created_by"),
+                    created_at: DateTime::from_timestamp(created_at_ts, 0).unwrap_or_else(Utc::now),
+                    updated_at: DateTime::from_timestamp(updated_at_ts, 0).unwrap_or_else(Utc::now),
+                    last_tested_at: None,
+                    test_status: None,
+                })
+            })
+            .collect();
+
+        Ok(configs)
+    }
+
+    // ========================================================================
+    // WEBHOOK CONFIGS PERSISTENCE
+    // ========================================================================
+
+    /// Persist webhook config to PostgreSQL
+    pub async fn persist_webhook_config(&self, webhook: &WebhookConfig) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        let auth_config_json = serde_json::to_value(&webhook.auth_type)
+            .map_err(|e| format!("Failed to serialize auth config: {}", e))?;
+
+        let retry_config_json = serde_json::to_value(&webhook.retry_config)
+            .map_err(|e| format!("Failed to serialize retry config: {}", e))?;
+
+        // For circuit_id, we need to get it from context - webhooks are associated with circuits
+        // This is a simplified version - in production you'd pass circuit_id as parameter
+
+        client.execute(
+            "INSERT INTO webhook_configs
+             (webhook_id, circuit_id, name, url, enabled, trigger_events,
+              auth_type, auth_config, retry_config, created_at_ts, updated_at_ts, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+             ON CONFLICT (webhook_id) DO UPDATE
+             SET name = EXCLUDED.name,
+                 url = EXCLUDED.url,
+                 enabled = EXCLUDED.enabled,
+                 trigger_events = EXCLUDED.trigger_events,
+                 auth_type = EXCLUDED.auth_type,
+                 auth_config = EXCLUDED.auth_config,
+                 retry_config = EXCLUDED.retry_config,
+                 updated_at_ts = EXCLUDED.updated_at_ts,
+                 updated_at = NOW()",
+            &[
+                &webhook.id,
+                &Uuid::nil(), // Placeholder - circuit_id should be passed as parameter in real implementation
+                &webhook.name,
+                &webhook.url,
+                &webhook.enabled,
+                &vec![format!("{:?}", webhook.method)], // Simplified - trigger_events needs proper handling
+                &format!("{:?}", webhook.auth_type),
+                &auth_config_json,
+                &retry_config_json,
+                &webhook.created_at.timestamp(),
+                &webhook.updated_at.timestamp(),
+            ],
+        )
+        .await
+        .map_err(|e| format!("Failed to persist webhook config: {}", e))?;
+
+        tracing::debug!("✅ Persisted webhook config {} to PostgreSQL", webhook.id);
+        Ok(())
+    }
+
+    /// Load webhook configs for a circuit from PostgreSQL
+    pub async fn load_webhook_configs(&self, circuit_id: &Uuid) -> Result<Vec<WebhookConfig>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT webhook_id, name, url, enabled, trigger_events,
+                        auth_type, auth_config, retry_config, created_at_ts, updated_at_ts
+                 FROM webhook_configs
+                 WHERE circuit_id = $1
+                 ORDER BY created_at_ts DESC",
+                &[&circuit_id],
+            )
+            .await
+            .map_err(|e| format!("Failed to load webhook configs: {}", e))?;
+
+        let webhooks = rows
+            .iter()
+            .filter_map(|row| {
+                let auth_type_str: String = row.get("auth_type");
+                let auth_type = match auth_type_str.as_str() {
+                    "None" => WebhookAuthType::None,
+                    "BearerToken" => WebhookAuthType::BearerToken,
+                    "ApiKey" => WebhookAuthType::ApiKey,
+                    "BasicAuth" => WebhookAuthType::BasicAuth,
+                    "CustomHeader" => WebhookAuthType::CustomHeader,
+                    _ => return None,
+                };
+
+                let retry_config_json: serde_json::Value = row.get("retry_config");
+                let retry_config = serde_json::from_value(retry_config_json).ok()?;
+
+                let created_at_ts: i64 = row.get("created_at_ts");
+                let updated_at_ts: i64 = row.get("updated_at_ts");
+
+                Some(WebhookConfig {
+                    id: row.get("webhook_id"),
+                    name: row.get("name"),
+                    url: row.get("url"),
+                    method: HttpMethod::Post, // Default to POST
+                    headers: std::collections::HashMap::new(),
+                    auth_type,
+                    auth_credentials: None,
+                    enabled: row.get("enabled"),
+                    retry_config,
+                    created_at: DateTime::from_timestamp(created_at_ts, 0).unwrap_or_else(Utc::now),
+                    updated_at: DateTime::from_timestamp(updated_at_ts, 0).unwrap_or_else(Utc::now),
+                })
+            })
+            .collect();
+
+        Ok(webhooks)
+    }
 }

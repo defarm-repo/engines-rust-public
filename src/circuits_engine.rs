@@ -555,7 +555,34 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     crate::adapters::StorageLocation::Ethereum { transaction_hash, .. } => transaction_hash.clone(),
                 };
 
-                // Record in storage history
+                // Extract transaction hashes and CIDs from event_locations
+                let mut transaction_metadata = HashMap::new();
+                transaction_metadata.insert("network".to_string(), serde_json::json!(match adapter_type {
+                    crate::types::AdapterType::StellarTestnetIpfs => "stellar-testnet",
+                    crate::types::AdapterType::StellarMainnetIpfs => "stellar-mainnet",
+                    _ => "unknown",
+                }));
+
+                for (idx, location) in upload_result.metadata.event_locations.iter().enumerate() {
+                    match location {
+                        crate::adapters::StorageLocation::Stellar { transaction_id, contract_address, .. } => {
+                            // First Stellar transaction is NFT mint, second is IPCM update
+                            if idx == 0 {
+                                transaction_metadata.insert("nft_mint_tx".to_string(), serde_json::json!(transaction_id));
+                                transaction_metadata.insert("nft_contract".to_string(), serde_json::json!(contract_address));
+                            } else {
+                                transaction_metadata.insert("ipcm_update_tx".to_string(), serde_json::json!(transaction_id));
+                            }
+                        },
+                        crate::adapters::StorageLocation::IPFS { cid, pinned } => {
+                            transaction_metadata.insert("ipfs_cid".to_string(), serde_json::json!(cid));
+                            transaction_metadata.insert("ipfs_pinned".to_string(), serde_json::json!(pinned));
+                        },
+                        _ => {}
+                    }
+                }
+
+                // Record in storage history with transaction metadata
                 let storage_record = crate::types::StorageRecord {
                     adapter_type: adapter_type.clone(),
                     storage_location: storage_location.clone(),
@@ -564,7 +591,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     triggered_by_id: Some(circuit_id.to_string()),
                     events_range: None,
                     is_active: true,
-                    metadata: HashMap::new(),
+                    metadata: transaction_metadata.clone(),
                 };
 
                 storage.add_storage_record(&dfid, storage_record)

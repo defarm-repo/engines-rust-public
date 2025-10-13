@@ -790,6 +790,44 @@ async fn push_local_item(
         })?
     };
 
+    // Write-through cache: Persist to PostgreSQL if available
+    let pg_lock = state.postgres_persistence.read().await;
+    if let Some(pg) = &*pg_lock {
+        // Persist LID-DFID mapping
+        if let Err(e) = pg.persist_lid_dfid_mapping(&result.local_id, &result.dfid).await {
+            tracing::warn!("Failed to persist LID-DFID mapping to PostgreSQL: {}", e);
+        }
+
+        // Persist storage records (transaction hashes, CIDs, etc.)
+        // Extract records first to avoid holding lock across await
+        let records_to_persist = {
+            if let Ok(storage_guard) = state.shared_storage.lock() {
+                if let Ok(Some(storage_history)) = storage_guard.get_storage_history(&result.dfid) {
+                    Some(storage_history.storage_records.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        if let Some(records) = records_to_persist {
+            for record in &records {
+                if let Err(e) = pg.persist_storage_record(&result.dfid, record).await {
+                    tracing::warn!("Failed to persist storage record to PostgreSQL: {}", e);
+                } else {
+                    tracing::debug!("✅ Persisted storage record for {} to PostgreSQL with {} metadata entries",
+                        result.dfid, record.metadata.len());
+                }
+            }
+        }
+
+        // TODO: Persist CircuitOperation and Activity once we can retrieve them from storage
+        // Currently they're stored in-memory but we need to query them back to persist
+    }
+    drop(pg_lock);
+
     let status_str = match result.status {
         crate::circuits_engine::PushStatus::NewItemCreated => "NewItemCreated",
         crate::circuits_engine::PushStatus::ExistingItemEnriched => "ExistingItemEnriched",

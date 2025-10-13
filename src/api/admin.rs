@@ -23,6 +23,8 @@ use crate::types::{
 use crate::credit_manager::CreditEngine;
 use crate::adapter_manager::{AdapterManager};
 use crate::logging::LoggingEngine;
+use bcrypt::{hash, DEFAULT_COST};
+use crate::api::auth::validate_password_complexity;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -160,8 +162,19 @@ async fn create_user(
     verify_admin(&claims, &app_state)?;
     let admin_user_id = claims.user_id;
 
+    // Validate password complexity
+    if let Err(e) = validate_password_complexity(&request.password) {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": e}))));
+    }
+
     let user_id = Uuid::new_v4().to_string();
-    let password_hash = format!("hash_{}", request.password); // TODO: Use proper password hashing
+
+    // Hash password with bcrypt
+    let password_hash = hash(&request.password, DEFAULT_COST)
+        .map_err(|e| {
+            tracing::error!("Failed to hash password: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to hash password"})))
+        })?;
 
     let user = UserAccount {
         user_id: user_id.clone(),

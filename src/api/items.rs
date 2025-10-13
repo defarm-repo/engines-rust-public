@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use crate::{ItemsEngine, InMemoryStorage, Item, ItemStatus, Identifier, PendingItem, PendingReason};
 use crate::items_engine::ResolutionAction;
 use crate::identifier_types::EnhancedIdentifier;
+use crate::storage::StorageBackend;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -234,6 +235,7 @@ pub fn item_routes(app_state: Arc<AppState>) -> Router {
         .route("/pending", get(list_pending_items))
         .route("/pending/:id", get(get_pending_item))
         .route("/pending/:id/resolve", post(resolve_pending_item))
+        .route("/:dfid/storage-history", get(get_storage_history))
         .with_state(app_state)
 }
 
@@ -874,6 +876,87 @@ async fn get_lid_dfid_mapping(
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": format!("Failed to get mapping: {}", e)})),
+        )),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct StorageHistoryResponse {
+    success: bool,
+    dfid: String,
+    records: Vec<StorageRecordResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct StorageRecordResponse {
+    adapter_type: String,
+    network: Option<String>,
+    nft_mint_tx: Option<String>,
+    ipcm_update_tx: Option<String>,
+    ipfs_cid: Option<String>,
+    ipfs_pinned: Option<bool>,
+    nft_contract: Option<String>,
+    storage_location: String,
+    stored_at: String,
+    triggered_by: String,
+    is_active: bool,
+}
+
+/// GET /api/items/:dfid/storage-history
+/// Retrieve all storage records for a DFID (NFT mint transactions, IPCM updates, IPFS CIDs)
+async fn get_storage_history(
+    Path(dfid): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<StorageHistoryResponse>, (StatusCode, Json<Value>)> {
+    // Get storage history from shared storage
+    let storage_guard = state.shared_storage.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+
+    match storage_guard.get_storage_history(&dfid) {
+        Ok(Some(history)) => {
+            let records: Vec<StorageRecordResponse> = history.storage_records.iter().map(|record| {
+                // Extract metadata
+                let network = record.metadata.get("network")
+                    .and_then(|v| v.as_str().map(String::from));
+                let nft_mint_tx = record.metadata.get("nft_mint_tx")
+                    .and_then(|v| v.as_str().map(String::from));
+                let ipcm_update_tx = record.metadata.get("ipcm_update_tx")
+                    .and_then(|v| v.as_str().map(String::from));
+                let ipfs_cid = record.metadata.get("ipfs_cid")
+                    .and_then(|v| v.as_str().map(String::from));
+                let ipfs_pinned = record.metadata.get("ipfs_pinned")
+                    .and_then(|v| v.as_bool());
+                let nft_contract = record.metadata.get("nft_contract")
+                    .and_then(|v| v.as_str().map(String::from));
+
+                StorageRecordResponse {
+                    adapter_type: format!("{:?}", record.adapter_type),
+                    network,
+                    nft_mint_tx,
+                    ipcm_update_tx,
+                    ipfs_cid,
+                    ipfs_pinned,
+                    nft_contract,
+                    storage_location: format!("{:?}", record.storage_location),
+                    stored_at: record.stored_at.to_rfc3339(),
+                    triggered_by: record.triggered_by.clone(),
+                    is_active: record.is_active,
+                }
+            }).collect();
+
+            Ok(Json(StorageHistoryResponse {
+                success: true,
+                dfid: dfid.clone(),
+                records,
+            }))
+        }
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "No storage history found for this DFID"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to retrieve storage history: {}", e)})),
         )),
     }
 }

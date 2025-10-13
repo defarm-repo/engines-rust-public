@@ -145,6 +145,11 @@ impl StellarClient {
         self
     }
 
+    /// Get the NFT contract address if configured
+    pub fn get_nft_contract_address(&self) -> Option<&str> {
+        self.nft_contract_address.as_deref()
+    }
+
     /// Update IPCM contract with new CID for a DFID using soroban-client
     pub async fn update_ipcm(&self, dfid: &str, cid: &str) -> Result<String, StellarError> {
         // Get keypair
@@ -214,7 +219,7 @@ impl StellarClient {
 
     /// Mint a new NFT with DFID as the token identifier using soroban-client
     /// This should only be called once per DFID (when first tokenized)
-    pub async fn mint_nft(&self, dfid: &str, creator: &str, metadata: Option<serde_json::Value>) -> Result<String, StellarError> {
+    pub async fn mint_nft(&self, dfid: &str, creator: &str, canonical_identifiers: Vec<String>, metadata: Option<serde_json::Value>) -> Result<String, StellarError> {
         // Ensure NFT contract is configured
         let nft_contract = self.nft_contract_address.as_ref()
             .ok_or_else(|| StellarError::NotConfigured("NFT contract address not configured".to_string()))?;
@@ -232,14 +237,23 @@ impl StellarClient {
         let contract = Contracts::new(nft_contract)
             .map_err(|e| StellarError::ContractError(format!("Invalid NFT contract address: {:?}", e)))?;
 
-        // Build metadata
+        // Build metadata with canonical identifiers
         let metadata_str = metadata
             .map(|m| m.to_string())
-            .unwrap_or_else(|| serde_json::json!({
-                "dfid": dfid,
-                "creator": creator,
-                "minted_at": chrono::Utc::now().to_rfc3339()
-            }).to_string());
+            .unwrap_or_else(|| {
+                let mut meta = serde_json::json!({
+                    "dfid": dfid,
+                    "creator": creator,
+                    "minted_at": chrono::Utc::now().to_rfc3339()
+                });
+
+                // Add canonical identifiers (for IPCM key references)
+                if !canonical_identifiers.is_empty() {
+                    meta["canonical_identifiers"] = serde_json::json!(canonical_identifiers);
+                }
+
+                meta.to_string()
+            });
 
         // Build ScVal arguments for the contract call
         // NFT contract mint function: mint(to: Address, token_id: String, metadata: String)

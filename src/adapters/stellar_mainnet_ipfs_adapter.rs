@@ -126,6 +126,37 @@ impl StellarMainnetIpfsAdapter {
             updated_at: now,
         }
     }
+
+    /// Create metadata with both NFT mint transaction and IPCM update transaction
+    /// Used for new DFID minting (store_new_item) on MAINNET
+    fn create_metadata_with_nft(&self, nft_tx: &str, ipcm_tx: &str, ipfs_cid: &str) -> StorageMetadata {
+        let now = Utc::now();
+        StorageMetadata {
+            adapter_type: AdapterType::StellarMainnetIpfs,
+            // Primary location is the IPCM update (for retrieving data)
+            item_location: StorageLocation::Stellar {
+                transaction_id: ipcm_tx.to_string(),
+                contract_address: self.contract_address.clone(),
+                asset_id: Some(ipfs_cid.to_string()),
+            },
+            // Event locations include both NFT mint and IPFS
+            event_locations: vec![
+                StorageLocation::Stellar {
+                    transaction_id: nft_tx.to_string(),
+                    contract_address: self.stellar_client.get_nft_contract_address()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "NFT_CONTRACT".to_string()),
+                    asset_id: None,
+                },
+                StorageLocation::IPFS {
+                    cid: ipfs_cid.to_string(),
+                    pinned: true,
+                },
+            ],
+            created_at: now,
+            updated_at: now,
+        }
+    }
 }
 
 #[async_trait]
@@ -156,9 +187,21 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
     /// Store item with NFT minting for new DFIDs (PRODUCTION - uses real XLM!)
     async fn store_new_item(&self, item: &Item, is_new_dfid: bool, creator: &str) -> Result<AdapterResult<String>, StorageError> {
         if is_new_dfid {
-            // Step 1: Mint NFT for new DFID on MAINNET (⚠️ USES REAL FUNDS!)
+            // Extract canonical identifiers for NFT metadata
+            let canonical_identifiers: Vec<String> = item.enhanced_identifiers
+                .iter()
+                .filter_map(|id| {
+                    if let crate::identifier_types::IdentifierType::Canonical { .. } = id.id_type {
+                        Some(format!("{}:{}:{}", id.namespace, id.key, id.value))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Step 1: Mint NFT for new DFID on MAINNET with canonical identifiers (⚠️ USES REAL FUNDS!)
             let nft_tx_hash = self.stellar_client
-                .mint_nft(&item.dfid, creator, None)
+                .mint_nft(&item.dfid, creator, canonical_identifiers, None)
                 .await
                 .map_err(|e| StorageError::WriteError(format!("Failed to mint NFT on Stellar Mainnet: {}", e)))?;
 
@@ -176,9 +219,8 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
                 .await
                 .map_err(|e| StorageError::WriteError(format!("Failed to register on Stellar Mainnet: {}", e)))?;
 
-            // Create metadata with IPCM transaction
-            // NFT mint transaction is logged but not stored in metadata for now
-            let metadata = self.create_metadata(&ipcm_tx_hash, &cid);
+            // Create metadata with BOTH NFT mint and IPCM transactions
+            let metadata = self.create_metadata_with_nft(&nft_tx_hash, &ipcm_tx_hash, &cid);
 
             Ok(AdapterResult::new(item.dfid.clone(), metadata))
         } else {
