@@ -59,7 +59,7 @@ Role: Admin + Circuit Owner
 
 ### MS Rastreabilidade
 ```
-Circuit ID: 2b2fbb90-2850-4424-a0c2-a286b16fc6ee
+Circuit ID: ea1261c6-ad15-46f7-a5fb-c16647d55f55
 Name: MS Rastreabilidade
 Visibility: Public (discoverable)
 Adapter: StellarTestnetIpfs (sponsored)
@@ -90,7 +90,7 @@ The banner shows:
 - **Step 2:** Get JWT token
 - **Step 3:** Authorize
 - **Step 4:** Create local item with SISBOV
-- **Step 5:** Push to circuit `2b2fbb90-2850-4424-a0c2-a286b16fc6ee`
+- **Step 5:** Push to circuit `ea1261c6-ad15-46f7-a5fb-c16647d55f55`
 - **Step 6:** View blockchain transactions
 
 ### 3. Working Example Flow
@@ -124,7 +124,7 @@ Authorization: Bearer <token>
 # Returns local_id
 
 # 3. Push to circuit (tokenization)
-POST /api/circuits/2b2fbb90-2850-4424-a0c2-a286b16fc6ee/push-local
+POST /api/circuits/ea1261c6-ad15-46f7-a5fb-c16647d55f55/push-local
 Authorization: Bearer <token>
 {
   "local_id": "<local_id_from_step_2>",
@@ -182,19 +182,19 @@ Authorization: Bearer <token>
 
 1. **View circuit activities**
 ```bash
-GET /api/circuits/2b2fbb90-2850-4424-a0c2-a286b16fc6ee/activities
+GET /api/circuits/ea1261c6-ad15-46f7-a5fb-c16647d55f55/activities
 Authorization: Bearer <ms_admin_token>
 ```
 
 2. **View all circuit items**
 ```bash
-GET /api/circuits/2b2fbb90-2850-4424-a0c2-a286b16fc6ee/items
+GET /api/circuits/ea1261c6-ad15-46f7-a5fb-c16647d55f55/items
 Authorization: Bearer <ms_admin_token>
 ```
 
 3. **View circuit members**
 ```bash
-GET /api/circuits/2b2fbb90-2850-4424-a0c2-a286b16fc6ee
+GET /api/circuits/ea1261c6-ad15-46f7-a5fb-c16647d55f55
 Authorization: Bearer <ms_admin_token>
 ```
 
