@@ -345,6 +345,89 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         Ok(master_item)
     }
 
+    /// Find duplicate local items by identifier
+    pub fn find_duplicate_local_items(&mut self) -> Result<Vec<(String, String, Vec<Item>)>, ItemsError> {
+        use std::collections::HashMap as StdHashMap;
+
+        self.logger.info("ItemsEngine", "find_duplicates_start", "Finding duplicate local items");
+
+        // Get all items
+        let all_items = self.storage.list_items().map_err(ItemsError::from)?;
+
+        // Filter local-only items (not yet pushed)
+        let local_items: Vec<Item> = all_items.into_iter()
+            .filter(|item| item.dfid.starts_with("LID-"))
+            .filter(|item| !matches!(item.status, ItemStatus::MergedInto(_)))
+            .collect();
+
+        // Group by enhanced identifiers (canonical ones)
+        let mut groups: StdHashMap<(String, String), Vec<Item>> = StdHashMap::new();
+
+        for item in local_items {
+            // Look for canonical identifiers
+            for enh_id in &item.enhanced_identifiers {
+                if matches!(enh_id.id_type, crate::identifier_types::IdentifierType::Canonical { .. }) {
+                    let key_str = format!("{}:{}", enh_id.namespace, enh_id.key);
+                    let value_str = enh_id.value.clone();
+
+                    groups.entry((key_str, value_str))
+                        .or_insert_with(Vec::new)
+                        .push(item.clone());
+                    break;  // Only use first canonical identifier
+                }
+            }
+        }
+
+        // Filter groups with more than one item
+        let duplicates: Vec<(String, String, Vec<Item>)> = groups.into_iter()
+            .filter(|(_, items)| items.len() > 1)
+            .map(|((key, value), items)| (key, value, items))
+            .collect();
+
+        self.logger.info("ItemsEngine", "find_duplicates_complete", "Duplicate detection complete")
+            .with_context("duplicate_groups", duplicates.len().to_string());
+
+        Ok(duplicates)
+    }
+
+    /// Undo a merge operation by restoring a merged item to Active status
+    pub fn unmerge_local_item(&mut self, merged_lid: &Uuid) -> Result<Item, ItemsError> {
+        self.logger.info("ItemsEngine", "unmerge_start", "Starting unmerge operation")
+            .with_context("merged_lid", merged_lid.to_string());
+
+        // Get the merged item
+        let mut merged_item = self.get_item_by_lid(merged_lid)?
+            .ok_or_else(|| ItemsError::ItemNotFound(format!("Merged LID not found: {}", merged_lid)))?;
+
+        // Check if item is actually merged
+        let master_lid = match &merged_item.status {
+            ItemStatus::MergedInto(lid) => lid.clone(),
+            _ => return Err(ItemsError::InvalidOperation(
+                format!("Item {} is not in MergedInto status, cannot unmerge", merged_lid)
+            )),
+        };
+
+        // Check if item is still local-only
+        if !merged_item.dfid.starts_with("LID-") {
+            return Err(ItemsError::InvalidOperation(
+                "Cannot unmerge: item has been pushed to a circuit".to_string()
+            ));
+        }
+
+        // Restore item to Active status
+        merged_item.status = ItemStatus::Active;
+        merged_item.last_modified = Utc::now();
+
+        // Store updated item
+        self.storage.store_item(&merged_item)?;
+
+        self.logger.info("ItemsEngine", "unmerge_complete", "Unmerge operation completed")
+            .with_context("merged_lid", merged_lid.to_string())
+            .with_context("previous_master", master_lid);
+
+        Ok(merged_item)
+    }
+
     pub fn get_item(&self, dfid: &str) -> Result<Option<Item>, ItemsError> {
         self.storage.get_item_by_dfid(dfid).map_err(ItemsError::from)
     }

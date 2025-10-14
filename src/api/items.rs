@@ -91,6 +91,88 @@ pub struct MergedItemInfo {
     pub last_modified: String,
 }
 
+// Duplicate Detection Structures
+#[derive(Debug, Serialize)]
+pub struct DuplicateDetectionResponse {
+    pub success: bool,
+    pub duplicate_groups: Vec<DuplicateGroup>,
+    pub summary: DuplicateSummary,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DuplicateGroup {
+    pub identifier_key: String,
+    pub identifier_value: String,
+    pub items: Vec<DuplicateItemInfo>,
+    pub suggested_master_lid: String,
+    pub conflicts: Vec<String>,  // Fields that have different values
+}
+
+#[derive(Debug, Serialize)]
+pub struct DuplicateItemInfo {
+    pub local_id: String,
+    pub dfid: String,
+    pub created: String,
+    pub enriched_data: HashMap<String, serde_json::Value>,
+    pub identifiers_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DuplicateSummary {
+    pub total_items: usize,
+    pub duplicate_groups: usize,
+    pub items_in_duplicates: usize,
+}
+
+// Batch Organization Structures
+#[derive(Debug, Deserialize)]
+pub struct OrganizeLocalItemsRequest {
+    pub action: String,  // "deduplicate", "merge_all"
+    pub dry_run: Option<bool>,
+    pub merge_strategy: Option<String>,
+    pub namespace: Option<String>,  // Filter by namespace
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrganizeLocalItemsResponse {
+    pub success: bool,
+    pub operations: Vec<MergeOperation>,
+    pub summary: OrganizeSummary,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MergeOperation {
+    pub master_lid: String,
+    pub merged_lids: Vec<String>,
+    pub status: String,  // "success", "skipped", "error"
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrganizeSummary {
+    pub items_before: usize,
+    pub items_after: usize,
+    pub merged_count: usize,
+    pub groups_processed: usize,
+}
+
+// Merge Preview (Dry-run) - Uses same structures with dry_run flag
+
+// Undo Merge Structures
+#[derive(Debug, Deserialize)]
+pub struct UnmergeLocalItemRequest {
+    pub merged_lid: String,  // LID that was merged into master
+}
+
+#[derive(Debug, Serialize)]
+pub struct UnmergeLocalItemResponse {
+    pub success: bool,
+    pub restored_lid: String,
+    pub previous_master_lid: String,
+    pub restored_item: MergedItemInfo,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateItemRequest {
     pub identifiers: Vec<IdentifierRequest>,
@@ -247,6 +329,9 @@ pub fn item_routes(app_state: Arc<AppState>) -> Router {
         .route("/", post(create_item))
         .route("/local", post(create_local_item))
         .route("/local/merge", post(merge_local_items))
+        .route("/local/duplicates", get(find_duplicate_local_items))
+        .route("/local/organize", post(organize_local_items))
+        .route("/local/unmerge", post(unmerge_local_item))
         .route("/mapping/:local_id", get(get_lid_dfid_mapping))
         .route("/batch", post(create_items_batch))
         .route("/", get(list_items))
@@ -939,6 +1024,253 @@ async fn merge_local_items(
             merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
             master_item: master_item_info,
         },
+    }))
+}
+
+async fn find_duplicate_local_items(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<DuplicateDetectionResponse>, (StatusCode, Json<Value>)> {
+    let mut engine = state.items_engine.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+
+    let duplicate_groups_raw = engine.find_duplicate_local_items()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{}", e)}))))?;
+
+    let mut total_items = 0;
+    let mut items_in_duplicates = 0;
+    let mut duplicate_groups = Vec::new();
+
+    for (key, value, items) in duplicate_groups_raw {
+        items_in_duplicates += items.len();
+
+        // Convert items to response format
+        let items_info: Vec<DuplicateItemInfo> = items.iter().map(|item| {
+            total_items += 1;
+            DuplicateItemInfo {
+                local_id: item.local_id.map(|lid| lid.to_string()).unwrap_or_else(|| "N/A".to_string()),
+                dfid: item.dfid.clone(),
+                created: item.creation_timestamp.to_rfc3339(),
+                enriched_data: item.enriched_data.clone(),
+                identifiers_count: item.identifiers.len() + item.enhanced_identifiers.len(),
+            }
+        }).collect();
+
+        // Find conflicts (fields with different values)
+        let mut conflicts = Vec::new();
+        if items.len() > 1 {
+            let first_data = &items[0].enriched_data;
+            for (key, first_value) in first_data {
+                for other_item in &items[1..] {
+                    if let Some(other_value) = other_item.enriched_data.get(key) {
+                        if first_value != other_value {
+                            conflicts.push(key.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Suggest master (oldest item)
+        let suggested_master = items.iter()
+            .min_by_key(|item| item.creation_timestamp)
+            .and_then(|item| item.local_id)
+            .map(|lid| lid.to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
+        duplicate_groups.push(DuplicateGroup {
+            identifier_key: key,
+            identifier_value: value,
+            items: items_info,
+            suggested_master_lid: suggested_master,
+            conflicts,
+        });
+    }
+
+    let groups_count = duplicate_groups.len();
+
+    Ok(Json(DuplicateDetectionResponse {
+        success: true,
+        duplicate_groups,
+        summary: DuplicateSummary {
+            total_items,
+            duplicate_groups: groups_count,
+            items_in_duplicates,
+        },
+    }))
+}
+
+async fn organize_local_items(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<OrganizeLocalItemsRequest>,
+) -> Result<Json<OrganizeLocalItemsResponse>, (StatusCode, Json<Value>)> {
+    // Validate action
+    if payload.action != "deduplicate" && payload.action != "merge_all" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Invalid action",
+                "provided": payload.action,
+                "allowed": ["deduplicate", "merge_all"]
+            })),
+        ));
+    }
+
+    let dry_run = payload.dry_run.unwrap_or(false);
+
+    // Parse merge strategy
+    use crate::types::MergeStrategy;
+    let strategy = match payload.merge_strategy.as_deref() {
+        Some("append") | None => MergeStrategy::Append,
+        Some("keep_first") => MergeStrategy::KeepFirst,
+        Some("overwrite") => MergeStrategy::Overwrite,
+        Some(invalid) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Invalid merge_strategy",
+                    "provided": invalid,
+                    "allowed": ["append", "keep_first", "overwrite"]
+                })),
+            ))
+        }
+    };
+
+    // Get duplicate groups
+    let duplicate_groups_raw = {
+        let mut engine = state.items_engine.lock()
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+        engine.find_duplicate_local_items()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{}", e)}))))?
+    };
+
+    let items_before = duplicate_groups_raw.iter()
+        .map(|(_, _, items)| items.len())
+        .sum::<usize>();
+
+    let mut operations = Vec::new();
+    let mut merged_count = 0;
+
+    // Process each duplicate group
+    for (_key, _value, items) in duplicate_groups_raw {
+        if items.len() < 2 {
+            continue;  // Skip groups with single item
+        }
+
+        // Sort by creation timestamp (oldest first)
+        let mut sorted_items = items.clone();
+        sorted_items.sort_by_key(|item| item.creation_timestamp);
+
+        // First item is master
+        let master_lid = sorted_items[0].local_id.unwrap();
+        let merge_lids: Vec<Uuid> = sorted_items[1..].iter()
+            .filter_map(|item| item.local_id)
+            .collect();
+
+        if !dry_run {
+            // Perform actual merge
+            let mut engine = state.items_engine.lock()
+                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+
+            match engine.merge_local_items(&master_lid, merge_lids.clone(), strategy.clone()) {
+                Ok(_) => {
+                    merged_count += merge_lids.len();
+                    operations.push(MergeOperation {
+                        master_lid: master_lid.to_string(),
+                        merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
+                        status: "success".to_string(),
+                        reason: None,
+                    });
+                }
+                Err(e) => {
+                    operations.push(MergeOperation {
+                        master_lid: master_lid.to_string(),
+                        merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
+                        status: "error".to_string(),
+                        reason: Some(format!("{}", e)),
+                    });
+                }
+            }
+        } else {
+            // Dry run - just record what would happen
+            operations.push(MergeOperation {
+                master_lid: master_lid.to_string(),
+                merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
+                status: "would_merge".to_string(),
+                reason: Some("Dry run mode".to_string()),
+            });
+            merged_count += merge_lids.len();
+        }
+    }
+
+    let items_after = if dry_run { items_before } else { items_before - merged_count };
+    let groups_processed = operations.len();
+
+    Ok(Json(OrganizeLocalItemsResponse {
+        success: true,
+        operations,
+        summary: OrganizeSummary {
+            items_before,
+            items_after,
+            merged_count,
+            groups_processed,
+        },
+        dry_run,
+    }))
+}
+
+async fn unmerge_local_item(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<UnmergeLocalItemRequest>,
+) -> Result<Json<UnmergeLocalItemResponse>, (StatusCode, Json<Value>)> {
+    // Parse merged_lid
+    let merged_lid = Uuid::parse_str(&payload.merged_lid)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid merged_lid format"}))))?;
+
+    // Get previous master before unmerge
+    let previous_master = {
+        let engine = state.items_engine.lock()
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+
+        let item = engine.get_item_by_lid(&merged_lid)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{}", e)}))))?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Merged item not found"}))))?;
+
+        match &item.status {
+            crate::types::ItemStatus::MergedInto(master) => master.clone(),
+            _ => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Item is not in merged status"})))),
+        }
+    };
+
+    // Perform unmerge
+    let restored_item = {
+        let mut engine = state.items_engine.lock()
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+
+        engine.unmerge_local_item(&merged_lid)
+            .map_err(|e| {
+                let status_code = match e {
+                    crate::items_engine::ItemsError::ItemNotFound(_) => StatusCode::NOT_FOUND,
+                    crate::items_engine::ItemsError::InvalidOperation(_) => StatusCode::BAD_REQUEST,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                (status_code, Json(json!({"error": format!("{}", e)})))
+            })?
+    };
+
+    // Build response
+    let restored_item_info = MergedItemInfo {
+        dfid: restored_item.dfid.clone(),
+        local_id: restored_item.local_id.map(|lid| lid.to_string()).unwrap_or_else(|| "N/A".to_string()),
+        enriched_data: restored_item.enriched_data.clone(),
+        last_modified: restored_item.last_modified.to_rfc3339(),
+    };
+
+    Ok(Json(UnmergeLocalItemResponse {
+        success: true,
+        restored_lid: merged_lid.to_string(),
+        previous_master_lid: previous_master,
+        restored_item: restored_item_info,
     }))
 }
 
