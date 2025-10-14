@@ -39,12 +39,12 @@ pub struct CreateCircuitRequest {
 pub struct AddMemberRequest {
     pub member_id: String,
     pub role: String,
-    pub requester_id: String,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CircuitOperationRequest {
-    pub requester_id: String,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,8 +117,8 @@ pub struct RejectItemResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct JoinCircuitRequest {
-    pub requester_id: String,
     pub message: Option<String>,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,7 +152,7 @@ pub struct UpdateCircuitRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub permissions: Option<UpdateCircuitPermissions>,
-    pub requester_id: String,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,7 +168,7 @@ pub struct CreateCustomRoleRequest {
     pub permissions: Vec<String>,
     pub description: String,
     pub color: Option<String>,
-    pub requester_id: String,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,14 +176,14 @@ pub struct UpdateCustomRoleRequest {
     pub permissions: Option<Vec<String>>,
     pub description: Option<String>,
     pub color: Option<String>,
-    pub requester_id: String,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Deserialize)]
 pub struct AssignRoleRequest {
     pub role: String,
     pub custom_role_name: Option<String>,
-    pub requester_id: String,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Serialize)]
@@ -233,8 +233,8 @@ pub struct CircuitPermissionsResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdatePublicSettingsRequest {
-    pub requester_id: String,
     pub public_settings: PublicSettingsRequest,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Deserialize)]
@@ -260,9 +260,9 @@ pub struct PublicSettingsRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct JoinPublicCircuitRequest {
-    pub requester_id: String,
     pub access_password: Option<String>,
     pub message: Option<String>,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Serialize)]
@@ -327,7 +327,7 @@ pub struct BatchPushItem {
 #[derive(Debug, Deserialize)]
 pub struct BatchPushRequest {
     pub items: Vec<BatchPushItem>,
-    pub requester_id: String,
+    // Note: requester_id is now extracted automatically from JWT token
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -691,6 +691,7 @@ async fn get_circuit(
 async fn add_member(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<AddMemberRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -702,7 +703,7 @@ async fn add_member(
     let mut engine = state.circuits_engine.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
 
-    match engine.add_member_to_circuit(&circuit_id, payload.member_id, role, &payload.requester_id) {
+    match engine.add_member_to_circuit(&circuit_id, payload.member_id, role, &requester_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to add member: {}", e)})))),
     }
@@ -725,7 +726,8 @@ async fn push_item(
 async fn pull_item(
     State(state): State<Arc<AppState>>,
     Path((id, dfid)): Path<(String, String)>,
-    Json(payload): Json<CircuitOperationRequest>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
+    Json(_payload): Json<CircuitOperationRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
@@ -733,7 +735,7 @@ async fn pull_item(
     let (item, operation) = {
         let mut engine = state.circuits_engine.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
-        engine.pull_item_from_circuit(&dfid, &circuit_id, &payload.requester_id)
+        engine.pull_item_from_circuit(&dfid, &circuit_id, &requester_id)
             .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to pull item: {}", e)}))))?
     };
 
@@ -940,7 +942,8 @@ async fn approve_operation(
 async fn deactivate_circuit(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Json(payload): Json<CircuitOperationRequest>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
+    Json(_payload): Json<CircuitOperationRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
@@ -948,7 +951,7 @@ async fn deactivate_circuit(
     let mut engine = state.circuits_engine.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
 
-    match engine.deactivate_circuit(&circuit_id, &payload.requester_id) {
+    match engine.deactivate_circuit(&circuit_id, &requester_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to deactivate circuit: {}", e)})))),
     }
@@ -1024,6 +1027,7 @@ async fn get_circuits_for_member(
 async fn request_to_join_circuit(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<JoinCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -1032,18 +1036,18 @@ async fn request_to_join_circuit(
     let mut engine = state.circuits_engine.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
 
-    match engine.request_to_join_circuit(&circuit_id, &payload.requester_id, payload.message.clone()) {
+    match engine.request_to_join_circuit(&circuit_id, &requester_id, payload.message.clone()) {
         Ok(circuit) => {
             // Send notifications to circuit owner and admins
             if let Ok(notification_engine) = state.notification_engine.lock() {
                 let circuit_name = circuit.name.clone();
-                let requester_id = payload.requester_id.clone();
+                let requester_id_clone = requester_id.clone();
                 let message_ref = payload.message.as_deref();
 
                 // Notify owner
                 if let Ok(notification) = notification_engine.create_join_request_notification(
                     &circuit.owner_id,
-                    &requester_id,
+                    &requester_id_clone,
                     &circuit_id.to_string(),
                     &circuit_name,
                     message_ref,
@@ -1060,7 +1064,7 @@ async fn request_to_join_circuit(
                        member.permissions.contains(&crate::types::Permission::ManageMembers) {
                         if let Ok(notification) = notification_engine.create_join_request_notification(
                             &member.member_id,
-                            &requester_id,
+                            &requester_id_clone,
                             &circuit_id.to_string(),
                             &circuit_name,
                             message_ref,
@@ -1182,6 +1186,7 @@ async fn reject_join_request(
 async fn update_circuit(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<UpdateCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -1206,7 +1211,7 @@ async fn update_circuit(
         None
     };
 
-    match engine.update_circuit(&circuit_id, payload.name, payload.description, permissions, &payload.requester_id) {
+    match engine.update_circuit(&circuit_id, payload.name, payload.description, permissions, &requester_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to update circuit: {}", e)})))),
     }
@@ -1215,6 +1220,7 @@ async fn update_circuit(
 async fn create_custom_role(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<CreateCustomRoleRequest>,
 ) -> Result<Json<CustomRoleResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -1232,7 +1238,7 @@ async fn create_custom_role(
     let mut engine = state.circuits_engine.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
 
-    match engine.create_custom_role(&circuit_id, payload.role_name, permissions, payload.description, payload.color, &payload.requester_id) {
+    match engine.create_custom_role(&circuit_id, payload.role_name, permissions, payload.description, payload.color, &requester_id) {
         Ok(custom_role) => {
             let role_counts = engine.get_circuit(&circuit_id)
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
@@ -1281,6 +1287,7 @@ async fn get_custom_roles(
 async fn update_custom_role(
     State(state): State<Arc<AppState>>,
     Path((id, role_name)): Path<(String, String)>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<UpdateCustomRoleRequest>,
 ) -> Result<Json<CustomRoleResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -1306,7 +1313,7 @@ async fn update_custom_role(
         permissions,
         payload.description,
         payload.color,
-        &payload.requester_id,
+        &requester_id,
     ) {
         Ok(updated_role) => {
             let role_counts = engine.get_circuit(&circuit_id)
@@ -1360,6 +1367,7 @@ async fn delete_custom_role(
 async fn assign_member_role(
     State(state): State<Arc<AppState>>,
     Path((id, user_id)): Path<(String, String)>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<AssignRoleRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -1371,7 +1379,7 @@ async fn assign_member_role(
     // If a custom role is specified, assign it
     let role_name = payload.custom_role_name.unwrap_or(payload.role);
 
-    match engine.assign_member_custom_role(&circuit_id, &user_id, &role_name, &payload.requester_id) {
+    match engine.assign_member_custom_role(&circuit_id, &user_id, &role_name, &requester_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to assign role: {}", e)})))),
     }
@@ -1380,6 +1388,7 @@ async fn assign_member_role(
 async fn update_public_settings(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<UpdatePublicSettingsRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -1496,7 +1505,7 @@ async fn update_public_settings(
 
     let mut engine = state.circuits_engine.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
-    match engine.update_public_settings(&circuit_id, public_settings, &payload.requester_id) {
+    match engine.update_public_settings(&circuit_id, public_settings, &requester_id) {
         Ok(circuit) => Ok(Json(json!({
             "success": true,
             "data": circuit_to_response(circuit)
@@ -1546,6 +1555,7 @@ async fn get_public_circuit(
 async fn join_public_circuit(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<JoinPublicCircuitRequest>,
 ) -> Result<Json<PublicJoinResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -1553,7 +1563,7 @@ async fn join_public_circuit(
 
     let mut engine = state.circuits_engine.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
-    match engine.join_public_circuit(&circuit_id, &payload.requester_id, payload.access_password, payload.message) {
+    match engine.join_public_circuit(&circuit_id, &requester_id, payload.access_password, payload.message) {
         Ok((requires_approval, message)) => Ok(Json(PublicJoinResponse {
             success: true,
             message,
@@ -1638,6 +1648,7 @@ async fn get_circuit_items(
 async fn batch_push_items(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<BatchPushRequest>,
 ) -> Result<Json<BatchPushResult>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -1651,7 +1662,7 @@ async fn batch_push_items(
     for item in payload.items.iter() {
         let dfid = item.dfid.clone();
         let circuit_id_copy = circuit_id.clone();
-        let requester_id = payload.requester_id.clone();
+        let requester_id_clone = requester_id.clone();
         let engine_arc = state.circuits_engine.clone();
 
         // Use spawn_blocking to run the async code with blocking mutex
@@ -1662,7 +1673,7 @@ async fn batch_push_items(
             rt.block_on(async {
                 let mut engine = engine_arc.lock()
                     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Engine mutex poisoned"}))))?;
-                engine.push_item_to_circuit(&dfid, &circuit_id_copy, &requester_id).await
+                engine.push_item_to_circuit(&dfid, &circuit_id_copy, &requester_id_clone).await
                     .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Push failed: {}", e)}))))
             })
         }).await
