@@ -175,25 +175,28 @@
         </div>
     </div>
 
-    <div class="info-banner">
-        <h3>🚀 Quick Start Guide</h3>
-        <p><strong>New to the DeFarm API?</strong> Follow these steps to get started:</p>
-        <ul>
-            <li><strong>Step 1:</strong> Register or login via <code>POST /api/auth/login</code></li>
-            <li style="margin-left: 30px;">Use your credentials: <code>{"username":"YOUR_USERNAME","password":"YOUR_PASSWORD"}</code></li>
-            <li><strong>Step 2:</strong> Copy the JWT token from the response</li>
-            <li><strong>Step 3:</strong> Click the <code>Authorize</code> button above</li>
-            <li><strong>Step 4:</strong> Paste token in the Authorization dialog</li>
-            <li><strong>Step 5:</strong> Create a local item via <code>POST /api/items/local</code></li>
-            <li style="margin-left: 30px;">Example: Use SISBOV identifier for cattle (e.g., BR921180523565)</li>
-            <li><strong>Step 6:</strong> Push to a circuit via <code>POST /api/circuits/{circuit_id}/push-local</code></li>
-            <li style="margin-left: 30px;">Use your circuit ID or request access to an existing circuit</li>
-            <li><strong>Step 7:</strong> View blockchain transactions via <code>GET /api/items/{dfid}/storage-history</code></li>
-            <li style="margin-left: 30px;">You'll see NFT mint TX, IPCM update TX, and IPFS CID!</li>
+    <div class="info-banner" style="background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%); border-left-color: #ff6f00;">
+        <h3 style="color: #e65100;">🎯 Your Personal Testing Environment</h3>
+        <p style="color: #ef6c00;"><strong>Everything is pre-configured!</strong> Your credentials and circuit are ready to test:</p>
+        <ul style="color: #ef6c00;">
+            <li><strong>Your Username:</strong> <code>gerbov</code></li>
+            <li><strong>Your Password:</strong> <code>Gerbov2024!Test</code></li>
+            <li><strong>Your Circuit:</strong> MS Rastreabilidade (ID: <code>2b2fbb90-2850-4424-a0c2-a286b16fc6ee</code>)</li>
+            <li><strong>Blockchain:</strong> Stellar Testnet + IPFS</li>
         </ul>
-        <p>📖 For detailed integration guides and code examples, see <a href="../INTEGRATION_QUICKSTART.md" target="_blank">INTEGRATION_QUICKSTART.md</a></p>
-        <p>🔗 <strong>Production API:</strong> <code>https://defarm-engines-api-production.up.railway.app</code></p>
-        <p>💡 <strong>Note:</strong> Contact us for testing credentials and access to pre-configured circuits</p>
+        <hr style="border-color: #ff6f00; opacity: 0.3;">
+        <p style="color: #ef6c00;"><strong>Quick Test Flow:</strong></p>
+        <ul style="color: #ef6c00;">
+            <li><strong>Step 1:</strong> Login with your credentials above → Get JWT token</li>
+            <li><strong>Step 2:</strong> Click <code>Authorize</code> button → Paste token</li>
+            <li><strong>Step 3:</strong> Create item via <code>POST /api/items/local</code> with SISBOV (e.g., BR921180523565)</li>
+            <li><strong>Step 4:</strong> Push to your circuit: <code>POST /api/circuits/2b2fbb90-2850-4424-a0c2-a286b16fc6ee/push-local</code></li>
+            <li><strong>Step 5:</strong> View blockchain transactions: <code>GET /api/items/{dfid}/storage-history</code></li>
+            <li style="margin-left: 30px;">✅ You'll see: NFT TX, IPCM TX, IPFS CID!</li>
+        </ul>
+        <p style="color: #ef6c00;">📖 Need code examples? See <a href="../../INTEGRATION_QUICKSTART.md" target="_blank" style="color: #e65100;">INTEGRATION_QUICKSTART.md</a></p>
+        <p style="color: #ef6c00;">🔗 <strong>API:</strong> <code>https://defarm-engines-api-production.up.railway.app</code></p>
+        <p style="color: #e65100; font-weight: bold; margin-top: 15px;">⚠️ This URL is private - do not share publicly</p>
     </div>
 
     <div id="swagger-ui"></div>
@@ -280,14 +283,16 @@
             console.log('%cQuick Start:', 'color: #2e7d32; font-size: 14px; font-weight: bold;');
             console.log('1. Expand POST /api/auth/login');
             console.log('2. Click "Try it out"');
-            console.log('3. Use your username and password');
+            console.log('3. Use username: "gerbov" and password: "Gerbov2024!Test"');
             console.log('4. Click "Execute"');
             console.log('5. Copy the token from the response');
             console.log('6. Click the "Authorize" button (top right)');
             console.log('7. Paste token in "Value" field and click "Authorize"');
             console.log('8. You can now test any endpoint with authentication!');
-            console.log('%cNeed testing credentials?', 'color: #2e7d32; font-size: 14px; font-weight: bold;');
-            console.log('Contact us to get access to a pre-configured test environment.');
+            console.log('%cPre-configured Circuit:', 'color: #2e7d32; font-size: 14px; font-weight: bold;');
+            console.log('Circuit ID: 2b2fbb90-2850-4424-a0c2-a286b16fc6ee');
+            console.log('Name: MS Rastreabilidade');
+            console.log('Adapter: StellarTestnetIpfs (Stellar Testnet + IPFS)');
         }
     </script>
 </body>
