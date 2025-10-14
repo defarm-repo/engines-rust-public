@@ -113,7 +113,7 @@ curl -X POST https://defarm-engines-api-production.up.railway.app/api/items/loca
 ### Step 3: Push to Circuit (Tokenization)
 
 ```bash
-curl -X POST https://defarm-engines-api-production.up.railway.app/api/circuits/YOUR_CIRCUIT_ID/push-local \
+curl -X POST https://defarm-engines-api-production.up.railway.app/api/circuits/f17266f6-f4a1-44f7-87df-118194b20828/push-local \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -382,9 +382,9 @@ if __name__ == "__main__":
     # Create local item
     local_id = client.create_local_item(cattle_identifiers, cattle_data)
 
-    # Push to circuit (replace with your circuit ID)
+    # Push to circuit
     result = client.push_to_circuit(
-        circuit_id="YOUR_CIRCUIT_ID",
+        circuit_id="f17266f6-f4a1-44f7-87df-118194b20828",
         local_id=local_id
     )
 
@@ -414,7 +414,7 @@ if __name__ == "__main__":
     }
 
     local_id_2 = client.create_local_item(soybean_identifiers, soybean_data)
-    result_2 = client.push_to_circuit("YOUR_CIRCUIT_ID", local_id_2)
+    result_2 = client.push_to_circuit("f17266f6-f4a1-44f7-87df-118194b20828", local_id_2)
 ```
 
 ### JavaScript/Node.js Example
@@ -547,7 +547,7 @@ class DeFarmClient {
         const localId = await client.createLocalItem(cattleIdentifiers, cattleData);
 
         // Push to circuit
-        const result = await client.pushToCircuit('YOUR_CIRCUIT_ID', localId);
+        const result = await client.pushToCircuit('f17266f6-f4a1-44f7-87df-118194b20828', localId);
 
         // Get blockchain transactions
         await client.getStorageHistory(result.dfid);
@@ -566,7 +566,7 @@ Set up webhooks to receive real-time notifications when items are tokenized.
 ### Creating a Webhook
 
 ```bash
-curl -X POST https://defarm-engines-api-production.up.railway.app/api/circuits/YOUR_CIRCUIT_ID/post-actions/webhooks \
+curl -X POST https://defarm-engines-api-production.up.railway.app/api/circuits/f17266f6-f4a1-44f7-87df-118194b20828/post-actions/webhooks \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
