@@ -368,8 +368,26 @@ async fn update_user(
 
     storage.record_admin_action(&admin_action).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to record admin action"}))))?;
 
+    // Clone user for PostgreSQL persistence
+    let user_clone = user.clone();
+
+    // Release storage lock before async operations
+    drop(storage);
+
+    // PostgreSQL persistence happens asynchronously in background
+    let pg = app_state.postgres_persistence.clone();
+    tokio::spawn(async move {
+        let pg_lock = pg.read().await;
+        if let Some(pg_instance) = &*pg_lock {
+            if let Err(e) = pg_instance.persist_user(&user_clone).await {
+                tracing::warn!("Failed to persist user update to PostgreSQL: {}", e);
+            } else {
+                tracing::info!("User {} tier/adapter update persisted to PostgreSQL", user_clone.username);
+            }
+        }
+    });
+
     // Send notification to affected user
-    drop(storage);  // Release storage lock before notification
     if let Ok(notification_engine) = app_state.notification_engine.lock() {
         // Get admin username for notification
         let admin_username = {
@@ -452,7 +470,24 @@ async fn freeze_user(
 
     storage.record_admin_action(&admin_action).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to record admin action"}))))?;
 
-    drop(storage);  // Release storage lock
+    // Clone user for PostgreSQL persistence
+    let user_clone = user.clone();
+
+    // Release storage lock before async operations
+    drop(storage);
+
+    // PostgreSQL persistence happens asynchronously in background
+    let pg = app_state.postgres_persistence.clone();
+    tokio::spawn(async move {
+        let pg_lock = pg.read().await;
+        if let Some(pg_instance) = &*pg_lock {
+            if let Err(e) = pg_instance.persist_user(&user_clone).await {
+                tracing::warn!("Failed to persist frozen user to PostgreSQL: {}", e);
+            } else {
+                tracing::info!("User {} freeze status persisted to PostgreSQL", user_clone.username);
+            }
+        }
+    });
 
     // Send notification to affected user AFTER freezing
     if let Ok(notification_engine) = app_state.notification_engine.lock() {
@@ -525,7 +560,24 @@ async fn unfreeze_user(
 
     storage.record_admin_action(&admin_action).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to record admin action"}))))?;
 
-    drop(storage);  // Release storage lock
+    // Clone user for PostgreSQL persistence
+    let user_clone = user.clone();
+
+    // Release storage lock before async operations
+    drop(storage);
+
+    // PostgreSQL persistence happens asynchronously in background
+    let pg = app_state.postgres_persistence.clone();
+    tokio::spawn(async move {
+        let pg_lock = pg.read().await;
+        if let Some(pg_instance) = &*pg_lock {
+            if let Err(e) = pg_instance.persist_user(&user_clone).await {
+                tracing::warn!("Failed to persist unfrozen user to PostgreSQL: {}", e);
+            } else {
+                tracing::info!("User {} unfreeze status persisted to PostgreSQL", user_clone.username);
+            }
+        }
+    });
 
     // Send notification to affected user
     if let Ok(notification_engine) = app_state.notification_engine.lock() {

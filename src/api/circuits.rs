@@ -953,7 +953,28 @@ async fn deactivate_circuit(
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
 
     match engine.deactivate_circuit(&circuit_id, &requester_id) {
-        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+        Ok(circuit) => {
+            // Clone circuit for PostgreSQL persistence
+            let circuit_clone = circuit.clone();
+
+            // Release engine lock before async operations
+            drop(engine);
+
+            // PostgreSQL persistence happens asynchronously in background
+            let pg = state.postgres_persistence.clone();
+            tokio::spawn(async move {
+                let pg_lock = pg.read().await;
+                if let Some(pg_instance) = &*pg_lock {
+                    if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
+                        tracing::warn!("Failed to persist deactivated circuit to PostgreSQL: {}", e);
+                    } else {
+                        tracing::info!("Circuit {} deactivation persisted to PostgreSQL", circuit_clone.circuit_id);
+                    }
+                }
+            });
+
+            Ok(Json(circuit_to_response(circuit)))
+        },
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to deactivate circuit: {}", e)})))),
     }
 }
@@ -1128,6 +1149,25 @@ async fn approve_join_request(
 
     match engine.approve_join_request(&circuit_id, &requester_id, &payload.admin_id, role) {
         Ok(circuit) => {
+            // Clone circuit for PostgreSQL persistence
+            let circuit_clone = circuit.clone();
+
+            // Release engine lock before async operations
+            drop(engine);
+
+            // PostgreSQL persistence happens asynchronously in background
+            let pg = state.postgres_persistence.clone();
+            tokio::spawn(async move {
+                let pg_lock = pg.read().await;
+                if let Some(pg_instance) = &*pg_lock {
+                    if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
+                        tracing::warn!("Failed to persist join request approval to PostgreSQL: {}", e);
+                    } else {
+                        tracing::info!("Circuit {} join approval persisted to PostgreSQL", circuit_clone.circuit_id);
+                    }
+                }
+            });
+
             // Create and broadcast notification to the requester
             if let Ok(notification_engine) = state.notification_engine.lock() {
                 if let Ok(notification) = notification_engine.create_join_approved_notification(
@@ -1163,6 +1203,25 @@ async fn reject_join_request(
 
     match engine.reject_join_request(&circuit_id, &requester_id, &payload.admin_id) {
         Ok(circuit) => {
+            // Clone circuit for PostgreSQL persistence
+            let circuit_clone = circuit.clone();
+
+            // Release engine lock before async operations
+            drop(engine);
+
+            // PostgreSQL persistence happens asynchronously in background
+            let pg = state.postgres_persistence.clone();
+            tokio::spawn(async move {
+                let pg_lock = pg.read().await;
+                if let Some(pg_instance) = &*pg_lock {
+                    if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
+                        tracing::warn!("Failed to persist join request rejection to PostgreSQL: {}", e);
+                    } else {
+                        tracing::info!("Circuit {} join rejection persisted to PostgreSQL", circuit_clone.circuit_id);
+                    }
+                }
+            });
+
             // Create and broadcast notification to the requester
             if let Ok(notification_engine) = state.notification_engine.lock() {
                 if let Ok(notification) = notification_engine.create_join_rejected_notification(
@@ -1213,7 +1272,28 @@ async fn update_circuit(
     };
 
     match engine.update_circuit(&circuit_id, payload.name, payload.description, permissions, &requester_id) {
-        Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
+        Ok(circuit) => {
+            // Clone circuit for PostgreSQL persistence
+            let circuit_clone = circuit.clone();
+
+            // Release engine lock before async operations
+            drop(engine);
+
+            // PostgreSQL persistence happens asynchronously in background
+            let pg = state.postgres_persistence.clone();
+            tokio::spawn(async move {
+                let pg_lock = pg.read().await;
+                if let Some(pg_instance) = &*pg_lock {
+                    if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
+                        tracing::warn!("Failed to persist circuit update to PostgreSQL: {}", e);
+                    } else {
+                        tracing::info!("Circuit {} update persisted to PostgreSQL", circuit_clone.circuit_id);
+                    }
+                }
+            });
+
+            Ok(Json(circuit_to_response(circuit)))
+        },
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to update circuit: {}", e)})))),
     }
 }
@@ -1507,10 +1587,31 @@ async fn update_public_settings(
     let mut engine = state.circuits_engine.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
     match engine.update_public_settings(&circuit_id, public_settings, &requester_id) {
-        Ok(circuit) => Ok(Json(json!({
-            "success": true,
-            "data": circuit_to_response(circuit)
-        }))),
+        Ok(circuit) => {
+            // Clone circuit for PostgreSQL persistence
+            let circuit_clone = circuit.clone();
+
+            // Release engine lock before async operations
+            drop(engine);
+
+            // PostgreSQL persistence happens asynchronously in background
+            let pg = state.postgres_persistence.clone();
+            tokio::spawn(async move {
+                let pg_lock = pg.read().await;
+                if let Some(pg_instance) = &*pg_lock {
+                    if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
+                        tracing::warn!("Failed to persist public settings update to PostgreSQL: {}", e);
+                    } else {
+                        tracing::info!("Circuit {} public settings persisted to PostgreSQL", circuit_clone.circuit_id);
+                    }
+                }
+            });
+
+            Ok(Json(json!({
+                "success": true,
+                "data": circuit_to_response(circuit)
+            })))
+        },
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({
             "error": "update_failed",
             "message": format!("Failed to update public settings: {}", e)
