@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFarm Engines API Documentation</title>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.10.3/swagger-ui.css">
+    <style>
+        html {
+            box-sizing: border-box;
+            overflow: -moz-scrollbars-vertical;
+            overflow-y: scroll;
+        }
+
+        *, *:before, *:after {
+            box-sizing: inherit;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        .topbar {
+            background-color: #1b5e20;
+            padding: 15px 0;
+        }
+
+        .topbar-wrapper {
+            max-width: 1460px;
+            margin: 0 auto;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .topbar-wrapper .link {
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+        }
+
+        .topbar-wrapper .link:hover {
+            color: #e8f5e9;
+        }
+
+        .spec-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .spec-selector label {
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .spec-selector select {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: none;
+            background-color: white;
+            color: #1b5e20;
+            font-size: 14px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .spec-selector select:hover {
+            background-color: #f1f1f1;
+        }
+
+        #swagger-ui {
+            max-width: 1460px;
+            margin: 0 auto;
+        }
+
+        .swagger-ui .topbar {
+            display: none;
+        }
+
+        /* Custom color scheme */
+        .swagger-ui .info .title {
+            color: #1b5e20;
+        }
+
+        .swagger-ui .opblock-tag {
+            border-bottom: 2px solid #1b5e20;
+        }
+
+        .swagger-ui .opblock-tag:hover {
+            background-color: rgba(27, 94, 32, 0.05);
+        }
+
+        .swagger-ui .btn.authorize {
+            background-color: #1b5e20;
+            border-color: #1b5e20;
+        }
+
+        .swagger-ui .btn.authorize:hover {
+            background-color: #2e7d32;
+        }
+
+        .swagger-ui .btn.execute {
+            background-color: #1b5e20;
+            border-color: #1b5e20;
+        }
+
+        .swagger-ui .btn.execute:hover {
+            background-color: #2e7d32;
+        }
+
+        /* Info banner */
+        .info-banner {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            padding: 20px;
+            margin: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #1b5e20;
+        }
+
+        .info-banner h3 {
+            margin: 0 0 10px 0;
+            color: #1b5e20;
+            font-size: 18px;
+        }
+
+        .info-banner p {
+            margin: 5px 0;
+            color: #2e7d32;
+            font-size: 14px;
+        }
+
+        .info-banner ul {
+            margin: 10px 0 0 20px;
+            color: #2e7d32;
+        }
+
+        .info-banner li {
+            margin: 5px 0;
+        }
+
+        .info-banner a {
+            color: #1b5e20;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .info-banner a:hover {
+            text-decoration: underline;
+        }
+
+        .info-banner code {
+            background-color: rgba(27, 94, 32, 0.1);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="topbar">
+        <div class="topbar-wrapper">
+            <a class="link" href="/">
+                🌾 DeFarm Engines API
+            </a>
+            <div class="spec-selector">
+                <label for="spec-select">Documentation:</label>
+                <select id="spec-select">
+                    <option value="openapi-external.yaml">External Integration API</option>
+                    <option value="openapi-internal.yaml">Internal/Admin API (Coming Soon)</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="info-banner">
+        <h3>🚀 Quick Start Guide</h3>
+        <p><strong>New to the DeFarm API?</strong> Follow these steps to get started:</p>
+        <ul>
+            <li><strong>Step 1:</strong> Click the <code>Authorize</code> button above</li>
+            <li><strong>Step 2:</strong> Login via <code>POST /api/auth/login</code> with username <code>hen</code> and password <code>demo123</code> (testnet)</li>
+            <li><strong>Step 3:</strong> Copy the JWT token from the response</li>
+            <li><strong>Step 4:</strong> Paste it in the Authorization dialog (format: <code>Bearer YOUR_TOKEN</code>)</li>
+            <li><strong>Step 5:</strong> Try creating a local item via <code>POST /api/items/local</code></li>
+            <li><strong>Step 6:</strong> Push to a circuit via <code>POST /api/circuits/{id}/push-local</code></li>
+            <li><strong>Step 7:</strong> View blockchain transactions via <code>GET /api/items/{dfid}/storage-history</code></li>
+        </ul>
+        <p>📖 For detailed integration guides and code examples, see <a href="../INTEGRATION_QUICKSTART.md" target="_blank">INTEGRATION_QUICKSTART.md</a></p>
+        <p>🔗 <strong>Production API:</strong> <code>https://defarm-engines-api-production.up.railway.app</code></p>
+        <p>🧪 <strong>Local Development:</strong> <code>http://localhost:3000</code></p>
+    </div>
+
+    <div id="swagger-ui"></div>
+
+    <script src="https://unpkg.com/swagger-ui-dist@5.10.3/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.10.3/swagger-ui-standalone-preset.js"></script>
+    <script>
+        window.onload = function() {
+            const specSelect = document.getElementById('spec-select');
+            let currentSpec = specSelect.value;
+
+            function initSwaggerUI(spec) {
+                // Destroy existing UI if any
+                const container = document.getElementById('swagger-ui');
+                container.innerHTML = '';
+
+                // Check if spec exists (for internal spec coming soon)
+                if (spec === 'openapi-internal.yaml') {
+                    container.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;"><h2>Internal/Admin API Documentation</h2><p>Coming soon! This documentation is currently being generated.</p><p>For now, please refer to the External Integration API documentation.</p></div>';
+                    return;
+                }
+
+                window.ui = SwaggerUIBundle({
+                    url: spec,
+                    dom_id: '#swagger-ui',
+                    deepLinking: true,
+                    presets: [
+                        SwaggerUIBundle.presets.apis,
+                        SwaggerUIStandalonePreset
+                    ],
+                    plugins: [
+                        SwaggerUIBundle.plugins.DownloadUrl
+                    ],
+                    layout: "StandaloneLayout",
+                    defaultModelsExpandDepth: 1,
+                    defaultModelExpandDepth: 1,
+                    docExpansion: "list",
+                    filter: true,
+                    showExtensions: true,
+                    showCommonExtensions: true,
+                    tryItOutEnabled: true,
+                    persistAuthorization: true,
+                    withCredentials: true,
+                    requestInterceptor: (req) => {
+                        // Add authorization header if token exists
+                        const auth = localStorage.getItem('authorized');
+                        if (auth) {
+                            try {
+                                const authData = JSON.parse(auth);
+                                if (authData.BearerAuth && authData.BearerAuth.value) {
+                                    req.headers.Authorization = `Bearer ${authData.BearerAuth.value}`;
+                                } else if (authData.ApiKeyAuth && authData.ApiKeyAuth.value) {
+                                    req.headers['X-API-Key'] = authData.ApiKeyAuth.value;
+                                }
+                            } catch (e) {
+                                console.error('Failed to parse auth data:', e);
+                            }
+                        }
+                        return req;
+                    },
+                    onComplete: () => {
+                        console.log('Swagger UI loaded successfully');
+                    }
+                });
+            }
+
+            // Initialize with first spec
+            initSwaggerUI(currentSpec);
+
+            // Handle spec selection change
+            specSelect.addEventListener('change', function(e) {
+                currentSpec = e.target.value;
+                initSwaggerUI(currentSpec);
+            });
+
+            // Helper function to extract token from login response
+            window.extractToken = function(response) {
+                if (response && response.token) {
+                    const authData = {
+                        BearerAuth: {
+                            name: "BearerAuth",
+                            schema: { type: "http", scheme: "bearer" },
+                            value: response.token
+                        }
+                    };
+                    localStorage.setItem('authorized', JSON.stringify(authData));
+                    console.log('Token saved! Click the Authorize button and paste this token:');
+                    console.log(response.token);
+
+                    // Show success message
+                    alert(`✅ Token extracted successfully!\n\nToken: ${response.token.substring(0, 20)}...\n\nClick OK, then click the "Authorize" button above and paste the token.`);
+                }
+            };
+
+            // Add helper message to console
+            console.log('%c🌾 DeFarm Engines API Documentation', 'color: #1b5e20; font-size: 20px; font-weight: bold;');
+            console.log('%cQuick Start:', 'color: #2e7d32; font-size: 14px; font-weight: bold;');
+            console.log('1. Expand POST /api/auth/login');
+            console.log('2. Click "Try it out"');
+            console.log('3. Use username: "hen" and password: "demo123"');
+            console.log('4. Click "Execute"');
+            console.log('5. Copy the token from the response');
+            console.log('6. Click the "Authorize" button (top right)');
+            console.log('7. Paste token in "Value" field and click "Authorize"');
+            console.log('8. You can now test any endpoint with authentication!');
+        }
+    </script>
+</body>
+</html>

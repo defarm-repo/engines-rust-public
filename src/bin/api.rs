@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+use tower_http::services::ServeDir;
 use tracing::{info, Level};
 use tracing_subscriber;
 
@@ -52,7 +53,9 @@ async fn main() {
         .merge(health_routes)
         .nest("/api/auth", auth_routes(app_state.clone()))
         // WebSocket route does NOT use JWT middleware (verifies token from query param)
-        .nest("/api/notifications", notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()));
+        .nest("/api/notifications", notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()))
+        // Serve API documentation from /docs (public, no authentication required)
+        .nest_service("/docs", ServeDir::new("docs"));
 
     // Protected routes (require JWT authentication)
     let protected_routes = Router::new()
