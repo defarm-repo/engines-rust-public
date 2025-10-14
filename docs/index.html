@@ -170,15 +170,8 @@
     <div class="topbar">
         <div class="topbar-wrapper">
             <a class="link" href="/">
-                🌾 DeFarm Engines API
+                🌾 DeFarm Engines API Documentation
             </a>
-            <div class="spec-selector">
-                <label for="spec-select">Documentation:</label>
-                <select id="spec-select">
-                    <option value="openapi-external.yaml">External Integration API</option>
-                    <option value="openapi-internal.yaml">Internal/Admin API (Coming Soon)</option>
-                </select>
-            </div>
         </div>
     </div>
 
@@ -205,71 +198,52 @@
     <script src="https://unpkg.com/swagger-ui-dist@5.10.3/swagger-ui-standalone-preset.js"></script>
     <script>
         window.onload = function() {
-            const specSelect = document.getElementById('spec-select');
-            let currentSpec = specSelect.value;
-
-            function initSwaggerUI(spec) {
-                // Destroy existing UI if any
-                const container = document.getElementById('swagger-ui');
-                container.innerHTML = '';
-
-                // Check if spec exists (for internal spec coming soon)
-                if (spec === 'openapi-internal.yaml') {
-                    container.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;"><h2>Internal/Admin API Documentation</h2><p>Coming soon! This documentation is currently being generated.</p><p>For now, please refer to the External Integration API documentation.</p></div>';
-                    return;
-                }
-
-                window.ui = SwaggerUIBundle({
-                    url: spec,
-                    dom_id: '#swagger-ui',
-                    deepLinking: true,
-                    presets: [
-                        SwaggerUIBundle.presets.apis,
-                        SwaggerUIStandalonePreset
-                    ],
-                    plugins: [
-                        SwaggerUIBundle.plugins.DownloadUrl
-                    ],
-                    layout: "StandaloneLayout",
-                    defaultModelsExpandDepth: 1,
-                    defaultModelExpandDepth: 1,
-                    docExpansion: "list",
-                    filter: true,
-                    showExtensions: true,
-                    showCommonExtensions: true,
-                    tryItOutEnabled: true,
-                    persistAuthorization: true,
-                    withCredentials: true,
-                    requestInterceptor: (req) => {
-                        // Add authorization header if token exists
-                        const auth = localStorage.getItem('authorized');
-                        if (auth) {
-                            try {
-                                const authData = JSON.parse(auth);
-                                if (authData.BearerAuth && authData.BearerAuth.value) {
-                                    req.headers.Authorization = `Bearer ${authData.BearerAuth.value}`;
-                                } else if (authData.ApiKeyAuth && authData.ApiKeyAuth.value) {
-                                    req.headers['X-API-Key'] = authData.ApiKeyAuth.value;
-                                }
-                            } catch (e) {
-                                console.error('Failed to parse auth data:', e);
+            // Initialize Swagger UI with External Integration API
+            window.ui = SwaggerUIBundle({
+                url: 'openapi-external.yaml',
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIStandalonePreset
+                ],
+                plugins: [
+                    SwaggerUIBundle.plugins.DownloadUrl
+                ],
+                layout: "StandaloneLayout",
+                defaultModelsExpandDepth: 1,
+                defaultModelExpandDepth: 1,
+                docExpansion: "list",  // Show all endpoints in list (collapsed operations)
+                filter: true,
+                showExtensions: true,
+                showCommonExtensions: true,
+                tryItOutEnabled: true,
+                persistAuthorization: true,
+                withCredentials: true,
+                displayRequestDuration: true,
+                requestInterceptor: (req) => {
+                    // Add authorization header if token exists
+                    const auth = localStorage.getItem('authorized');
+                    if (auth) {
+                        try {
+                            const authData = JSON.parse(auth);
+                            if (authData.BearerAuth && authData.BearerAuth.value) {
+                                req.headers.Authorization = `Bearer ${authData.BearerAuth.value}`;
+                            } else if (authData.ApiKeyAuth && authData.ApiKeyAuth.value) {
+                                req.headers['X-API-Key'] = authData.ApiKeyAuth.value;
                             }
+                        } catch (e) {
+                            console.error('Failed to parse auth data:', e);
                         }
-                        return req;
-                    },
-                    onComplete: () => {
-                        console.log('Swagger UI loaded successfully');
                     }
-                });
-            }
-
-            // Initialize with first spec
-            initSwaggerUI(currentSpec);
-
-            // Handle spec selection change
-            specSelect.addEventListener('change', function(e) {
-                currentSpec = e.target.value;
-                initSwaggerUI(currentSpec);
+                    return req;
+                },
+                onComplete: () => {
+                    console.log('✅ Swagger UI loaded successfully');
+                    console.log('📋 All endpoints are now visible below');
+                    console.log('💡 Click any endpoint to expand and see details');
+                    console.log('🧪 Click "Try it out" to test endpoints directly');
+                }
             });
 
             // Helper function to extract token from login response
