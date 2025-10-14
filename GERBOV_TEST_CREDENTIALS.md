@@ -11,21 +11,23 @@ Tier: Professional
 
 ## 🔄 Circuit Information
 
-### Gerbov Test Circuit
+### Gerbov Stellar Testnet Circuit
 
 ```
-Circuit ID: 1a04463d-4638-4dfc-9626-0f480431a55b
-Circuit Name: Gerbov Test Circuit
+Circuit ID: 0dbc6eb9-8d80-477c-832d-9b6b5b264cb4
+Circuit Name: Gerbov Stellar Testnet Circuit
 Owner: gerbov
+Tier: Professional
 ```
 
 ### Circuit Configuration
 
-- **Adapter Type:** LocalIpfs (hybrid local + IPFS storage)
+- **Adapter Type:** StellarTestnetIpfs (Stellar testnet NFTs + IPFS storage)
 - **Requires Approval:** No (direct push)
 - **Default Namespace:** bovino
 - **Allowed Namespaces:** bovino, aves, suino, soja, milho, generic
-- **Note:** For Stellar testnet blockchain features, upgrade to Professional tier
+- **Blockchain:** Stellar Testnet
+- **NFT Contract:** CDOZEG35YQ7KYASQBUW2DVV7CIQZB5HMWAB2PWPUCHSTKSCD5ZUTPUW3
 
 ### Alias Requirements
 
@@ -89,10 +91,10 @@ LOCAL_ID=$(echo "$LOCAL_RESPONSE" | jq -r '.local_id')
 echo "Local ID: $LOCAL_ID"
 ```
 
-### 3. Push to Circuit (Tokenization)
+### 3. Push to Circuit (Tokenization + Blockchain)
 
 ```bash
-CIRCUIT_ID="1a04463d-4638-4dfc-9626-0f480431a55b"
+CIRCUIT_ID="0dbc6eb9-8d80-477c-832d-9b6b5b264cb4"
 
 PUSH_RESPONSE=$(curl -s -X POST "$API_BASE/circuits/$CIRCUIT_ID/push-local" \
   -H "Authorization: Bearer $TOKEN" \
