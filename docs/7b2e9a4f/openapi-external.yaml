@@ -383,7 +383,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "ea1261c6-ad15-46f7-a5fb-c16647d55f55"
+          example: "187318ae-8f6d-4a03-aac1-bfc051f2d2ff"
           description: MS Rastreabilidade circuit (pre-configured for testing)
       requestBody:
         required: true
