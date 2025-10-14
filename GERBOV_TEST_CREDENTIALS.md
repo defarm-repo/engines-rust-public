@@ -14,10 +14,11 @@ Tier: Professional
 ### Gerbov Stellar Testnet Circuit
 
 ```
-Circuit ID: 0dbc6eb9-8d80-477c-832d-9b6b5b264cb4
+Circuit ID: d1a91fb5-e13c-4141-854d-80128243ca1b
 Circuit Name: Gerbov Stellar Testnet Circuit
-Owner: gerbov
+Owner: gerbov (user-2da9af70-c4c3-4b13-9180-dc1c7094b27c)
 Tier: Professional
+Created: Production Railway Database
 ```
 
 ### Circuit Configuration
@@ -94,7 +95,7 @@ echo "Local ID: $LOCAL_ID"
 ### 3. Push to Circuit (Tokenization + Blockchain)
 
 ```bash
-CIRCUIT_ID="0dbc6eb9-8d80-477c-832d-9b6b5b264cb4"
+CIRCUIT_ID="d1a91fb5-e13c-4141-854d-80128243ca1b"
 
 PUSH_RESPONSE=$(curl -s -X POST "$API_BASE/circuits/$CIRCUIT_ID/push-local" \
   -H "Authorization: Bearer $TOKEN" \

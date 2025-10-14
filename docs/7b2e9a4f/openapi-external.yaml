@@ -518,7 +518,7 @@ paths:
                     type: string
               example:
                 success: true
-                circuit_id: "0dbc6eb9-8d80-477c-832d-9b6b5b264cb4"
+                circuit_id: "d1a91fb5-e13c-4141-854d-80128243ca1b"
                 name: "Cattle Traceability Circuit"
                 description: "Circuit for tracking cattle with SISBOV identifiers"
                 owner: "gerbov"
@@ -554,7 +554,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "0dbc6eb9-8d80-477c-832d-9b6b5b264cb4"
+          example: "d1a91fb5-e13c-4141-854d-80128243ca1b"
           description: Circuit ID (obtained when creating or joining a circuit)
       requestBody:
         required: true
@@ -650,7 +650,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "0dbc6eb9-8d80-477c-832d-9b6b5b264cb4"
+          example: "d1a91fb5-e13c-4141-854d-80128243ca1b"
           description: Circuit ID to pull from
         - name: dfid
           in: path
