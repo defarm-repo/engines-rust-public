@@ -202,9 +202,15 @@
     <script src="https://unpkg.com/swagger-ui-dist@5.10.3/swagger-ui-standalone-preset.js"></script>
     <script>
         window.onload = function() {
+            // Use absolute path from domain root for OpenAPI spec
+            // This works regardless of how the page is accessed
+            const specUrl = '/docs/openapi-external.yaml';
+
+            console.log('Loading OpenAPI spec from:', specUrl);
+
             // Initialize Swagger UI with External Integration API
             window.ui = SwaggerUIBundle({
-                url: 'openapi-external.yaml',
+                url: specUrl,
                 dom_id: '#swagger-ui',
                 deepLinking: true,
                 presets: [
