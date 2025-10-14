@@ -96,15 +96,15 @@ paths:
               properties:
                 username:
                   type: string
-                  example: "hen"
+                  example: "gerbov"
                 password:
                   type: string
                   format: password
-                  example: "demo123"
+                  example: "Gerbov2024!Test"
                 workspace_id:
                   type: string
                   description: Optional workspace identifier
-                  example: "hen-workspace"
+                  example: "Gerbov Workspace-workspace"
             examples:
               basicLogin:
                 summary: Basic login
@@ -122,8 +122,8 @@ paths:
                 success:
                   value:
                     token: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
-                    user_id: "hen-admin-001"
-                    workspace_id: "hen-workspace"
+                    user_id: "user-2da9af70-c4c3-4b13-9180-dc1c7094b27c"
+                    workspace_id: "Gerbov Workspace-workspace"
                     expires_at: 1760457014
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -405,7 +405,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "187318ae-8f6d-4a03-aac1-bfc051f2d2ff"
+          example: "f17266f6-f4a1-44f7-87df-118194b20828"
           description: Circuit ID (obtained when creating or joining a circuit)
       requestBody:
         required: true
@@ -501,7 +501,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "187318ae-8f6d-4a03-aac1-bfc051f2d2ff"
+          example: "f17266f6-f4a1-44f7-87df-118194b20828"
           description: Circuit ID to pull from
         - name: dfid
           in: path
