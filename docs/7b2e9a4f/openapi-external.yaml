@@ -380,6 +380,155 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/circuits:
+    post:
+      tags:
+        - Circuits
+      summary: Create a new circuit
+      description: |
+        Create a new circuit for sharing and tokenizing items. The authenticated user
+        automatically becomes the circuit owner with all permissions.
+
+        **Circuit Features**:
+        - Control membership and permissions
+        - Configure blockchain adapter (Stellar, IPFS, etc.)
+        - Set identifier requirements for tokenization
+        - Enable/disable approval workflow
+      operationId: createCircuit
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - description
+              properties:
+                name:
+                  type: string
+                  description: Circuit display name
+                  example: "My Farm Circuit"
+                description:
+                  type: string
+                  description: Circuit purpose and details
+                  example: "Circuit for tracking cattle from my farm"
+                alias_config:
+                  type: object
+                  description: Identifier requirements for tokenization
+                  properties:
+                    required_canonical:
+                      type: array
+                      items:
+                        type: string
+                      description: Required canonical identifiers (e.g., ["sisbov"])
+                      example: ["sisbov"]
+                    required_contextual:
+                      type: array
+                      items:
+                        type: string
+                      description: Required contextual identifiers (e.g., ["lote"])
+                      example: []
+                    use_fingerprint:
+                      type: boolean
+                      description: Use fingerprint-based deduplication
+                      example: false
+                    allowed_namespaces:
+                      type: array
+                      items:
+                        type: string
+                      description: Allowed namespaces (null = all allowed)
+                      example: ["bovino", "aves", "suino"]
+                    auto_apply_namespace:
+                      type: boolean
+                      description: Auto-apply default namespace if missing
+                      example: true
+                adapter_config:
+                  type: object
+                  description: Blockchain adapter configuration
+                  properties:
+                    adapter_type:
+                      type: string
+                      enum:
+                        - LocalLocal
+                        - LocalIpfs
+                        - IpfsIpfs
+                        - StellarTestnetIpfs
+                        - StellarMainnetIpfs
+                      description: Storage adapter type
+                      example: "StellarTestnetIpfs"
+                    requires_approval:
+                      type: boolean
+                      description: Require admin approval for push operations
+                      example: false
+                    auto_migrate_existing:
+                      type: boolean
+                      description: Auto-migrate existing items when adapter changes
+                      example: false
+                    sponsor_adapter_access:
+                      type: boolean
+                      description: Allow all members to use adapter regardless of tier
+                      example: true
+            examples:
+              bovine_circuit:
+                summary: Bovine traceability circuit
+                value:
+                  name: "Cattle Traceability Circuit"
+                  description: "Circuit for tracking cattle with SISBOV identifiers"
+                  alias_config:
+                    required_canonical: ["sisbov"]
+                    required_contextual: []
+                    use_fingerprint: false
+                    allowed_namespaces: ["bovino"]
+                    auto_apply_namespace: true
+                  adapter_config:
+                    adapter_type: "StellarTestnetIpfs"
+                    requires_approval: false
+                    auto_migrate_existing: false
+                    sponsor_adapter_access: true
+              simple_circuit:
+                summary: Simple circuit (no adapter)
+                value:
+                  name: "My Simple Circuit"
+                  description: "Basic circuit for local storage only"
+      responses:
+        '200':
+          description: Circuit created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  circuit_id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  owner:
+                    type: string
+                  created_at:
+                    type: integer
+                  tier:
+                    type: string
+              example:
+                success: true
+                circuit_id: "0dbc6eb9-8d80-477c-832d-9b6b5b264cb4"
+                name: "Cattle Traceability Circuit"
+                description: "Circuit for tracking cattle with SISBOV identifiers"
+                owner: "gerbov"
+                created_at: 1697123456
+                tier: "Professional"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/circuits/{circuit_id}/push-local:
     post:
       tags:

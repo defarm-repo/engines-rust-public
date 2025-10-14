@@ -30,7 +30,7 @@ pub struct CreateCircuitAdapterConfigRequest {
 pub struct CreateCircuitRequest {
     pub name: String,
     pub description: String,
-    pub owner_id: String,
+    // owner_id is now extracted from JWT token automatically
     pub adapter_config: Option<CreateCircuitAdapterConfigRequest>,
     pub alias_config: Option<CircuitAliasConfig>,
 }
@@ -629,6 +629,7 @@ fn circuit_item_to_response(item: CircuitItem) -> CircuitItemResponse {
 
 async fn create_circuit(
     State(state): State<Arc<AppState>>,
+    AuthenticatedUser(owner_id): AuthenticatedUser,
     Json(payload): Json<CreateCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     // Create circuit in in-memory storage (must not hold lock across await)
@@ -636,15 +637,15 @@ async fn create_circuit(
         let mut engine = state.circuits_engine.lock()
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
 
-        // First create circuit without adapter_config
-        let circuit = engine.create_circuit(payload.name, payload.description, payload.owner_id.clone(), None, payload.alias_config)
+        // First create circuit without adapter_config (owner_id from JWT)
+        let circuit = engine.create_circuit(payload.name, payload.description, owner_id.clone(), None, payload.alias_config)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create circuit: {}", e)}))))?;
 
         // Set adapter config if provided
         if let Some(adapter_req) = payload.adapter_config {
             engine.set_circuit_adapter_config(
                 &circuit.circuit_id,
-                &payload.owner_id,
+                &owner_id,
                 adapter_req.adapter_type,
                 adapter_req.auto_migrate_existing,
                 adapter_req.requires_approval,
