@@ -1,7 +1,7 @@
 use crate::dfid_engine::DfidEngine;
 use crate::logging::{LoggingEngine, LogEntry};
 use crate::storage::{StorageError, StorageBackend};
-use crate::types::{Item, Identifier, ItemStatus, ItemShare, SharedItemResponse, PendingItem, PendingReason};
+use crate::types::{Item, Identifier, ItemStatus, ItemShare, SharedItemResponse, PendingItem, PendingReason, MergeStrategy};
 use crate::storage_history_manager::StorageHistoryManager;
 use crate::adapters::StorageLocation;
 use std::collections::HashMap;
@@ -199,6 +199,150 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         // If no mapping exists, look for item with LID-based temporary DFID
         let temp_dfid = format!("LID-{}", local_id);
         self.storage.get_item_by_dfid(&temp_dfid).map_err(ItemsError::from)
+    }
+
+    /// Merge enriched_data from multiple items based on strategy
+    fn merge_enriched_data(
+        master: &HashMap<String, serde_json::Value>,
+        others: Vec<&HashMap<String, serde_json::Value>>,
+        strategy: &MergeStrategy,
+    ) -> HashMap<String, serde_json::Value> {
+        use serde_json::Value;
+
+        let mut result = master.clone();
+
+        match strategy {
+            MergeStrategy::Append => {
+                // Merge all data intelligently
+                for other in others {
+                    for (key, value) in other {
+                        match (result.get(key), value) {
+                            // Both are arrays: append unique values
+                            (Some(Value::Array(existing)), Value::Array(new)) => {
+                                let mut merged = existing.clone();
+                                for item in new {
+                                    if !merged.contains(item) {
+                                        merged.push(item.clone());
+                                    }
+                                }
+                                result.insert(key.clone(), Value::Array(merged));
+                            },
+                            // Both are objects: deep merge
+                            (Some(Value::Object(existing)), Value::Object(new)) => {
+                                let mut merged = existing.clone();
+                                for (k, v) in new {
+                                    merged.insert(k.clone(), v.clone());
+                                }
+                                result.insert(key.clone(), Value::Object(merged));
+                            },
+                            // For scalars: keep the new value
+                            _ => {
+                                result.insert(key.clone(), value.clone());
+                            }
+                        }
+                    }
+                }
+            },
+            MergeStrategy::KeepFirst => {
+                // Keep master data, ignore others
+                // result is already master.clone(), nothing to do
+            },
+            MergeStrategy::Overwrite => {
+                // Last item wins for all fields
+                for other in others {
+                    for (key, value) in other {
+                        result.insert(key.clone(), value.clone());
+                    }
+                }
+            },
+        }
+
+        result
+    }
+
+    /// Merge multiple local items into a master item
+    pub fn merge_local_items(
+        &mut self,
+        master_lid: &Uuid,
+        merge_lids: Vec<Uuid>,
+        strategy: MergeStrategy,
+    ) -> Result<Item, ItemsError> {
+        self.logger.info("ItemsEngine", "merge_local_items_start", "Starting local items merge")
+            .with_context("master_lid", master_lid.to_string())
+            .with_context("merge_count", merge_lids.len().to_string())
+            .with_context("strategy", format!("{:?}", strategy));
+
+        // Validate master item exists and is local-only
+        let mut master_item = self.get_item_by_lid(master_lid)?
+            .ok_or_else(|| ItemsError::ItemNotFound(format!("Master LID not found: {}", master_lid)))?;
+
+        // Check if master is already pushed to circuit
+        if !master_item.dfid.starts_with("LID-") {
+            return Err(ItemsError::InvalidOperation(
+                "Cannot merge: master item has already been pushed to a circuit".to_string()
+            ));
+        }
+
+        // Validate all merge items exist and are local-only
+        let mut merge_items = Vec::new();
+        for lid in &merge_lids {
+            let item = self.get_item_by_lid(lid)?
+                .ok_or_else(|| ItemsError::ItemNotFound(format!("Merge LID not found: {}", lid)))?;
+
+            // Check if item is already pushed to circuit
+            if !item.dfid.starts_with("LID-") {
+                return Err(ItemsError::InvalidOperation(
+                    format!("Cannot merge: item {} has already been pushed to a circuit", lid)
+                ));
+            }
+
+            // Check if item is already merged
+            if matches!(item.status, ItemStatus::MergedInto(_)) {
+                return Err(ItemsError::InvalidOperation(
+                    format!("Cannot merge: item {} has already been merged into another item", lid)
+                ));
+            }
+
+            merge_items.push(item);
+        }
+
+        // Merge enriched_data
+        let merge_data_refs: Vec<&HashMap<String, serde_json::Value>> =
+            merge_items.iter().map(|item| &item.enriched_data).collect();
+        let merged_data = Self::merge_enriched_data(&master_item.enriched_data, merge_data_refs, &strategy);
+
+        // Update master item
+        master_item.enriched_data = merged_data;
+        master_item.last_modified = Utc::now();
+
+        // Collect all source entries
+        for item in &merge_items {
+            for source in &item.source_entries {
+                if !master_item.source_entries.contains(source) {
+                    master_item.source_entries.push(*source);
+                }
+            }
+        }
+
+        // Store updated master item
+        self.storage.store_item(&master_item)?;
+
+        // Mark merge items as MergedInto master
+        for (lid, mut item) in merge_lids.iter().zip(merge_items.into_iter()) {
+            item.status = ItemStatus::MergedInto(master_lid.to_string());
+            item.last_modified = Utc::now();
+            self.storage.store_item(&item)?;
+
+            self.logger.info("ItemsEngine", "item_merged", "Item marked as merged")
+                .with_context("merged_lid", lid.to_string())
+                .with_context("into_lid", master_lid.to_string());
+        }
+
+        self.logger.info("ItemsEngine", "merge_complete", "Local items merge completed successfully")
+            .with_context("master_lid", master_lid.to_string())
+            .with_context("merged_count", merge_lids.len().to_string());
+
+        Ok(master_item)
     }
 
     pub fn get_item(&self, dfid: &str) -> Result<Option<Item>, ItemsError> {
@@ -421,7 +565,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             match item.status {
                 ItemStatus::Active => stats.active_items += 1,
                 ItemStatus::Deprecated => stats.deprecated_items += 1,
-                ItemStatus::Merged => stats.merged_items += 1,
+                ItemStatus::Merged | ItemStatus::MergedInto(_) => stats.merged_items += 1,
                 ItemStatus::Split => stats.split_items += 1,
             }
 

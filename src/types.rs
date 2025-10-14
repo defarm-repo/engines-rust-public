@@ -73,6 +73,14 @@ pub enum ItemStatus {
     Deprecated,
     Merged,
     Split,
+    MergedInto(String),  // Points to master LID that this item was merged into
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum MergeStrategy {
+    Append,      // Merge all data, append unique values to arrays
+    KeepFirst,   // Keep master data, ignore merge items' data
+    Overwrite,   // Last merged item's data wins
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

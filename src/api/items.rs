@@ -63,6 +63,35 @@ pub struct LidDfidMappingData {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct MergeLocalItemsRequest {
+    pub master_lid: String,
+    pub merge_lids: Vec<String>,
+    pub merge_strategy: Option<String>,  // "append", "keep_first", "overwrite" - defaults to "append"
+}
+
+#[derive(Debug, Serialize)]
+pub struct MergeLocalItemsResponse {
+    pub success: bool,
+    pub data: MergeLocalItemsData,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MergeLocalItemsData {
+    pub master_lid: String,
+    pub merged_count: usize,
+    pub merged_lids: Vec<String>,
+    pub master_item: MergedItemInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MergedItemInfo {
+    pub dfid: String,
+    pub local_id: String,
+    pub enriched_data: HashMap<String, serde_json::Value>,
+    pub last_modified: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateItemRequest {
     pub identifiers: Vec<IdentifierRequest>,
     pub enriched_data: Option<HashMap<String, serde_json::Value>>,
@@ -217,6 +246,7 @@ pub fn item_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", post(create_item))
         .route("/local", post(create_local_item))
+        .route("/local/merge", post(merge_local_items))
         .route("/mapping/:local_id", get(get_lid_dfid_mapping))
         .route("/batch", post(create_items_batch))
         .route("/", get(list_items))
@@ -829,6 +859,85 @@ async fn create_local_item(
         data: LocalItemData {
             local_id: local_id.to_string(),
             status: "LocalOnly".to_string(),
+        },
+    }))
+}
+
+async fn merge_local_items(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<MergeLocalItemsRequest>,
+) -> Result<Json<MergeLocalItemsResponse>, (StatusCode, Json<Value>)> {
+    // Parse master_lid
+    let master_lid = Uuid::parse_str(&payload.master_lid)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid master_lid format"}))))?;
+
+    // Parse merge_lids
+    let merge_lids: Result<Vec<Uuid>, _> = payload.merge_lids
+        .iter()
+        .map(|lid_str| Uuid::parse_str(lid_str))
+        .collect();
+
+    let merge_lids = merge_lids
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid merge_lid format"}))))?;
+
+    // Validate at least one item to merge
+    if merge_lids.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "At least one merge_lid must be provided"})),
+        ));
+    }
+
+    // Parse merge strategy
+    use crate::types::MergeStrategy;
+    let strategy = match payload.merge_strategy.as_deref() {
+        Some("append") | None => MergeStrategy::Append,  // Default
+        Some("keep_first") => MergeStrategy::KeepFirst,
+        Some("overwrite") => MergeStrategy::Overwrite,
+        Some(invalid) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Invalid merge_strategy",
+                    "provided": invalid,
+                    "allowed": ["append", "keep_first", "overwrite"]
+                })),
+            ))
+        }
+    };
+
+    // Perform merge
+    let master_item = {
+        let mut engine = state.items_engine.lock()
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+
+        engine.merge_local_items(&master_lid, merge_lids.clone(), strategy)
+            .map_err(|e| {
+                let status_code = match e {
+                    crate::items_engine::ItemsError::ItemNotFound(_) => StatusCode::NOT_FOUND,
+                    crate::items_engine::ItemsError::InvalidOperation(_) => StatusCode::BAD_REQUEST,
+                    crate::items_engine::ItemsError::ValidationError(_) => StatusCode::BAD_REQUEST,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                (status_code, Json(json!({"error": format!("{}", e)})))
+            })?
+    };
+
+    // Build response
+    let master_item_info = MergedItemInfo {
+        dfid: master_item.dfid.clone(),
+        local_id: master_item.local_id.map(|lid| lid.to_string()).unwrap_or_else(|| "N/A".to_string()),
+        enriched_data: master_item.enriched_data.clone(),
+        last_modified: master_item.last_modified.to_rfc3339(),
+    };
+
+    Ok(Json(MergeLocalItemsResponse {
+        success: true,
+        data: MergeLocalItemsData {
+            master_lid: master_lid.to_string(),
+            merged_count: merge_lids.len(),
+            merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
+            master_item: master_item_info,
         },
     }))
 }
