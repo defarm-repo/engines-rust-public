@@ -199,6 +199,8 @@ mod circuit_tokenization_tests {
             "Test Circuit".to_string(),
             "Test circuit for LID-DFID mapping".to_string(),
             "owner1".to_string(),
+            None,
+            None,
         ).unwrap();
 
         let lid = Uuid::new_v4();

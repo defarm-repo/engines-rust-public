@@ -97,7 +97,9 @@ async fn main() {
     let circuit = circuits_engine.create_circuit(
         "Demo Circuit".to_string(),
         "A demonstration circuit for sharing items".to_string(),
-        "owner_123".to_string()
+        "owner_123".to_string(),
+        None,
+        None
     ).unwrap();
     println!("   Created circuit: {} (ID: {})", circuit.name, circuit.circuit_id);
 

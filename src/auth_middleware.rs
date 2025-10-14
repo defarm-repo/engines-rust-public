@@ -1,9 +1,10 @@
 use axum::{
-    extract::{Request, State},
-    http::StatusCode,
+    extract::{Request, State, FromRequestParts},
+    http::{StatusCode, request::Parts},
     middleware::Next,
     response::Response,
     Json,
+    async_trait,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -11,6 +12,33 @@ use jsonwebtoken::{decode, DecodingKey, Validation};
 
 use crate::api::auth::Claims;
 use crate::api::shared_state::AppState;
+
+/// Extractor for authenticated user ID from JWT claims
+/// Use this in handlers to get the authenticated user's ID automatically
+pub struct AuthenticatedUser(pub String);
+
+#[async_trait]
+impl<S> FromRequestParts<S> for AuthenticatedUser
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, Json<serde_json::Value>);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        // Extract claims from request extensions (inserted by jwt_auth_middleware)
+        let claims = parts
+            .extensions
+            .get::<Claims>()
+            .ok_or_else(|| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": "Missing authentication. This endpoint requires JWT authentication."})),
+                )
+            })?;
+
+        Ok(AuthenticatedUser(claims.user_id.clone()))
+    }
+}
 
 /// JWT authentication middleware
 /// Extracts and verifies JWT token from Authorization header

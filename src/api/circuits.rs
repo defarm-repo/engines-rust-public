@@ -5,6 +5,7 @@ use axum::{
     routing::{delete, get, patch, post, put},
     Router,
 };
+use crate::auth_middleware::AuthenticatedUser;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -342,7 +343,8 @@ pub struct PushLocalItemRequest {
     pub local_id: String,
     pub identifiers: Option<Vec<EnhancedIdentifierRequest>>,
     pub enriched_data: Option<std::collections::HashMap<String, serde_json::Value>>,
-    pub requester_id: String,
+    // Note: requester_id is now extracted automatically from JWT token
+    // No need to include it in the request body anymore
 }
 
 #[derive(Debug, Serialize)]
@@ -763,6 +765,7 @@ async fn pull_item(
 async fn push_local_item(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<PushLocalItemRequest>,
 ) -> Result<Json<PushLocalItemResponse>, (StatusCode, Json<Value>)> {
     let circuit_id = Uuid::parse_str(&id)
@@ -803,7 +806,7 @@ async fn push_local_item(
                     identifiers,
                     payload.enriched_data,
                     &circuit_id,
-                    &payload.requester_id,
+                    &requester_id,  // Extracted from JWT token automatically
                 ).await
             })
         })

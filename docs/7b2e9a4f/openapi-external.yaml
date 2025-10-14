@@ -415,21 +415,18 @@ paths:
               type: object
               required:
                 - local_id
-                - requester_id
               properties:
                 local_id:
                   type: string
                   format: uuid
                   description: Local ID obtained from POST /api/items/local
-                requester_id:
-                  type: string
-                  description: User ID performing the push operation
             examples:
               push:
                 value:
                   local_id: "12a0b56d-f478-4547-b796-792d6e0e81eb"
-                  requester_id: "user-6a6f2c5d-df88-4e89-8194-2d4fe2790065"
-                description: Use your user_id from login response as requester_id
+                description: |
+                  Note: User ID (user-2da9af70-c4c3-4b13-9180-dc1c7094b27c) is automatically
+                  extracted from your JWT token. No need to include requester_id.
       responses:
         '200':
           description: Item pushed and tokenized successfully
