@@ -108,63 +108,63 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
-  /api/auth/register:
-    post:
-      tags:
-        - Authentication
-      summary: Register new user
-      description: Create a new user account with Basic tier (100 free credits)
-      operationId: register
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - username
-                - password
-                - email
-              properties:
-                username:
-                  type: string
-                  minLength: 3
-                  example: "farm_user_01"
-                password:
-                  type: string
-                  format: password
-                  minLength: 8
-                  description: |
-                    Password requirements:
-                    - Minimum 8 characters
-                    - At least one uppercase letter
-                    - At least one lowercase letter
-                    - At least one digit
-                    - At least one special character
-                  example: "SecurePass123!"
-                email:
-                  type: string
-                  format: email
-                  example: "user@farm.com"
-                workspace_name:
-                  type: string
-                  description: Optional workspace name
-                  example: "MyFarm"
-      responses:
-        '200':
-          description: Registration successful
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '409':
-          description: Username or email already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+  # /api/auth/register:
+  #   post:
+  #     tags:
+  #       - Authentication
+  #     summary: Register new user
+  #     description: User registration is disabled. Contact administrator for account creation.
+  #     operationId: register
+  #     requestBody:
+  #       required: true
+  #       content:
+  #         application/json:
+  #           schema:
+  #             type: object
+  #             required:
+  #               - username
+  #               - password
+  #               - email
+  #             properties:
+  #               username:
+  #                 type: string
+  #                 minLength: 3
+  #                 example: "farm_user_01"
+  #               password:
+  #                 type: string
+  #                 format: password
+  #                 minLength: 8
+  #                 description: |
+  #                   Password requirements:
+  #                   - Minimum 8 characters
+  #                   - At least one uppercase letter
+  #                   - At least one lowercase letter
+  #                   - At least one digit
+  #                   - At least one special character
+  #                 example: "SecurePass123!"
+  #               email:
+  #                 type: string
+  #                 format: email
+  #                 example: "user@farm.com"
+  #               workspace_name:
+  #                 type: string
+  #                 description: Optional workspace name
+  #                 example: "MyFarm"
+  #     responses:
+  #       '200':
+  #         description: Registration successful
+  #         content:
+  #           application/json:
+  #             schema:
+  #               $ref: '#/components/schemas/AuthResponse'
+  #       '400':
+  #         $ref: '#/components/responses/BadRequest'
+  #       '409':
+  #         description: Username or email already exists
+  #         content:
+  #           application/json:
+  #             schema:
+  #               $ref: '#/components/schemas/ErrorResponse'
 
   /api/auth/profile:
     get:
