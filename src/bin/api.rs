@@ -53,9 +53,7 @@ async fn main() {
         .merge(health_routes)
         .nest("/api/auth", auth_routes(app_state.clone()))
         // WebSocket route does NOT use JWT middleware (verifies token from query param)
-        .nest("/api/notifications", notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()))
-        // Serve API documentation from /docs (public, no authentication required)
-        .nest_service("/docs", ServeDir::new("docs"));
+        .nest("/api/notifications", notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()));
 
     // Protected routes (require JWT authentication)
     let protected_routes = Router::new()
@@ -79,9 +77,11 @@ async fn main() {
             jwt_auth_middleware,
         ));
 
-    // Combine routes
+    // Combine routes and add static file serving for docs
+    // Note: nest_service for /docs must come AFTER merging routes to avoid conflicts
     let app = public_routes
         .merge(protected_routes)
+        .nest_service("/docs", ServeDir::new("docs"))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
 
