@@ -229,8 +229,8 @@ X-API-Key: dfm_your32characterkeyhere
 ## 🌍 Environments
 
 ### Production
-- **Base URL**: `https://defarm-engines-api-production.up.railway.app`
-- **Network**: Stellar Mainnet + IPFS (Pinata)
+- **Base URL**: `https://connect.defarm.net`
+- **Network**: Stellar Testnet + IPFS (Pinata)
 - **Use for**: Live production data
 
 ### Staging (Coming Soon)
