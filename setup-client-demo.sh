@@ -8,7 +8,7 @@
 set -e
 
 # Configuration
-API_BASE="https://defarm-engines-api-production.up.railway.app/api"
+API_BASE="https://connect.defarm.net/api"
 export JWT_SECRET="defarm-dev-secret-key-minimum-32-chars-long-2024"
 
 # Colors

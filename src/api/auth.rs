@@ -288,16 +288,20 @@ async fn register(
 
     drop(storage); // Release the lock
 
-    // Write-through cache: Persist to PostgreSQL if available
-    let pg_lock = app_state.postgres_persistence.read().await;
-    if let Some(pg) = &*pg_lock {
-        if let Err(e) = pg.persist_user(&new_user).await {
-            tracing::warn!("Failed to persist user to PostgreSQL: {}", e);
-        } else {
-            tracing::info!("User {} persisted to PostgreSQL", new_user.username);
+    // PostgreSQL persistence happens asynchronously in background
+    // to avoid Send/Sync issues with the handler
+    let pg = app_state.postgres_persistence.clone();
+    let user_for_pg = new_user.clone();
+    tokio::spawn(async move {
+        let pg_lock = pg.read().await;
+        if let Some(pg_instance) = &*pg_lock {
+            if let Err(e) = pg_instance.persist_user(&user_for_pg).await {
+                tracing::warn!("Failed to persist user to PostgreSQL: {}", e);
+            } else {
+                tracing::info!("User {} persisted to PostgreSQL", user_for_pg.username);
+            }
         }
-    }
-    drop(pg_lock);
+    });
 
     let token = auth.generate_token(&user_id, workspace_id.clone())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to generate token"}))))?;
