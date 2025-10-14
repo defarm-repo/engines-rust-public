@@ -137,13 +137,13 @@ CIRCUIT_RESPONSE=$(curl -s -X POST "$API_BASE/circuits" \
       "sponsor_adapter_access": true
     },
     "alias_config": {
-      "required_canonical_identifiers": ["sisbov"],
-      "required_contextual_identifiers": [],
+      "required_canonical": ["sisbov"],
+      "required_contextual": [],
+      "use_fingerprint": false,
       "allowed_namespaces": ["bovino", "aves", "suino", "soja", "milho", "generic"],
-      "default_namespace": "bovino",
-      "auto_apply_namespace": true,
-      "use_fingerprint": false
-    }
+      "auto_apply_namespace": true
+    },
+    "default_namespace": "bovino"
   }')
 
 CIRCUIT_ID=$(echo "$CIRCUIT_RESPONSE" | jq -r '.circuit_id')
