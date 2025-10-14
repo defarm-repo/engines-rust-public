@@ -177,19 +177,23 @@
 
     <div class="info-banner">
         <h3>🚀 Quick Start Guide</h3>
-        <p><strong>New to the DeFarm API?</strong> Follow these steps to get started:</p>
+        <p><strong>New to the DeFarm API?</strong> We've set up everything for you to test immediately!</p>
         <ul>
-            <li><strong>Step 1:</strong> Click the <code>Authorize</code> button above</li>
-            <li><strong>Step 2:</strong> Login via <code>POST /api/auth/login</code> with username <code>hen</code> and password <code>demo123</code> (testnet)</li>
-            <li><strong>Step 3:</strong> Copy the JWT token from the response</li>
-            <li><strong>Step 4:</strong> Paste it in the Authorization dialog (format: <code>Bearer YOUR_TOKEN</code>)</li>
-            <li><strong>Step 5:</strong> Try creating a local item via <code>POST /api/items/local</code></li>
-            <li><strong>Step 6:</strong> Push to a circuit via <code>POST /api/circuits/{id}/push-local</code></li>
-            <li><strong>Step 7:</strong> View blockchain transactions via <code>GET /api/items/{dfid}/storage-history</code></li>
+            <li><strong>Step 1:</strong> Login via <code>POST /api/auth/login</code></li>
+            <li style="margin-left: 30px;">Username: <code>gerbov</code> | Password: <code>Gerbov2024!Test</code></li>
+            <li><strong>Step 2:</strong> Copy the JWT token from the response</li>
+            <li><strong>Step 3:</strong> Click the <code>Authorize</code> button above</li>
+            <li><strong>Step 4:</strong> Paste token in Authorization dialog</li>
+            <li><strong>Step 5:</strong> Create a local item via <code>POST /api/items/local</code></li>
+            <li style="margin-left: 30px;">Use SISBOV identifier for cattle (e.g., BR921180523565)</li>
+            <li><strong>Step 6:</strong> Push to circuit via <code>POST /api/circuits/{id}/push-local</code></li>
+            <li style="margin-left: 30px;">Circuit ID: <code>2b2fbb90-2850-4424-a0c2-a286b16fc6ee</code> (MS Rastreabilidade)</li>
+            <li><strong>Step 7:</strong> View blockchain TXs via <code>GET /api/items/{dfid}/storage-history</code></li>
+            <li style="margin-left: 30px;">You'll see NFT mint TX, IPCM update TX, and IPFS CID!</li>
         </ul>
-        <p>📖 For detailed integration guides and code examples, see <a href="../INTEGRATION_QUICKSTART.md" target="_blank">INTEGRATION_QUICKSTART.md</a></p>
+        <p>📖 For code examples in Python/JavaScript, see <a href="../INTEGRATION_QUICKSTART.md" target="_blank">INTEGRATION_QUICKSTART.md</a></p>
         <p>🔗 <strong>Production API:</strong> <code>https://defarm-engines-api-production.up.railway.app</code></p>
-        <p>🧪 <strong>Local Development:</strong> <code>http://localhost:3000</code></p>
+        <p>🎯 <strong>Pre-configured Circuit:</strong> MS Rastreabilidade (public, Stellar Testnet + IPFS)</p>
     </div>
 
     <div id="swagger-ui"></div>
@@ -270,12 +274,16 @@
             console.log('%cQuick Start:', 'color: #2e7d32; font-size: 14px; font-weight: bold;');
             console.log('1. Expand POST /api/auth/login');
             console.log('2. Click "Try it out"');
-            console.log('3. Use username: "hen" and password: "demo123"');
+            console.log('3. Use username: "gerbov" and password: "Gerbov2024!Test"');
             console.log('4. Click "Execute"');
             console.log('5. Copy the token from the response');
             console.log('6. Click the "Authorize" button (top right)');
             console.log('7. Paste token in "Value" field and click "Authorize"');
             console.log('8. You can now test any endpoint with authentication!');
+            console.log('%cPre-configured Circuit:', 'color: #2e7d32; font-size: 14px; font-weight: bold;');
+            console.log('Circuit ID: 2b2fbb90-2850-4424-a0c2-a286b16fc6ee');
+            console.log('Name: MS Rastreabilidade');
+            console.log('Adapter: StellarTestnetIpfs (Stellar Testnet + IPFS)');
         }
     </script>
 </body>

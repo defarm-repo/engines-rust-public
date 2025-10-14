@@ -87,8 +87,8 @@ paths:
               basicLogin:
                 summary: Basic login
                 value:
-                  username: "hen"
-                  password: "demo123"
+                  username: "gerbov"
+                  password: "Gerbov2024!Test"
       responses:
         '200':
           description: Login successful
@@ -383,7 +383,8 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "8c453dd7-3996-49a3-828a-27c155cff82a"
+          example: "2b2fbb90-2850-4424-a0c2-a286b16fc6ee"
+          description: MS Rastreabilidade circuit (pre-configured for testing)
       requestBody:
         required: true
         content:
@@ -405,7 +406,8 @@ paths:
               push:
                 value:
                   local_id: "12a0b56d-f478-4547-b796-792d6e0e81eb"
-                  requester_id: "hen-admin-001"
+                  requester_id: "user-10bb3116-78a1-4f99-800e-3e4f0437a907"
+                description: Use your user_id from login response as requester_id
       responses:
         '200':
           description: Item pushed and tokenized successfully
