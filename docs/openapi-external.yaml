@@ -35,8 +35,8 @@ info:
     name: Proprietary
 
 servers:
-  - url: https://defarm-engines-api-production.up.railway.app
-    description: Production server
+  - url: https://connect.defarm.net
+    description: Production server (DeFarm Engines API)
   - url: http://localhost:3000
     description: Local development server
 
