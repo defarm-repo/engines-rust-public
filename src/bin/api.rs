@@ -309,13 +309,13 @@ async fn load_data_from_postgres(
     let circuits = pg.load_circuits().await?;
     let circuit_count = circuits.len();
     if !circuits.is_empty() {
-        let _circuits_engine = app_state.circuits_engine.lock()
-            .map_err(|e| format!("Failed to lock circuits engine: {}", e))?;
+        let mut storage = app_state.shared_storage.lock()
+            .map_err(|e| format!("Failed to lock storage: {}", e))?;
 
         for circuit in circuits {
-            // Store circuit in engine (this will handle in-memory storage)
-            // Note: This is a simplified approach - in production you might want more sophisticated syncing
-            tracing::debug!("📥 Loaded circuit: {}", circuit.name);
+            storage.store_circuit(&circuit)
+                .map_err(|e| format!("Failed to store circuit: {}", e))?;
+            tracing::debug!("📥 Loaded circuit: {} ({})", circuit.name, circuit.circuit_id);
         }
         tracing::info!("📥 Loaded {} circuits from PostgreSQL", circuit_count);
     }
