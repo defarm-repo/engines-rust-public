@@ -141,7 +141,7 @@ pub fn auth_routes(app_state: Arc<AppState>) -> Router {
 
     Router::new()
         .route("/login", post(login))
-        .route("/register", post(register))  // Temporarily enabled for user creation
+        .route("/register", post(register))  // Active but hidden from public docs
         .route("/profile", get(get_profile))
         .route("/refresh", post(refresh_token))
         .with_state((auth_state, app_state))
