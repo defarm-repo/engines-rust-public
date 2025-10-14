@@ -378,8 +378,9 @@ impl PostgresPersistence {
         };
 
         // Serialize available_adapters as TEXT array for PostgreSQL
+        // Use Display format (to_string) for proper round-trip with from_string()
         let adapters_array: Option<Vec<String>> = user.available_adapters.as_ref()
-            .map(|adapters| adapters.iter().map(|a| format!("{:?}", a)).collect());
+            .map(|adapters| adapters.iter().map(|a| a.to_string()).collect());
 
         client.execute(
             "INSERT INTO user_accounts (
@@ -592,9 +593,31 @@ impl PostgresPersistence {
         let last_login_ts: Option<i64> = row.get("last_login_ts");
         let credits: i64 = row.get("credits");
 
-        // Deserialize available_adapters from TEXT array - for now just return None
-        // TODO: Parse adapter strings back to AdapterType enum when needed
-        let _available_adapters: Option<Vec<String>> = row.get("available_adapters");
+        // Deserialize available_adapters from TEXT array
+        // Parse adapter strings back to AdapterType enum using from_string()
+        let adapters_str: Option<Vec<String>> = row.get("available_adapters");
+        let available_adapters: Option<Vec<AdapterType>> = adapters_str.and_then(|arr| {
+            if arr.is_empty() {
+                None  // Empty array means use tier defaults
+            } else {
+                let parsed: Vec<AdapterType> = arr.iter()
+                    .filter_map(|s| {
+                        AdapterType::from_string(s)
+                            .map_err(|e| {
+                                tracing::warn!("Failed to parse adapter type '{}': {}", s, e);
+                                e
+                            })
+                            .ok()
+                    })
+                    .collect();
+
+                if parsed.is_empty() {
+                    None  // All parsing failed, use tier defaults
+                } else {
+                    Some(parsed)
+                }
+            }
+        });
 
         // Calculate limits before moving tier
         let limits = TierLimits::for_tier(&tier);
@@ -615,7 +638,7 @@ impl PostgresPersistence {
             limits,
             is_admin: row.get("is_admin"),
             workspace_id: row.get("workspace_id"),
-            available_adapters: None, // TODO: Parse from available_adapters string array
+            available_adapters,  // Now properly parsed from PostgreSQL
         })
     }
 
