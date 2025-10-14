@@ -58,6 +58,9 @@ COPY --from=builder /app/target/release/defarm-api /app/defarm-api
 # Copy migrations (needed for database setup)
 COPY migrations /app/migrations
 
+# Copy API documentation (served via /docs endpoint)
+COPY docs /app/docs
+
 # Set ownership
 RUN chown -R defarm:defarm /app
 
