@@ -3,34 +3,56 @@ info:
   title: DeFarm Engines - External Integration API
   version: 1.0.0
   description: |
-    # DeFarm Engines API for External Integration
+    # 🌾 DeFarm Engines API
 
-    This API enables farm management systems and external applications to integrate with the DeFarm platform
-    for blockchain-based item tokenization, decentralized storage, and supply chain tracking.
+    ### Blockchain-Based Agricultural Traceability Platform
 
-    ## Key Features
+    Integrate your farm management system with DeFarm's decentralized infrastructure for transparent,
+    immutable supply chain tracking powered by Stellar blockchain and IPFS storage.
 
-    - **Local Item Creation**: Create items locally before tokenization
-    - **Circuit Push**: Tokenize items to blockchain and IPFS through circuits
-    - **Storage History**: Track all storage locations and blockchain transactions
-    - **Webhooks**: Receive real-time notifications about item lifecycle events
+    ---
 
-    ## Authentication
+    ## 🚀 Key Features
 
-    All endpoints (except login/register) require authentication via:
-    - **JWT Token**: Include in `Authorization: Bearer <token>` header
-    - **API Key**: Include in `X-API-Key: <api_key>` header
+    | Feature | Description |
+    |---------|-------------|
+    | **🏗️ Local Item Creation** | Create and manage items locally before blockchain tokenization |
+    | **🔗 Circuit Push** | Tokenize items to Stellar blockchain with automatic IPFS storage |
+    | **📊 Storage History** | Track complete audit trail including NFT transactions and IPFS CIDs |
+    | **🔔 Webhooks** | Real-time notifications for item lifecycle events |
+    | **🔍 Pull Operations** | Retrieve tokenized items from circuits with full metadata |
 
-    ## Rate Limits
+    ---
 
-    Rate limits vary by tier:
-    - **Basic**: 100 requests/hour
-    - **Professional**: 1,000 requests/hour
-    - **Enterprise**: 10,000 requests/hour
+    ## 🔐 Authentication
 
-  contact:
-    name: DeFarm API Support
-    url: https://defarm.io/support
+    All endpoints require authentication (except `/api/auth/login`):
+
+    | Method | Header Format | Usage |
+    |--------|--------------|-------|
+    | **JWT Token** | `Authorization: Bearer <token>` | Best for interactive sessions (24h expiry) |
+    | **API Key** | `X-API-Key: <api_key>` | Best for programmatic access (long-lived) |
+
+    ---
+
+    ## ⚡ Rate Limits
+
+    | Tier | Requests/Hour | Use Case |
+    |------|---------------|----------|
+    | **Basic** | 100 | Testing and small operations |
+    | **Professional** | 1,000 | Production applications |
+    | **Enterprise** | 10,000 | High-volume integrations |
+
+    ---
+
+    ## 📖 Quick Start
+
+    1. **Login** → Get JWT token via `/api/auth/login`
+    2. **Authorize** → Click "Authorize" button and paste your token
+    3. **Create Item** → Use `/api/items/local` to create a local item
+    4. **Push to Circuit** → Tokenize via `/api/circuits/{circuit_id}/push-local`
+    5. **View History** → Check blockchain transactions via `/api/items/{dfid}/storage-history`
+
   license:
     name: Proprietary
 
