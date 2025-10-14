@@ -405,7 +405,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "f17266f6-f4a1-44f7-87df-118194b20828"
+          example: "1a04463d-4638-4dfc-9626-0f480431a55b"
           description: Circuit ID (obtained when creating or joining a circuit)
       requestBody:
         required: true
@@ -501,7 +501,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "f17266f6-f4a1-44f7-87df-118194b20828"
+          example: "1a04463d-4638-4dfc-9626-0f480431a55b"
           description: Circuit ID to pull from
         - name: dfid
           in: path
