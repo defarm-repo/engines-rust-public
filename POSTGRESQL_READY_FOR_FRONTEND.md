@@ -48,14 +48,14 @@ All accounts use password: **`demo123`**
 
 Check if API is ready:
 ```bash
-curl https://defarm-engines-api-production.up.railway.app/health
+curl https://connect.defarm.net/health
 # When ready, returns: {"status":"healthy","timestamp":"..."}
 ```
 
 ### Step 2: Test Authentication
 
 ```bash
-curl -X POST https://defarm-engines-api-production.up.railway.app/api/auth/login \
+curl -X POST https://connect.defarm.net/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"hen","password":"demo123"}'
 ```
@@ -75,7 +75,7 @@ curl -X POST https://defarm-engines-api-production.up.railway.app/api/auth/login
 ```bash
 TOKEN="<token-from-step-2>"
 
-curl -X POST https://defarm-engines-api-production.up.railway.app/api/circuits \
+curl -X POST https://connect.defarm.net/api/circuits \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -96,7 +96,7 @@ curl -X POST https://defarm-engines-api-production.up.railway.app/api/circuits \
 
 Then query the circuit again:
 ```bash
-curl -X GET https://defarm-engines-api-production.up.railway.app/api/circuits/<circuit-id> \
+curl -X GET https://connect.defarm.net/api/circuits/<circuit-id> \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -155,7 +155,7 @@ curl -X GET https://defarm-engines-api-production.up.railway.app/api/circuits/<c
 
 **Via curl** (every 2 minutes):
 ```bash
-watch -n 120 'curl -s https://defarm-engines-api-production.up.railway.app/health'
+watch -n 120 'curl -s https://connect.defarm.net/health'
 ```
 
 **Via Railway CLI**:
@@ -392,16 +392,16 @@ See: `FRONTEND_WORKFLOW_READINESS.md` for complete API reference
 3. **Test API When Ready**
    ```bash
    # Check if ready
-   curl https://defarm-engines-api-production.up.railway.app/health
+   curl https://connect.defarm.net/health
 
    # If healthy, test login
-   curl -X POST https://defarm-engines-api-production.up.railway.app/api/auth/login \
+   curl -X POST https://connect.defarm.net/api/auth/login \
      -H "Content-Type: application/json" \
      -d '{"username":"hen","password":"demo123"}'
    ```
 
 4. **Connect Frontend**
-   - Use API URL: `https://defarm-engines-api-production.up.railway.app`
+   - Use API URL: `https://connect.defarm.net`
    - Login with: hen/demo123
    - Create circuits and test persistence
 

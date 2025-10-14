@@ -7,7 +7,7 @@
 
 set -e
 
-API_BASE="https://defarm-engines-api-production.up.railway.app"
+API_BASE="https://connect.defarm.net"
 ADMIN_USER="hen-admin-001"
 ADMIN_PASSWORD="demo123"
 PRO_USER="pullet"

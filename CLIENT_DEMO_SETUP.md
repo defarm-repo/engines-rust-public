@@ -10,7 +10,7 @@ The API documentation is ready for your client with pre-configured testing crede
 
 **Send this link to your client:**
 ```
-https://defarm-engines-api-production.up.railway.app/docs/
+https://connect.defarm.net/docs/
 ```
 
 Or (when DNS is configured):
@@ -278,7 +278,7 @@ Hi,
 
 I've set up everything for you to test our blockchain tokenization API immediately.
 
-Documentation: https://defarm-engines-api-production.up.railway.app/docs/
+Documentation: https://connect.defarm.net/docs/
 
 Login with:
 - Username: gerbov
