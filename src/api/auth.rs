@@ -4,6 +4,7 @@ use axum::{
     response::Json,
     routing::{post, get},
     Router,
+    middleware,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -12,6 +13,7 @@ use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation}
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{Utc, Duration};
 use crate::api::shared_state::AppState;
+use crate::auth_middleware::jwt_auth_middleware;
 use crate::storage::StorageBackend;
 use crate::types::{UserAccount, UserTier, AccountStatus, TierLimits, CreditTransaction, CreditTransactionType};
 use uuid::Uuid;
@@ -139,11 +141,23 @@ pub fn auth_routes(app_state: Arc<AppState>) -> Router {
         jwt_secret: app_state.jwt_secret.clone(),
     });
 
-    Router::new()
+    // Unauthenticated routes
+    let public_routes = Router::new()
         .route("/login", post(login))
-        .route("/register", post(register))  // Active but hidden from public docs
+        .route("/register", post(register));  // Active but hidden from public docs
+
+    // Protected routes requiring JWT authentication
+    let protected_routes = Router::new()
         .route("/profile", get(get_profile))
         .route("/refresh", post(refresh_token))
+        .route_layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            jwt_auth_middleware,
+        ));
+
+    // Merge public and protected routes
+    public_routes
+        .merge(protected_routes)
         .with_state((auth_state, app_state))
 }
 
