@@ -402,37 +402,12 @@ paths:
                 requester_id:
                   type: string
                   description: User ID performing the push operation
-                identifiers:
-                  type: array
-                  description: Enhanced identifiers (must include SISBOV for this circuit)
-                  items:
-                    type: object
-                    required:
-                      - namespace
-                      - key
-                      - value
-                      - id_type
-                    properties:
-                      namespace:
-                        type: string
-                      key:
-                        type: string
-                      value:
-                        type: string
-                      id_type:
-                        type: string
-                        enum: [Canonical, Contextual]
             examples:
               push:
                 value:
                   local_id: "12a0b56d-f478-4547-b796-792d6e0e81eb"
                   requester_id: "user-6a6f2c5d-df88-4e89-8194-2d4fe2790065"
-                  identifiers:
-                    - namespace: "bovino"
-                      key: "sisbov"
-                      value: "BR921180523565"
-                      id_type: "Canonical"
-                description: Include identifiers with SISBOV to meet circuit requirements
+                description: Use your user_id from login response as requester_id
       responses:
         '200':
           description: Item pushed and tokenized successfully
@@ -483,6 +458,129 @@ paths:
                     error: "Failed to set adapter config: Permission denied: Your tier (basic) does not have access to the StellarMainnetIpfs adapter"
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/circuits/{circuit_id}/pull/{dfid}:
+    post:
+      tags:
+        - Circuits
+      summary: Pull item from circuit
+      description: |
+        Retrieve an item from a circuit. This creates a pull operation and returns the complete
+        item data including identifiers, enriched data, and event history.
+
+        **Requirements:**
+        - Must be a member of the circuit with Pull permission
+        - Item must exist in the circuit
+      operationId: pullItem
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "187318ae-8f6d-4a03-aac1-bfc051f2d2ff"
+          description: Circuit ID to pull from
+        - name: dfid
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "DFID-20251013-000001-CEEF"
+          description: DFID of the item to pull
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - requester_id
+              properties:
+                requester_id:
+                  type: string
+                  description: User ID performing the pull operation
+            examples:
+              pull:
+                value:
+                  requester_id: "user-6a6f2c5d-df88-4e89-8194-2d4fe2790065"
+      responses:
+        '200':
+          description: Item pulled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  item:
+                    type: object
+                    properties:
+                      dfid:
+                        type: string
+                      identifiers:
+                        type: array
+                        items:
+                          type: object
+                      enriched_data:
+                        type: object
+                      creation_timestamp:
+                        type: integer
+                      last_modified:
+                        type: integer
+                      status:
+                        type: string
+                  events:
+                    type: array
+                    description: Complete event history for this item
+                    items:
+                      type: object
+                  events_count:
+                    type: integer
+                  operation:
+                    type: object
+                    description: Details of the pull operation
+              examples:
+                success:
+                  value:
+                    item:
+                      dfid: "DFID-20251013-000001-CEEF"
+                      identifiers:
+                        - namespace: "bovino"
+                          key: "sisbov"
+                          value: "BR921180523565"
+                          id_type:
+                            Canonical:
+                              registry: "sisbov"
+                              verified: false
+                      enriched_data:
+                        breed: "Nelore"
+                        weight_kg: 450
+                      creation_timestamp: 1697203200
+                      last_modified: 1697203200
+                      status: "Active"
+                    events: []
+                    events_count: 0
+                    operation:
+                      operation_id: "op-uuid"
+                      operation_type: "Pull"
+                      requester_id: "user-id"
+                      timestamp: 1697203200
+                      status: "Completed"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Circuit or item not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/items/{dfid}/storage-history:
     get:
