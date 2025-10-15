@@ -1,8 +1,8 @@
+use crate::identifier_types::{CircuitAliasConfig, EnhancedIdentifier, ExternalAlias};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-use crate::identifier_types::{EnhancedIdentifier, ExternalAlias, CircuitAliasConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Identifier {
@@ -53,12 +53,12 @@ pub enum ProcessingStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub dfid: String,
-    pub local_id: Option<Uuid>,         // NOVO: LID do workspace
-    pub legacy_mode: bool,              // NOVO: true se DFID gerado no workspace
-    pub identifiers: Vec<Identifier>,   // Manter por compatibilidade
+    pub local_id: Option<Uuid>,       // NOVO: LID do workspace
+    pub legacy_mode: bool,            // NOVO: true se DFID gerado no workspace
+    pub identifiers: Vec<Identifier>, // Manter por compatibilidade
     pub enhanced_identifiers: Vec<EnhancedIdentifier>, // NOVO
-    pub aliases: Vec<ExternalAlias>,    // NOVO
-    pub fingerprint: Option<String>,    // NOVO: para dedup contextual
+    pub aliases: Vec<ExternalAlias>,  // NOVO
+    pub fingerprint: Option<String>,  // NOVO: para dedup contextual
     pub enriched_data: HashMap<String, serde_json::Value>,
     pub creation_timestamp: DateTime<Utc>,
     pub last_modified: DateTime<Utc>,
@@ -73,14 +73,14 @@ pub enum ItemStatus {
     Deprecated,
     Merged,
     Split,
-    MergedInto(String),  // Points to master LID that this item was merged into
+    MergedInto(String), // Points to master LID that this item was merged into
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum MergeStrategy {
-    Append,      // Merge all data, append unique values to arrays
-    KeepFirst,   // Keep master data, ignore merge items' data
-    Overwrite,   // Last merged item's data wins
+    Append,    // Merge all data, append unique values to arrays
+    KeepFirst, // Keep master data, ignore merge items' data
+    Overwrite, // Last merged item's data wins
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,7 +125,12 @@ pub enum ResolutionStrategy {
 }
 
 impl DataLakeEntry {
-    pub fn new(receipt_id: Uuid, identifiers: Vec<Identifier>, data_hash: String, data_size: usize) -> Self {
+    pub fn new(
+        receipt_id: Uuid,
+        identifiers: Vec<Identifier>,
+        data_hash: String,
+        data_size: usize,
+    ) -> Self {
         Self {
             entry_id: Uuid::new_v4(),
             receipt_id,
@@ -294,7 +299,6 @@ pub enum QualitySeverity {
     Critical,
 }
 
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PendingPriority {
     Low = 1,
@@ -397,7 +401,7 @@ impl PendingEvent {
         identifiers: Vec<Identifier>,
         enriched_data: Option<HashMap<String, serde_json::Value>>,
         source_entry: Uuid,
-        reason: PendingReason
+        reason: PendingReason,
     ) -> Self {
         Self {
             pending_id: Uuid::new_v4(),
@@ -469,14 +473,12 @@ impl PendingItem {
         match reason {
             PendingReason::NoIdentifiers => PendingPriority::High,
             PendingReason::ConflictingDFIDs { .. } => PendingPriority::Critical,
-            PendingReason::DataQualityIssue { severity, .. } => {
-                match severity {
-                    QualitySeverity::Critical => PendingPriority::Critical,
-                    QualitySeverity::High => PendingPriority::High,
-                    QualitySeverity::Medium => PendingPriority::Normal,
-                    QualitySeverity::Low => PendingPriority::Low,
-                }
-            }
+            PendingReason::DataQualityIssue { severity, .. } => match severity {
+                QualitySeverity::Critical => PendingPriority::Critical,
+                QualitySeverity::High => PendingPriority::High,
+                QualitySeverity::Medium => PendingPriority::Normal,
+                QualitySeverity::Low => PendingPriority::Low,
+            },
             PendingReason::IdentifierMappingConflict { .. } => PendingPriority::High,
             PendingReason::DuplicateDetectionAmbiguous { .. } => PendingPriority::Normal,
             PendingReason::CrossSystemConflict { .. } => PendingPriority::High,
@@ -516,22 +518,18 @@ impl PendingItem {
                     automated: true,
                 },
             ],
-            PendingReason::DuplicateDetectionAmbiguous { .. } => vec![
-                SuggestedAction {
-                    action_type: "review_duplicates".to_string(),
-                    description: "Review potential duplicate matches".to_string(),
-                    confidence: 0.8,
-                    automated: false,
-                },
-            ],
-            _ => vec![
-                SuggestedAction {
-                    action_type: "manual_review".to_string(),
-                    description: "Requires manual review for resolution".to_string(),
-                    confidence: 0.7,
-                    automated: false,
-                },
-            ],
+            PendingReason::DuplicateDetectionAmbiguous { .. } => vec![SuggestedAction {
+                action_type: "review_duplicates".to_string(),
+                description: "Review potential duplicate matches".to_string(),
+                confidence: 0.8,
+                automated: false,
+            }],
+            _ => vec![SuggestedAction {
+                action_type: "manual_review".to_string(),
+                description: "Requires manual review for resolution".to_string(),
+                confidence: 0.7,
+                automated: false,
+            }],
         }
     }
 }
@@ -552,24 +550,56 @@ impl PendingReason {
 
     pub fn get_description(&self) -> String {
         match self {
-            PendingReason::NoIdentifiers => "Item has no identifiers for entity resolution".to_string(),
-            PendingReason::InvalidIdentifiers(details) => format!("Invalid identifiers: {}", details),
-            PendingReason::ConflictingDFIDs { identifier, conflicting_dfids, .. } => {
-                format!("Identifier {:?} maps to multiple DFIDs: {:?}", identifier, conflicting_dfids)
+            PendingReason::NoIdentifiers => {
+                "Item has no identifiers for entity resolution".to_string()
             }
-            PendingReason::IdentifierMappingConflict { conflicting_mappings, .. } => {
-                format!("Conflicting identifier mappings: {:?}", conflicting_mappings)
+            PendingReason::InvalidIdentifiers(details) => {
+                format!("Invalid identifiers: {}", details)
             }
-            PendingReason::DataQualityIssue { issue_type, details, .. } => {
+            PendingReason::ConflictingDFIDs {
+                identifier,
+                conflicting_dfids,
+                ..
+            } => {
+                format!(
+                    "Identifier {:?} maps to multiple DFIDs: {:?}",
+                    identifier, conflicting_dfids
+                )
+            }
+            PendingReason::IdentifierMappingConflict {
+                conflicting_mappings,
+                ..
+            } => {
+                format!(
+                    "Conflicting identifier mappings: {:?}",
+                    conflicting_mappings
+                )
+            }
+            PendingReason::DataQualityIssue {
+                issue_type,
+                details,
+                ..
+            } => {
                 format!("Data quality issue ({}): {}", issue_type, details)
             }
             PendingReason::ProcessingError(error) => format!("Processing error: {}", error),
             PendingReason::ValidationError(error) => format!("Validation error: {}", error),
-            PendingReason::DuplicateDetectionAmbiguous { potential_matches, .. } => {
-                format!("Ambiguous duplicate detection: {} potential matches", potential_matches.len())
+            PendingReason::DuplicateDetectionAmbiguous {
+                potential_matches, ..
+            } => {
+                format!(
+                    "Ambiguous duplicate detection: {} potential matches",
+                    potential_matches.len()
+                )
             }
-            PendingReason::CrossSystemConflict { external_system, conflict_type } => {
-                format!("Conflict with external system {}: {}", external_system, conflict_type)
+            PendingReason::CrossSystemConflict {
+                external_system,
+                conflict_type,
+            } => {
+                format!(
+                    "Conflict with external system {}: {}",
+                    external_system, conflict_type
+                )
             }
         }
     }
@@ -618,8 +648,8 @@ pub struct Circuit {
     pub name: String,
     pub description: String,
     pub owner_id: String,
-    pub default_namespace: String,                       // NOVO
-    pub alias_config: Option<CircuitAliasConfig>,        // NOVO
+    pub default_namespace: String,                // NOVO
+    pub alias_config: Option<CircuitAliasConfig>, // NOVO
     pub created_timestamp: DateTime<Utc>,
     pub last_modified: DateTime<Utc>,
     pub members: Vec<CircuitMember>,
@@ -779,10 +809,16 @@ pub enum OperationStatus {
 }
 
 impl Event {
-    pub fn new(dfid: String, event_type: EventType, source: String, visibility: EventVisibility) -> Self {
+    pub fn new(
+        dfid: String,
+        event_type: EventType,
+        source: String,
+        visibility: EventVisibility,
+    ) -> Self {
         let timestamp = Utc::now();
         let metadata = HashMap::new();
-        let content_hash = Self::calculate_content_hash(&event_type, &source, &timestamp, &metadata);
+        let content_hash =
+            Self::calculate_content_hash(&event_type, &source, &timestamp, &metadata);
 
         Self {
             event_id: Uuid::new_v4(),
@@ -800,7 +836,12 @@ impl Event {
     pub fn add_metadata(&mut self, key: String, value: serde_json::Value) {
         self.metadata.insert(key, value);
         // Recalculate hash when metadata changes
-        self.content_hash = Self::calculate_content_hash(&self.event_type, &self.source, &self.timestamp, &self.metadata);
+        self.content_hash = Self::calculate_content_hash(
+            &self.event_type,
+            &self.source,
+            &self.timestamp,
+            &self.metadata,
+        );
     }
 
     pub fn encrypt(&mut self) {
@@ -813,7 +854,7 @@ impl Event {
         event_type: &EventType,
         source: &str,
         timestamp: &DateTime<Utc>,
-        metadata: &HashMap<String, serde_json::Value>
+        metadata: &HashMap<String, serde_json::Value>,
     ) -> String {
         let mut hasher = blake3::Hasher::new();
 
@@ -841,23 +882,27 @@ impl Event {
             EventVisibility::Private => {
                 // Private events only visible to creator
                 self.source == user_id
-            },
+            }
             EventVisibility::Direct => {
                 // Direct events visible to creator or recipient
                 if self.source == user_id {
                     return true;
                 }
                 // Check metadata for recipient_id
-                if let Some(serde_json::Value::String(recipient)) = self.metadata.get("recipient_id") {
+                if let Some(serde_json::Value::String(recipient)) =
+                    self.metadata.get("recipient_id")
+                {
                     recipient == user_id
                 } else {
                     false
                 }
-            },
+            }
             EventVisibility::CircuitOnly => {
                 // Circuit events only visible in specific circuit
                 if let Some(circuit_id) = current_circuit_id {
-                    if let Some(serde_json::Value::String(event_circuit)) = self.metadata.get("circuit_id") {
+                    if let Some(serde_json::Value::String(event_circuit)) =
+                        self.metadata.get("circuit_id")
+                    {
                         return event_circuit == circuit_id;
                     }
                 }
@@ -869,16 +914,32 @@ impl Event {
 
     /// Set recipient for Direct visibility events
     pub fn set_recipient(&mut self, recipient_id: String) {
-        self.metadata.insert("recipient_id".to_string(), serde_json::Value::String(recipient_id));
+        self.metadata.insert(
+            "recipient_id".to_string(),
+            serde_json::Value::String(recipient_id),
+        );
         // Recalculate hash after metadata change
-        self.content_hash = Self::calculate_content_hash(&self.event_type, &self.source, &self.timestamp, &self.metadata);
+        self.content_hash = Self::calculate_content_hash(
+            &self.event_type,
+            &self.source,
+            &self.timestamp,
+            &self.metadata,
+        );
     }
 
     /// Set circuit for CircuitOnly visibility events
     pub fn set_circuit(&mut self, circuit_id: String) {
-        self.metadata.insert("circuit_id".to_string(), serde_json::Value::String(circuit_id));
+        self.metadata.insert(
+            "circuit_id".to_string(),
+            serde_json::Value::String(circuit_id),
+        );
         // Recalculate hash after metadata change
-        self.content_hash = Self::calculate_content_hash(&self.event_type, &self.source, &self.timestamp, &self.metadata);
+        self.content_hash = Self::calculate_content_hash(
+            &self.event_type,
+            &self.source,
+            &self.timestamp,
+            &self.metadata,
+        );
     }
 }
 
@@ -984,10 +1045,16 @@ impl Circuit {
     }
 
     pub fn has_pending_request(&self, requester_id: &str) -> bool {
-        self.pending_requests.iter().any(|r| r.requester_id == requester_id && matches!(r.status, JoinRequestStatus::Pending))
+        self.pending_requests.iter().any(|r| {
+            r.requester_id == requester_id && matches!(r.status, JoinRequestStatus::Pending)
+        })
     }
 
-    pub fn add_join_request(&mut self, requester_id: String, message: Option<String>) -> Result<(), String> {
+    pub fn add_join_request(
+        &mut self,
+        requester_id: String,
+        message: Option<String>,
+    ) -> Result<(), String> {
         // Check if user is already a member
         if self.is_member(&requester_id) {
             return Err("User is already a member of this circuit".to_string());
@@ -1010,10 +1077,18 @@ impl Circuit {
         Ok(())
     }
 
-    pub fn approve_join_request(&mut self, requester_id: &str, role: MemberRole) -> Result<(), String> {
+    pub fn approve_join_request(
+        &mut self,
+        requester_id: &str,
+        role: MemberRole,
+    ) -> Result<(), String> {
         // Find and update the request
-        let request = self.pending_requests.iter_mut()
-            .find(|r| r.requester_id == requester_id && matches!(r.status, JoinRequestStatus::Pending))
+        let request = self
+            .pending_requests
+            .iter_mut()
+            .find(|r| {
+                r.requester_id == requester_id && matches!(r.status, JoinRequestStatus::Pending)
+            })
             .ok_or("No pending request found for this user")?;
 
         request.status = JoinRequestStatus::Approved;
@@ -1025,8 +1100,12 @@ impl Circuit {
     }
 
     pub fn reject_join_request(&mut self, requester_id: &str) -> Result<(), String> {
-        let request = self.pending_requests.iter_mut()
-            .find(|r| r.requester_id == requester_id && matches!(r.status, JoinRequestStatus::Pending))
+        let request = self
+            .pending_requests
+            .iter_mut()
+            .find(|r| {
+                r.requester_id == requester_id && matches!(r.status, JoinRequestStatus::Pending)
+            })
             .ok_or("No pending request found for this user")?;
 
         request.status = JoinRequestStatus::Rejected;
@@ -1035,7 +1114,8 @@ impl Circuit {
     }
 
     pub fn get_pending_requests(&self) -> Vec<&JoinRequest> {
-        self.pending_requests.iter()
+        self.pending_requests
+            .iter()
             .filter(|r| matches!(r.status, JoinRequestStatus::Pending))
             .collect()
     }
@@ -1055,13 +1135,26 @@ impl Circuit {
         self.last_modified = Utc::now();
     }
 
-    pub fn add_custom_role(&mut self, role_name: String, permissions: Vec<Permission>, description: String, color: Option<String>, created_by: String) -> Result<(), String> {
+    pub fn add_custom_role(
+        &mut self,
+        role_name: String,
+        permissions: Vec<Permission>,
+        description: String,
+        color: Option<String>,
+        created_by: String,
+    ) -> Result<(), String> {
         // Check if role name already exists
         if self.custom_roles.iter().any(|r| r.role_name == role_name) {
             return Err(format!("Role '{}' already exists", role_name));
         }
 
-        let mut custom_role = CustomRole::new(self.circuit_id, role_name, permissions, description, created_by);
+        let mut custom_role = CustomRole::new(
+            self.circuit_id,
+            role_name,
+            permissions,
+            description,
+            created_by,
+        );
         if let Some(color) = color {
             custom_role.set_color(color);
         }
@@ -1076,12 +1169,16 @@ impl Circuit {
 
     pub fn assign_custom_role(&mut self, member_id: &str, role_name: &str) -> Result<(), String> {
         // Check if custom role exists and get the permissions
-        let custom_role_permissions = self.get_custom_role(role_name)
+        let custom_role_permissions = self
+            .get_custom_role(role_name)
             .ok_or_else(|| format!("Custom role '{}' not found", role_name))?
-            .permissions.clone();
+            .permissions
+            .clone();
 
         // Find member to verify existence
-        let _member = self.members.iter()
+        let _member = self
+            .members
+            .iter()
             .find(|m| m.member_id == member_id)
             .ok_or_else(|| format!("Member '{}' not found", member_id))?;
 
@@ -1089,7 +1186,9 @@ impl Circuit {
         let final_permissions = custom_role_permissions;
 
         // Now update the member
-        let member = self.members.iter_mut()
+        let member = self
+            .members
+            .iter_mut()
             .find(|m| m.member_id == member_id)
             .unwrap(); // Safe because we already checked existence above
 
@@ -1106,7 +1205,9 @@ impl Circuit {
         }
 
         // Check if any members are using this role
-        let members_using_role: Vec<&str> = self.members.iter()
+        let members_using_role: Vec<&str> = self
+            .members
+            .iter()
             .filter(|m| m.custom_role_name.as_ref() == Some(&role_name.to_string()))
             .map(|m| m.member_id.as_str())
             .collect();
@@ -1138,7 +1239,9 @@ impl Circuit {
         }
 
         // Find the role
-        let role = self.custom_roles.iter_mut()
+        let role = self
+            .custom_roles
+            .iter_mut()
             .find(|r| r.role_name == role_name)
             .ok_or_else(|| format!("Custom role '{}' not found", role_name))?;
 
@@ -1220,22 +1323,31 @@ impl Circuit {
 
         Some(PublicCircuitInfo {
             circuit_id: self.circuit_id,
-            public_name: settings.and_then(|s| s.public_name.as_ref().map(|n| n.clone())).unwrap_or_else(|| self.name.clone()),
-            public_description: settings.and_then(|s| s.public_description.as_ref().map(|d| d.clone())),
+            public_name: settings
+                .and_then(|s| s.public_name.as_ref().map(|n| n.clone()))
+                .unwrap_or_else(|| self.name.clone()),
+            public_description: settings
+                .and_then(|s| s.public_description.as_ref().map(|d| d.clone())),
             primary_color: settings.and_then(|s| s.primary_color.as_ref().map(|c| c.clone())),
             secondary_color: settings.and_then(|s| s.secondary_color.as_ref().map(|c| c.clone())),
             logo_url: settings.and_then(|s| s.logo_url.as_ref().map(|l| l.clone())),
             tagline: settings.and_then(|s| s.tagline.as_ref().map(|t| t.clone())),
             footer_text: settings.and_then(|s| s.footer_text.as_ref().map(|f| f.clone())),
             member_count: self.members.len(),
-            access_mode: settings.map(|s| s.access_mode.clone()).unwrap_or(PublicAccessMode::Public),
+            access_mode: settings
+                .map(|s| s.access_mode.clone())
+                .unwrap_or(PublicAccessMode::Public),
             requires_password: matches!(
                 settings.map(|s| &s.access_mode),
                 Some(PublicAccessMode::Protected)
             ),
             is_currently_accessible: self.is_publicly_accessible(),
-            published_items: settings.map(|s| s.published_items.clone()).unwrap_or_else(Vec::new),
-            auto_publish_pushed_items: settings.map(|s| s.auto_publish_pushed_items).unwrap_or(false),
+            published_items: settings
+                .map(|s| s.published_items.clone())
+                .unwrap_or_else(Vec::new),
+            auto_publish_pushed_items: settings
+                .map(|s| s.auto_publish_pushed_items)
+                .unwrap_or(false),
             published_items_with_events: Vec::new(), // Will be populated by circuits_engine
         })
     }
@@ -1244,13 +1356,16 @@ impl Circuit {
         let mut role_counts = std::collections::HashMap::new();
 
         for member in &self.members {
-            let role_name = member.custom_role_name.as_deref()
-                .unwrap_or_else(|| match member.role {
-                    MemberRole::Owner => "Owner",
-                    MemberRole::Admin => "Admin",
-                    MemberRole::Member => "Member",
-                    MemberRole::Viewer => "Viewer",
-                });
+            let role_name =
+                member
+                    .custom_role_name
+                    .as_deref()
+                    .unwrap_or_else(|| match member.role {
+                        MemberRole::Owner => "Owner",
+                        MemberRole::Admin => "Admin",
+                        MemberRole::Member => "Member",
+                        MemberRole::Viewer => "Viewer",
+                    });
 
             *role_counts.entry(role_name.to_string()).or_insert(0) += 1;
         }
@@ -1270,7 +1385,12 @@ impl Default for CircuitPermissions {
 }
 
 impl CircuitOperation {
-    pub fn new(circuit_id: Uuid, dfid: String, operation_type: OperationType, requester_id: String) -> Self {
+    pub fn new(
+        circuit_id: Uuid,
+        dfid: String,
+        operation_type: OperationType,
+        requester_id: String,
+    ) -> Self {
         Self {
             operation_id: Uuid::new_v4(),
             circuit_id,
@@ -1293,7 +1413,10 @@ impl CircuitOperation {
 
     pub fn fail(&mut self, reason: String) {
         self.status = OperationStatus::Failed;
-        self.metadata.insert("failure_reason".to_string(), serde_json::Value::String(reason));
+        self.metadata.insert(
+            "failure_reason".to_string(),
+            serde_json::Value::String(reason),
+        );
     }
 }
 
@@ -1337,9 +1460,18 @@ pub struct SharedItemResponse {
 }
 
 impl ItemShare {
-    pub fn new(dfid: String, shared_by: String, recipient_user_id: String, permissions: Option<Vec<String>>) -> Self {
+    pub fn new(
+        dfid: String,
+        shared_by: String,
+        recipient_user_id: String,
+        permissions: Option<Vec<String>>,
+    ) -> Self {
         Self {
-            share_id: format!("SHARE-{}-{}", Utc::now().format("%Y%m%d%H%M%S"), Uuid::new_v4().to_string()[0..8].to_uppercase()),
+            share_id: format!(
+                "SHARE-{}-{}",
+                Utc::now().format("%Y%m%d%H%M%S"),
+                Uuid::new_v4().to_string()[0..8].to_uppercase()
+            ),
             dfid,
             shared_by,
             recipient_user_id,
@@ -1351,7 +1483,13 @@ impl ItemShare {
 }
 
 impl CustomRole {
-    pub fn new(circuit_id: Uuid, role_name: String, permissions: Vec<Permission>, description: String, created_by: String) -> Self {
+    pub fn new(
+        circuit_id: Uuid,
+        role_name: String,
+        permissions: Vec<Permission>,
+        description: String,
+        created_by: String,
+    ) -> Self {
         Self {
             role_id: Uuid::new_v4(),
             circuit_id,
@@ -1453,9 +1591,15 @@ impl Activity {
         details: ActivityDetails,
     ) -> Self {
         Self {
-            activity_id: format!("ACTIVITY-{}-{}",
+            activity_id: format!(
+                "ACTIVITY-{}-{}",
                 Utc::now().format("%Y%m%d%H%M%S"),
-                Uuid::new_v4().to_string().split('-').nth(0).unwrap().to_uppercase()
+                Uuid::new_v4()
+                    .to_string()
+                    .split('-')
+                    .nth(0)
+                    .unwrap()
+                    .to_uppercase()
             ),
             activity_type,
             circuit_id,
@@ -1479,7 +1623,12 @@ pub struct CircuitItem {
 }
 
 impl CircuitItem {
-    pub fn new(dfid: String, circuit_id: Uuid, pushed_by: String, permissions: Vec<String>) -> Self {
+    pub fn new(
+        dfid: String,
+        circuit_id: Uuid,
+        pushed_by: String,
+        permissions: Vec<String>,
+    ) -> Self {
         Self {
             dfid,
             circuit_id,
@@ -1679,8 +1828,11 @@ pub struct ComplianceFinding {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditDashboardMetrics {
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub total_events: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub events_last_24h: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub events_last_7d: u64,
     pub security_incidents: SecurityIncidentSummary,
     pub compliance_status: ComplianceStatus,
@@ -1690,22 +1842,30 @@ pub struct AuditDashboardMetrics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityIncidentSummary {
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub open: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub critical: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub resolved: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComplianceStatus {
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub gdpr_events: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub ccpa_events: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub hipaa_events: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub sox_events: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserRiskProfile {
     pub user_id: String,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub event_count: u64,
     pub risk_score: f64,
 }
@@ -1933,8 +2093,8 @@ impl ComplianceReport {
 
 // Re-export ZK proof types from the engine module
 pub use crate::zk_proof_engine::{
-    ZkProof, ProofStatus, CircuitType, VerificationResult,
-    CircuitTemplate, CircuitInput, AgriculturalContext, ZkProofError
+    AgriculturalContext, CircuitInput, CircuitTemplate, CircuitType, ProofStatus,
+    VerificationResult, ZkProof, ZkProofError,
 };
 
 // ============================================================================
@@ -1974,7 +2134,7 @@ impl AdapterType {
             "polygon-arweave" => Ok(AdapterType::PolygonArweave),
             custom if custom.starts_with("custom-") => {
                 Ok(AdapterType::Custom(custom[7..].to_string()))
-            },
+            }
             _ => Err(format!("Unknown adapter type: {}", s)),
         }
     }
@@ -1982,10 +2142,18 @@ impl AdapterType {
     pub fn description(&self) -> &'static str {
         match self {
             AdapterType::IpfsIpfs => "Full IPFS storage - decentralized with no blockchain",
-            AdapterType::StellarTestnetIpfs => "Stellar testnet NFTs + IPFS events - for testing blockchain integration",
-            AdapterType::StellarMainnetIpfs => "Stellar mainnet NFTs + IPFS events - production blockchain + IPFS",
-            AdapterType::EthereumGoerliIpfs => "Ethereum Goerli testnet + IPFS - Ethereum ecosystem testing",
-            AdapterType::PolygonArweave => "Polygon NFTs + Arweave permanent storage - low cost + permanence",
+            AdapterType::StellarTestnetIpfs => {
+                "Stellar testnet NFTs + IPFS events - for testing blockchain integration"
+            }
+            AdapterType::StellarMainnetIpfs => {
+                "Stellar mainnet NFTs + IPFS events - production blockchain + IPFS"
+            }
+            AdapterType::EthereumGoerliIpfs => {
+                "Ethereum Goerli testnet + IPFS - Ethereum ecosystem testing"
+            }
+            AdapterType::PolygonArweave => {
+                "Polygon NFTs + Arweave permanent storage - low cost + permanence"
+            }
             AdapterType::Custom(_) => "Custom adapter configuration",
         }
     }
@@ -2000,10 +2168,18 @@ impl AdapterType {
     pub fn storage_locations(&self) -> (StorageBackendType, StorageBackendType) {
         match self {
             AdapterType::IpfsIpfs => (StorageBackendType::IPFS, StorageBackendType::IPFS),
-            AdapterType::StellarTestnetIpfs => (StorageBackendType::StellarTestnet, StorageBackendType::IPFS),
-            AdapterType::StellarMainnetIpfs => (StorageBackendType::StellarMainnet, StorageBackendType::IPFS),
-            AdapterType::EthereumGoerliIpfs => (StorageBackendType::EthereumGoerli, StorageBackendType::IPFS),
-            AdapterType::PolygonArweave => (StorageBackendType::Polygon, StorageBackendType::Arweave),
+            AdapterType::StellarTestnetIpfs => {
+                (StorageBackendType::StellarTestnet, StorageBackendType::IPFS)
+            }
+            AdapterType::StellarMainnetIpfs => {
+                (StorageBackendType::StellarMainnet, StorageBackendType::IPFS)
+            }
+            AdapterType::EthereumGoerliIpfs => {
+                (StorageBackendType::EthereumGoerli, StorageBackendType::IPFS)
+            }
+            AdapterType::PolygonArweave => {
+                (StorageBackendType::Polygon, StorageBackendType::Arweave)
+            }
             AdapterType::Custom(_) => (StorageBackendType::Custom, StorageBackendType::Custom),
         }
     }
@@ -2397,10 +2573,7 @@ impl TierLimits {
                 max_storage_locations: Some(3),
                 max_api_requests_per_hour: Some(1000),
                 max_workspace_members: Some(10),
-                available_adapters: vec![
-                    AdapterType::IpfsIpfs,
-                    AdapterType::StellarTestnetIpfs,
-                ],
+                available_adapters: vec![AdapterType::IpfsIpfs, AdapterType::StellarTestnetIpfs],
                 can_use_premium_adapters: false,
                 max_audit_retention_days: 90,
                 priority_support: true,
@@ -2453,19 +2626,19 @@ pub struct CreditTransaction {
     pub transaction_type: CreditTransactionType,
     pub description: String,
     pub operation_type: Option<String>, // "item_creation", "circuit_push", etc.
-    pub operation_id: Option<String>, // Associated operation ID
+    pub operation_id: Option<String>,   // Associated operation ID
     pub timestamp: DateTime<Utc>,
     pub balance_after: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CreditTransactionType {
-    Purchase,       // User bought credits
-    Grant,          // Admin granted credits
-    Consumption,    // Credits used for operations
-    Refund,         // Credits refunded
-    Subscription,   // Credits from subscription
-    Penalty,        // Credits deducted as penalty
+    Purchase,     // User bought credits
+    Grant,        // Admin granted credits
+    Consumption,  // Credits used for operations
+    Refund,       // Credits refunded
+    Subscription, // Credits from subscription
+    Penalty,      // Credits deducted as penalty
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2598,7 +2771,8 @@ impl Notification {
         data: serde_json::Value,
     ) -> Self {
         Self {
-            id: format!("NOTIF-{}-{}",
+            id: format!(
+                "NOTIF-{}-{}",
                 Utc::now().format("%Y%m%d%H%M%S"),
                 Uuid::new_v4().to_string()[..8].to_uppercase()
             ),
@@ -2623,10 +2797,10 @@ impl Notification {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AdminRole {
-    SuperAdmin,    // Full system access
-    UserManager,   // User management only
+    SuperAdmin,       // Full system access
+    UserManager,      // User management only
     ContentModerator, // Content oversight
-    SystemMonitor, // Read-only system access
+    SystemMonitor,    // Read-only system access
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

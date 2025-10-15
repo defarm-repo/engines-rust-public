@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::api::shared_state::AppState;
 use crate::api_key_engine::{
-     ApiKeyPermissions, CreateApiKeyRequest, OrganizationType, ApiKeyMetadata
+    ApiKeyMetadata, ApiKeyPermissions, CreateApiKeyRequest, OrganizationType,
 };
 use crate::api_key_middleware::ApiKeyContext;
 use crate::api_key_storage::ApiKeyStorage;
@@ -56,8 +56,11 @@ pub struct ApiKeyListItem {
 
 #[derive(Debug, Serialize)]
 pub struct UsageStatsResponse {
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub total_requests: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub successful_requests: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub failed_requests: u64,
     pub avg_response_time_ms: f64,
     pub last_used_at: Option<String>,
@@ -67,7 +70,9 @@ pub struct UsageStatsResponse {
 #[derive(Debug, Serialize)]
 pub struct DailyUsageItem {
     pub date: String,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub requests: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub errors: u64,
 }
 
@@ -107,7 +112,10 @@ pub async fn create_api_key<S: ApiKeyStorage + 'static>(
         logger.info(
             "api_keys",
             "key_created",
-            format!("New API key created: {} by user {}", stored_key.id, context.user_id),
+            format!(
+                "New API key created: {} by user {}",
+                stored_key.id, context.user_id
+            ),
         );
     }
 

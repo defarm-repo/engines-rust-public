@@ -3,52 +3,61 @@ use axum::{
     http::StatusCode,
     response::Json,
     routing::{get, post, put},
-    Extension,
-    Router,
+    Extension, Router,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
-use crate::api::shared_state::AppState;
+use crate::adapter_manager::AdapterManager;
+use crate::api::auth::validate_password_complexity;
 use crate::api::auth::Claims;
+use crate::api::shared_state::AppState;
+use crate::credit_manager::CreditEngine;
+use crate::logging::LoggingEngine;
 use crate::storage::StorageBackend;
 use crate::types::{
-    UserAccount, UserTier, AccountStatus, CreditTransactionType,
-    AdminAction, AdminActionType, TierLimits, AdapterType,
-    AdapterConnectionDetails, ContractConfigs
+    AccountStatus, AdapterConnectionDetails, AdapterType, AdminAction, AdminActionType,
+    ContractConfigs, CreditTransactionType, TierLimits, UserAccount, UserTier,
 };
-use crate::credit_manager::CreditEngine;
-use crate::adapter_manager::{AdapterManager};
-use crate::logging::LoggingEngine;
 use bcrypt::{hash, DEFAULT_COST};
-use crate::api::auth::validate_password_complexity;
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
 /// Verify that the authenticated user is an admin
-fn verify_admin(claims: &Claims, app_state: &Arc<AppState>) -> Result<(), (StatusCode, Json<Value>)> {
-    let storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+fn verify_admin(
+    claims: &Claims,
+    app_state: &Arc<AppState>,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
     let user = storage
         .get_user_account(&claims.user_id)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Database error: {}", e)}))
-        ))?
-        .ok_or_else(|| (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "User not found"}))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "User not found"})),
+            )
+        })?;
 
     if !user.is_admin {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Admin privileges required"}))
+            Json(json!({"error": "Admin privileges required"})),
         ));
     }
 
@@ -122,12 +131,17 @@ pub struct UserResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminDashboardStats {
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub total_users: u64,
     pub users_by_tier: std::collections::HashMap<String, u64>,
     pub users_by_status: std::collections::HashMap<String, u64>,
+    #[serde(with = "crate::safe_json_numbers::i64_safe")]
     pub total_credits_issued: i64,
+    #[serde(with = "crate::safe_json_numbers::i64_safe")]
     pub total_credits_consumed: i64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub active_users_last_30_days: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub new_users_last_30_days: u64,
     pub generated_at: DateTime<Utc>,
 }
@@ -170,11 +184,13 @@ async fn create_user(
     let user_id = Uuid::new_v4().to_string();
 
     // Hash password with bcrypt
-    let password_hash = hash(&request.password, DEFAULT_COST)
-        .map_err(|e| {
-            tracing::error!("Failed to hash password: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to hash password"})))
-        })?;
+    let password_hash = hash(&request.password, DEFAULT_COST).map_err(|e| {
+        tracing::error!("Failed to hash password: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to hash password"})),
+        )
+    })?;
 
     let user = UserAccount {
         user_id: user_id.clone(),
@@ -194,25 +210,42 @@ async fn create_user(
         available_adapters: None, // Use tier defaults
     };
 
-    let mut storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let mut storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
     // Check if username or email already exists
-    if storage.get_user_by_username(&request.username).unwrap_or(None).is_some() {
+    if storage
+        .get_user_by_username(&request.username)
+        .unwrap_or(None)
+        .is_some()
+    {
         return Ok(Json(json!({
             "success": false,
             "error": "Username already exists"
         })));
     }
 
-    if storage.get_user_by_email(&request.email).unwrap_or(None).is_some() {
+    if storage
+        .get_user_by_email(&request.email)
+        .unwrap_or(None)
+        .is_some()
+    {
         return Ok(Json(json!({
             "success": false,
             "error": "Email already exists"
         })));
     }
 
-    storage.store_user_account(&user).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to store user"}))))?;
+    storage.store_user_account(&user).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to store user"})),
+        )
+    })?;
 
     // Record admin action
     let admin_action = AdminAction {
@@ -224,14 +257,22 @@ async fn create_user(
         details: {
             let mut map = std::collections::HashMap::new();
             map.insert("username".to_string(), serde_json::json!(request.username));
-            map.insert("tier".to_string(), serde_json::json!(format!("{:?}", request.tier)));
+            map.insert(
+                "tier".to_string(),
+                serde_json::json!(format!("{:?}", request.tier)),
+            );
             map
         },
         timestamp: Utc::now(),
         ip_address: None,
     };
 
-    storage.record_admin_action(&admin_action).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to record admin action"}))))?;
+    storage.record_admin_action(&admin_action).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to record admin action"})),
+        )
+    })?;
 
     Ok(Json(json!({
         "success": true,
@@ -245,10 +286,19 @@ async fn get_user(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
-    match storage.get_user_account(&user_id).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))? {
+    match storage.get_user_account(&user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })? {
         Some(user) => {
             let response = UserResponse {
                 user_id: user.user_id,
@@ -274,7 +324,7 @@ async fn get_user(
         None => Ok(Json(json!({
             "success": false,
             "error": "User not found"
-        })))
+        }))),
     }
 }
 
@@ -286,15 +336,26 @@ async fn update_user(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
     let admin_user_id = claims.user_id;
-    let mut storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let mut storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
-    let mut user = match storage.get_user_account(&user_id).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))? {
+    let mut user = match storage.get_user_account(&user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })? {
         Some(user) => user,
-        None => return Ok(Json(json!({
-            "success": false,
-            "error": "User not found"
-        })))
+        None => {
+            return Ok(Json(json!({
+                "success": false,
+                "error": "User not found"
+            })))
+        }
     };
 
     let mut changes = Vec::new();
@@ -337,9 +398,19 @@ async fn update_user(
         if old_adapters != Some(available_adapters.clone()) {
             let old_str = old_adapters
                 .as_ref()
-                .map(|adapters| adapters.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "))
+                .map(|adapters| {
+                    adapters
+                        .iter()
+                        .map(|a| a.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
                 .unwrap_or_else(|| "tier defaults".to_string());
-            let new_str = available_adapters.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", ");
+            let new_str = available_adapters
+                .iter()
+                .map(|a| a.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
             user.available_adapters = Some(available_adapters);
             changes.push(format!("adapters: {} -> {}", old_str, new_str));
         }
@@ -347,7 +418,12 @@ async fn update_user(
 
     user.updated_at = Utc::now();
 
-    storage.update_user_account(&user).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update user"}))))?;
+    storage.update_user_account(&user).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to update user"})),
+        )
+    })?;
 
     // Write-through to PostgreSQL if enabled
     {
@@ -382,7 +458,12 @@ async fn update_user(
         ip_address: None,
     };
 
-    storage.record_admin_action(&admin_action).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to record admin action"}))))?;
+    storage.record_admin_action(&admin_action).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to record admin action"})),
+        )
+    })?;
 
     // Clone user for PostgreSQL persistence
     let user_clone = user.clone();
@@ -398,7 +479,10 @@ async fn update_user(
             if let Err(e) = pg_instance.persist_user(&user_clone).await {
                 tracing::warn!("Failed to persist user update to PostgreSQL: {}", e);
             } else {
-                tracing::info!("User {} tier/adapter update persisted to PostgreSQL", user_clone.username);
+                tracing::info!(
+                    "User {} tier/adapter update persisted to PostgreSQL",
+                    user_clone.username
+                );
             }
         }
     });
@@ -407,9 +491,14 @@ async fn update_user(
     if let Ok(notification_engine) = app_state.notification_engine.lock() {
         // Get admin username for notification
         let admin_username = {
-            let storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-            storage.get_user_account(&admin_user_id)
+            let storage = app_state.shared_storage.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Storage mutex poisoned"})),
+                )
+            })?;
+            storage
+                .get_user_account(&admin_user_id)
                 .ok()
                 .flatten()
                 .map(|u| u.username)
@@ -422,10 +511,13 @@ async fn update_user(
             &changes.join(", "),
         ) {
             // Broadcast via WebSocket
-            let _ = app_state.notification_tx.send(crate::api::notifications::NotificationMessage {
-                msg_type: "notification".to_string(),
-                notification,
-            });
+            let _ =
+                app_state
+                    .notification_tx
+                    .send(crate::api::notifications::NotificationMessage {
+                        msg_type: "notification".to_string(),
+                        notification,
+                    });
         }
     }
 
@@ -443,19 +535,31 @@ async fn freeze_user(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
     let admin_user_id = claims.user_id;
-    let mut storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let mut storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
-    let mut user = match storage.get_user_account(&user_id).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))? {
+    let mut user = match storage.get_user_account(&user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })? {
         Some(user) => user,
-        None => return Ok(Json(json!({
-            "success": false,
-            "error": "User not found"
-        })))
+        None => {
+            return Ok(Json(json!({
+                "success": false,
+                "error": "User not found"
+            })))
+        }
     };
 
     // Get admin username for notification
-    let admin_username = storage.get_user_account(&admin_user_id)
+    let admin_username = storage
+        .get_user_account(&admin_user_id)
         .ok()
         .flatten()
         .map(|u| u.username)
@@ -465,13 +569,18 @@ async fn freeze_user(
     user.status = AccountStatus::Suspended;
     user.updated_at = Utc::now();
 
-    storage.update_user_account(&user).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to freeze user"}))))?;
+    storage.update_user_account(&user).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to freeze user"})),
+        )
+    })?;
 
     // Record admin action
     let admin_action = AdminAction {
         action_id: Uuid::new_v4().to_string(),
         admin_user_id: admin_user_id.clone(),
-        action_type: AdminActionType::UserDeleted,  // Keeping same action type for audit compatibility
+        action_type: AdminActionType::UserDeleted, // Keeping same action type for audit compatibility
         target_user_id: Some(user_id.clone()),
         target_resource_id: None,
         details: {
@@ -484,7 +593,12 @@ async fn freeze_user(
         ip_address: None,
     };
 
-    storage.record_admin_action(&admin_action).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to record admin action"}))))?;
+    storage.record_admin_action(&admin_action).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to record admin action"})),
+        )
+    })?;
 
     // Clone user for PostgreSQL persistence
     let user_clone = user.clone();
@@ -500,7 +614,10 @@ async fn freeze_user(
             if let Err(e) = pg_instance.persist_user(&user_clone).await {
                 tracing::warn!("Failed to persist frozen user to PostgreSQL: {}", e);
             } else {
-                tracing::info!("User {} freeze status persisted to PostgreSQL", user_clone.username);
+                tracing::info!(
+                    "User {} freeze status persisted to PostgreSQL",
+                    user_clone.username
+                );
             }
         }
     });
@@ -513,10 +630,13 @@ async fn freeze_user(
             "Account has been frozen by administrator",
         ) {
             // Broadcast via WebSocket
-            let _ = app_state.notification_tx.send(crate::api::notifications::NotificationMessage {
-                msg_type: "notification".to_string(),
-                notification,
-            });
+            let _ =
+                app_state
+                    .notification_tx
+                    .send(crate::api::notifications::NotificationMessage {
+                        msg_type: "notification".to_string(),
+                        notification,
+                    });
         }
     }
 
@@ -533,19 +653,31 @@ async fn unfreeze_user(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
     let admin_user_id = claims.user_id;
-    let mut storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let mut storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
-    let mut user = match storage.get_user_account(&user_id).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))? {
+    let mut user = match storage.get_user_account(&user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })? {
         Some(user) => user,
-        None => return Ok(Json(json!({
-            "success": false,
-            "error": "User not found"
-        })))
+        None => {
+            return Ok(Json(json!({
+                "success": false,
+                "error": "User not found"
+            })))
+        }
     };
 
     // Get admin username for notification
-    let admin_username = storage.get_user_account(&admin_user_id)
+    let admin_username = storage
+        .get_user_account(&admin_user_id)
         .ok()
         .flatten()
         .map(|u| u.username)
@@ -555,7 +687,12 @@ async fn unfreeze_user(
     user.status = AccountStatus::Active;
     user.updated_at = Utc::now();
 
-    storage.update_user_account(&user).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to unfreeze user"}))))?;
+    storage.update_user_account(&user).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to unfreeze user"})),
+        )
+    })?;
 
     // Record admin action
     let admin_action = AdminAction {
@@ -574,7 +711,12 @@ async fn unfreeze_user(
         ip_address: None,
     };
 
-    storage.record_admin_action(&admin_action).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to record admin action"}))))?;
+    storage.record_admin_action(&admin_action).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to record admin action"})),
+        )
+    })?;
 
     // Clone user for PostgreSQL persistence
     let user_clone = user.clone();
@@ -590,22 +732,27 @@ async fn unfreeze_user(
             if let Err(e) = pg_instance.persist_user(&user_clone).await {
                 tracing::warn!("Failed to persist unfrozen user to PostgreSQL: {}", e);
             } else {
-                tracing::info!("User {} unfreeze status persisted to PostgreSQL", user_clone.username);
+                tracing::info!(
+                    "User {} unfreeze status persisted to PostgreSQL",
+                    user_clone.username
+                );
             }
         }
     });
 
     // Send notification to affected user
     if let Ok(notification_engine) = app_state.notification_engine.lock() {
-        if let Ok(notification) = notification_engine.create_account_unfrozen_notification(
-            &user_id,
-            &admin_username,
-        ) {
+        if let Ok(notification) =
+            notification_engine.create_account_unfrozen_notification(&user_id, &admin_username)
+        {
             // Broadcast via WebSocket
-            let _ = app_state.notification_tx.send(crate::api::notifications::NotificationMessage {
-                msg_type: "notification".to_string(),
-                notification,
-            });
+            let _ =
+                app_state
+                    .notification_tx
+                    .send(crate::api::notifications::NotificationMessage {
+                        msg_type: "notification".to_string(),
+                        notification,
+                    });
         }
     }
 
@@ -621,10 +768,19 @@ async fn list_users(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
-    let storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
-    let users = storage.list_user_accounts().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
+    let users = storage.list_user_accounts().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })?;
 
     // Apply filters
     let filtered_users: Vec<UserResponse> = users
@@ -695,11 +851,18 @@ async fn adjust_user_credits(
 
     let description = format!("{} (Admin: {})", request.reason, request.amount);
 
-    match credit_engine.add_credits(&user_id, request.amount, &description).await {
+    match credit_engine
+        .add_credits(&user_id, request.amount, &description)
+        .await
+    {
         Ok(()) => {
             // Record admin action
-            let mut storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+            let mut storage = app_state.shared_storage.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Storage mutex poisoned"})),
+                )
+            })?;
             let admin_action = AdminAction {
                 action_id: Uuid::new_v4().to_string(),
                 admin_user_id: admin_user_id.clone(),
@@ -716,15 +879,27 @@ async fn adjust_user_credits(
                 ip_address: None,
             };
 
-            storage.record_admin_action(&admin_action).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to record admin action"}))))?;
+            storage.record_admin_action(&admin_action).map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Failed to record admin action"})),
+                )
+            })?;
 
             // Get updated user balance and admin username for notification
             let (new_balance, admin_username) = {
-                let user = storage.get_user_account(&user_id)
+                let user = storage
+                    .get_user_account(&user_id)
                     .ok()
                     .flatten()
-                    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))))?;
-                let admin = storage.get_user_account(&admin_user_id)
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::NOT_FOUND,
+                            Json(json!({"error": "User not found"})),
+                        )
+                    })?;
+                let admin = storage
+                    .get_user_account(&admin_user_id)
                     .ok()
                     .flatten()
                     .map(|u| u.username)
@@ -732,7 +907,7 @@ async fn adjust_user_credits(
                 (user.credits, admin)
             };
 
-            drop(storage);  // Release storage lock before notification
+            drop(storage); // Release storage lock before notification
 
             // Send notification to affected user
             if let Ok(notification_engine) = app_state.notification_engine.lock() {
@@ -744,10 +919,12 @@ async fn adjust_user_credits(
                     new_balance,
                 ) {
                     // Broadcast via WebSocket
-                    let _ = app_state.notification_tx.send(crate::api::notifications::NotificationMessage {
-                        msg_type: "notification".to_string(),
-                        notification,
-                    });
+                    let _ = app_state.notification_tx.send(
+                        crate::api::notifications::NotificationMessage {
+                            msg_type: "notification".to_string(),
+                            notification,
+                        },
+                    );
                 }
             }
 
@@ -760,7 +937,7 @@ async fn adjust_user_credits(
         Err(e) => Ok(Json(json!({
             "success": false,
             "error": format!("Failed to adjust credits: {}", e)
-        })))
+        }))),
     }
 }
 
@@ -777,15 +954,22 @@ async fn bulk_grant_credits(
     let mut failed = Vec::new();
 
     for user_id in &request.user_ids {
-        match credit_engine.add_credits(user_id, request.amount, &request.reason).await {
+        match credit_engine
+            .add_credits(user_id, request.amount, &request.reason)
+            .await
+        {
             Ok(()) => successful.push(user_id.clone()),
             Err(e) => failed.push((user_id.clone(), e.to_string())),
         }
     }
 
     // Record admin action
-    let mut storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let mut storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
     let admin_action = AdminAction {
         action_id: Uuid::new_v4().to_string(),
         admin_user_id,
@@ -795,9 +979,15 @@ async fn bulk_grant_credits(
         details: {
             let mut map = std::collections::HashMap::new();
             map.insert("amount".to_string(), serde_json::json!(request.amount));
-            map.insert("user_count".to_string(), serde_json::json!(request.user_ids.len()));
+            map.insert(
+                "user_count".to_string(),
+                serde_json::json!(request.user_ids.len()),
+            );
             map.insert("reason".to_string(), serde_json::json!(request.reason));
-            map.insert("successful_count".to_string(), serde_json::json!(successful.len()));
+            map.insert(
+                "successful_count".to_string(),
+                serde_json::json!(successful.len()),
+            );
             map.insert("failed_count".to_string(), serde_json::json!(failed.len()));
             map
         },
@@ -805,7 +995,12 @@ async fn bulk_grant_credits(
         ip_address: None,
     };
 
-    storage.record_admin_action(&admin_action).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to record admin action"}))))?;
+    storage.record_admin_action(&admin_action).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to record admin action"})),
+        )
+    })?;
 
     Ok(Json(json!({
         "success": true,
@@ -827,11 +1022,15 @@ async fn get_user_credit_history(
     verify_admin(&claims, &app_state)?;
     let credit_engine = CreditEngine::new(Arc::clone(&app_state.shared_storage));
 
-    let limit = params.get("limit")
+    let limit = params
+        .get("limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(50);
 
-    match credit_engine.get_credit_history(&user_id, Some(limit)).await {
+    match credit_engine
+        .get_credit_history(&user_id, Some(limit))
+        .await
+    {
         Ok(transactions) => Ok(Json(json!({
             "success": true,
             "user_id": user_id,
@@ -841,7 +1040,7 @@ async fn get_user_credit_history(
         Err(e) => Ok(Json(json!({
             "success": false,
             "error": format!("Failed to get credit history: {}", e)
-        })))
+        }))),
     }
 }
 
@@ -850,10 +1049,19 @@ async fn get_admin_dashboard_stats(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
-    let storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
-    let users = storage.list_user_accounts().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
+    let users = storage.list_user_accounts().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })?;
 
     let mut users_by_tier = std::collections::HashMap::new();
     let mut users_by_status = std::collections::HashMap::new();
@@ -885,13 +1093,24 @@ async fn get_admin_dashboard_stats(
     }
 
     // Calculate credit statistics
-    let credit_transactions = storage.get_credit_transactions_by_operation("").unwrap_or_default();
-    let total_credits_issued: i64 = credit_transactions.iter()
-        .filter(|t| matches!(t.transaction_type, CreditTransactionType::Purchase | CreditTransactionType::Grant | CreditTransactionType::Subscription))
+    let credit_transactions = storage
+        .get_credit_transactions_by_operation("")
+        .unwrap_or_default();
+    let total_credits_issued: i64 = credit_transactions
+        .iter()
+        .filter(|t| {
+            matches!(
+                t.transaction_type,
+                CreditTransactionType::Purchase
+                    | CreditTransactionType::Grant
+                    | CreditTransactionType::Subscription
+            )
+        })
         .map(|t| t.amount)
         .sum();
 
-    let total_credits_consumed: i64 = credit_transactions.iter()
+    let total_credits_consumed: i64 = credit_transactions
+        .iter()
         .filter(|t| matches!(t.transaction_type, CreditTransactionType::Consumption))
         .map(|t| -t.amount) // Consumption amounts are negative
         .sum();
@@ -919,11 +1138,16 @@ async fn get_admin_actions(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
-    let storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
     let admin_id = params.get("admin_id").map(|s| s.as_str());
-    let limit = params.get("limit")
+    let limit = params
+        .get("limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(100);
 
@@ -936,7 +1160,7 @@ async fn get_admin_actions(
         Err(e) => Ok(Json(json!({
             "success": false,
             "error": format!("Failed to get admin actions: {}", e)
-        })))
+        }))),
     }
 }
 
@@ -963,19 +1187,15 @@ async fn create_adapter_config(
         request.contract_configs,
         claims.user_id,
     ) {
-        Ok(config) => {
-            Ok(Json(json!({
-                "success": true,
-                "message": "Adapter configuration created successfully",
-                "config": config
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": e.to_string()
-            })))
-        }
+        Ok(config) => Ok(Json(json!({
+            "success": true,
+            "message": "Adapter configuration created successfully",
+            "config": config
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": e.to_string()
+        }))),
     }
 }
 
@@ -989,24 +1209,21 @@ async fn list_adapter_configs(
     let logger = LoggingEngine::new();
     let adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
-    let active_only = params.get("active_only")
+    let active_only = params
+        .get("active_only")
         .and_then(|s| s.parse::<bool>().ok())
         .unwrap_or(false);
 
     match adapter_manager.list_adapters(active_only) {
-        Ok(configs) => {
-            Ok(Json(json!({
-                "success": true,
-                "configs": configs,
-                "count": configs.len()
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": e.to_string()
-            })))
-        }
+        Ok(configs) => Ok(Json(json!({
+            "success": true,
+            "configs": configs,
+            "count": configs.len()
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": e.to_string()
+        }))),
     }
 }
 
@@ -1017,25 +1234,25 @@ async fn get_adapter_config(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
 
-    let config_uuid = Uuid::parse_str(&config_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
+    let config_uuid = Uuid::parse_str(&config_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid UUID format"})),
+        )
+    })?;
 
     let logger = LoggingEngine::new();
     let adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
     match adapter_manager.get_adapter_config(&config_uuid) {
-        Ok(config) => {
-            Ok(Json(json!({
-                "success": true,
-                "config": config
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": e.to_string()
-            })))
-        }
+        Ok(config) => Ok(Json(json!({
+            "success": true,
+            "config": config
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": e.to_string()
+        }))),
     }
 }
 
@@ -1047,8 +1264,12 @@ async fn update_adapter_config(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
 
-    let config_uuid = Uuid::parse_str(&config_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
+    let config_uuid = Uuid::parse_str(&config_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid UUID format"})),
+        )
+    })?;
 
     let logger = LoggingEngine::new();
     let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
@@ -1061,19 +1282,15 @@ async fn update_adapter_config(
         request.contract_configs,
         request.is_active,
     ) {
-        Ok(config) => {
-            Ok(Json(json!({
-                "success": true,
-                "message": "Adapter configuration updated successfully",
-                "config": config
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": e.to_string()
-            })))
-        }
+        Ok(config) => Ok(Json(json!({
+            "success": true,
+            "message": "Adapter configuration updated successfully",
+            "config": config
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": e.to_string()
+        }))),
     }
 }
 
@@ -1084,25 +1301,25 @@ async fn delete_adapter_config(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
 
-    let config_uuid = Uuid::parse_str(&config_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
+    let config_uuid = Uuid::parse_str(&config_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid UUID format"})),
+        )
+    })?;
 
     let logger = LoggingEngine::new();
     let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
     match adapter_manager.delete_adapter_config(&config_uuid) {
-        Ok(()) => {
-            Ok(Json(json!({
-                "success": true,
-                "message": "Adapter configuration deleted successfully"
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": e.to_string()
-            })))
-        }
+        Ok(()) => Ok(Json(json!({
+            "success": true,
+            "message": "Adapter configuration deleted successfully"
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": e.to_string()
+        }))),
     }
 }
 
@@ -1113,25 +1330,25 @@ async fn set_default_adapter(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     verify_admin(&claims, &app_state)?;
 
-    let config_uuid = Uuid::parse_str(&config_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
+    let config_uuid = Uuid::parse_str(&config_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid UUID format"})),
+        )
+    })?;
 
     let logger = LoggingEngine::new();
     let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
     match adapter_manager.set_default_adapter(&config_uuid) {
-        Ok(()) => {
-            Ok(Json(json!({
-                "success": true,
-                "message": "Default adapter set successfully"
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": e.to_string()
-            })))
-        }
+        Ok(()) => Ok(Json(json!({
+            "success": true,
+            "message": "Default adapter set successfully"
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": e.to_string()
+        }))),
     }
 }
 
@@ -1166,17 +1383,29 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
         .route("/users/:user_id/freeze", put(freeze_user))
         .route("/users/:user_id/unfreeze", put(unfreeze_user))
         .route("/users/:user_id/credits", post(adjust_user_credits))
-        .route("/users/:user_id/credits/history", get(get_user_credit_history))
+        .route(
+            "/users/:user_id/credits/history",
+            get(get_user_credit_history),
+        )
         .route("/users/credits/bulk-grant", post(bulk_grant_credits))
-
         // Dashboard and monitoring
         .route("/dashboard/stats", get(get_admin_dashboard_stats))
         .route("/actions", get(get_admin_actions))
-
         // Adapter configuration management
-        .route("/adapters", get(list_adapter_configs).post(create_adapter_config))
-        .route("/adapters/:config_id", get(get_adapter_config).put(update_adapter_config).delete(delete_adapter_config))
-        .route("/adapters/:config_id/set-default", post(set_default_adapter))
-        // TODO: Add test endpoint once async handler issue is resolved
-        // .route("/adapters/:config_id/test", post(test_adapter_config))
+        .route(
+            "/adapters",
+            get(list_adapter_configs).post(create_adapter_config),
+        )
+        .route(
+            "/adapters/:config_id",
+            get(get_adapter_config)
+                .put(update_adapter_config)
+                .delete(delete_adapter_config),
+        )
+        .route(
+            "/adapters/:config_id/set-default",
+            post(set_default_adapter),
+        )
+    // TODO: Add test endpoint once async handler issue is resolved
+    // .route("/adapters/:config_id/test", post(test_adapter_config))
 }

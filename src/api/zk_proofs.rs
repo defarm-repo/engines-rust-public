@@ -2,20 +2,18 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
-    routing::{get, post, delete},
+    routing::{delete, get, post},
     Router,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
-use crate::zk_proof_engine::{
-    ZkProofEngine, ZkProof, ProofStatus, CircuitType
-};
 use crate::api::shared_state::AppState;
+use crate::zk_proof_engine::{CircuitType, ProofStatus, ZkProof, ZkProofEngine};
 
 // API Request/Response types
 #[derive(Debug, Deserialize)]
@@ -39,9 +37,13 @@ pub struct ZkProofQuery {
 
 #[derive(Debug, Serialize)]
 pub struct ZkProofStatistics {
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub total_proofs: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub pending_proofs: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub verified_proofs: u64,
+    #[serde(with = "crate::safe_json_numbers::u64_safe")]
     pub failed_proofs: u64,
     pub proof_types: HashMap<String, u64>,
 }
@@ -87,7 +89,7 @@ impl From<ZkProof> for ZkProofResponse {
             proof_data: Some(String::from_utf8_lossy(&proof.proof_data).to_string()),
             verification_result: proof.verification_result.map(|vr| vr.is_valid),
             error_message: None, // ZkProof doesn't have error_message field
-            metadata: None, // ZkProof doesn't have metadata field
+            metadata: None,      // ZkProof doesn't have metadata field
             created_at: proof.created_at,
             updated_at: proof.created_at, // Use created_at as updated_at since ZkProof doesn't have updated_at
         }
@@ -110,20 +112,18 @@ async fn submit_proof(
         user_id,
         request.circuit_input,
         request.private_inputs,
-None
+        None,
     ) {
-        Ok(proof_id) => {
-            Ok(Json(json!({
-                "success": true,
-                "proof_id": proof_id,
-                "message": "Proof submitted successfully"
-            })))
-        }
+        Ok(proof_id) => Ok(Json(json!({
+            "success": true,
+            "proof_id": proof_id,
+            "message": "Proof submitted successfully"
+        }))),
         Err(e) => {
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "submit_proof_error",
-                &format!("Error submitting proof: {:?}", e)
+                &format!("Error submitting proof: {:?}", e),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -139,17 +139,15 @@ async fn verify_proof(
     let verifier_id = "anonymous_verifier".to_string();
 
     match zk_engine.verify_proof(request.proof_id, verifier_id) {
-        Ok(verification_result) => {
-            Ok(Json(json!({
-                "success": true,
-                "verification_result": verification_result
-            })))
-        }
+        Ok(verification_result) => Ok(Json(json!({
+            "success": true,
+            "verification_result": verification_result
+        }))),
         Err(e) => {
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "verify_proof_error",
-                &format!("Error verifying proof: {:?}", e)
+                &format!("Error verifying proof: {:?}", e),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -175,7 +173,7 @@ async fn get_proof(
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "get_proof_error",
-                &format!("Error getting proof: {:?}", e)
+                &format!("Error getting proof: {:?}", e),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -226,7 +224,8 @@ async fn list_proofs(
 
     match zk_engine.query_proofs(&query) {
         Ok(proofs) => {
-            let responses: Vec<ZkProofResponse> = proofs.into_iter().map(ZkProofResponse::from).collect();
+            let responses: Vec<ZkProofResponse> =
+                proofs.into_iter().map(ZkProofResponse::from).collect();
             Ok(Json(json!({
                 "success": true,
                 "proofs": responses,
@@ -237,7 +236,7 @@ async fn list_proofs(
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "list_proofs_error",
-                &format!("Error querying proofs: {:?}", e)
+                &format!("Error querying proofs: {:?}", e),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -250,17 +249,15 @@ async fn get_proof_statistics(
     let zk_engine = ZkProofEngine::new(Arc::clone(&app_state.shared_storage));
 
     match zk_engine.get_statistics() {
-        Ok(stats) => {
-            Ok(Json(json!({
-                "success": true,
-                "statistics": stats
-            })))
-        }
+        Ok(stats) => Ok(Json(json!({
+            "success": true,
+            "statistics": stats
+        }))),
         Err(e) => {
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "get_stats_error",
-                &format!("Error getting proof statistics: {:?}", e)
+                &format!("Error getting proof statistics: {:?}", e),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -274,17 +271,15 @@ async fn delete_proof(
     let zk_engine = ZkProofEngine::new(Arc::clone(&app_state.shared_storage));
 
     match zk_engine.delete_proof(&proof_id) {
-        Ok(()) => {
-            Ok(Json(json!({
-                "success": true,
-                "message": "Proof deleted successfully"
-            })))
-        }
+        Ok(()) => Ok(Json(json!({
+            "success": true,
+            "message": "Proof deleted successfully"
+        }))),
         Err(e) => {
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "delete_proof_error",
-                &format!("Error deleting proof: {:?}", e)
+                &format!("Error deleting proof: {:?}", e),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
