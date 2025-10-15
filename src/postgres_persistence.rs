@@ -7,8 +7,10 @@
 /// - Circuit breaker pattern for failed connections
 /// - Background sync from in-memory to PostgreSQL
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep, timeout};
 
 use chrono::{DateTime, Utc};
@@ -25,8 +27,9 @@ pub struct PostgresPersistence {
     pool: Option<Pool>,
     database_url: String,
     connection_state: Arc<tokio::sync::RwLock<ConnectionState>>,
+    queue_tx: mpsc::Sender<PersistJob>,
+    metrics: Arc<PersistMetrics>,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ConnectionState {
@@ -36,15 +39,81 @@ enum ConnectionState {
     CircuitOpen,
 }
 
+const PERSIST_QUEUE_CAPACITY: usize = 512;
+
+#[derive(Debug, Default)]
+struct PersistMetrics {
+    total_attempts: AtomicU64,
+    total_successes: AtomicU64,
+    total_failures: AtomicU64,
+    total_retries: AtomicU64,
+}
+
+impl PersistMetrics {
+    fn snapshot(&self) -> PersistMetricsSnapshot {
+        PersistMetricsSnapshot {
+            total_attempts: self.total_attempts.load(Ordering::Relaxed),
+            total_successes: self.total_successes.load(Ordering::Relaxed),
+            total_failures: self.total_failures.load(Ordering::Relaxed),
+            total_retries: self.total_retries.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct PersistMetricsSnapshot {
+    pub total_attempts: u64,
+    pub total_successes: u64,
+    pub total_failures: u64,
+    pub total_retries: u64,
+}
+
+#[derive(Clone)]
+enum PersistCommand {
+    Circuit(Circuit),
+    User(UserAccount),
+    Item(Item),
+    Event(Event),
+    LidMapping { local_id: Uuid, dfid: String },
+    CircuitOperation(CircuitOperation),
+    Activity(Activity),
+    StorageRecord { dfid: String, record: StorageRecord },
+    AdapterConfig(AdapterConfig),
+    WebhookConfig(WebhookConfig),
+}
+
+struct PersistJob {
+    operation: &'static str,
+    command: Arc<PersistCommand>,
+    response: oneshot::Sender<Result<(), String>>,
+}
+
 impl PostgresPersistence {
     /// Create a new PostgreSQL persistence layer
     /// This does NOT connect immediately - connection is lazy
     pub fn new(database_url: String) -> Self {
-        Self {
+        let (queue_tx, queue_rx) = mpsc::channel(PERSIST_QUEUE_CAPACITY);
+        let persistence = Self {
             pool: None,
             database_url,
             connection_state: Arc::new(tokio::sync::RwLock::new(ConnectionState::Connecting)),
+            queue_tx: queue_tx.clone(),
+            metrics: Arc::new(PersistMetrics::default()),
+        };
+
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let worker = persistence.clone();
+            tokio::spawn(async move {
+                worker.queue_worker(queue_rx).await;
+            });
+        } else {
+            tracing::warn!(
+                "Tokio runtime not initialized; persistence queue worker not started. \
+                 Persistence operations will run inline if needed."
+            );
         }
+
+        persistence
     }
 
     /// Initialize the connection pool with retry logic
@@ -222,12 +291,18 @@ impl PostgresPersistence {
         let mut attempt: u8 = 0;
         let mut last_error: Option<String> = None;
 
+        self.metrics.total_attempts.fetch_add(1, Ordering::Relaxed);
+
         while attempt < MAX_ATTEMPTS {
             attempt += 1;
 
             match task().await {
                 Ok(result) => {
+                    self.metrics.total_successes.fetch_add(1, Ordering::Relaxed);
                     if attempt > 1 {
+                        self.metrics
+                            .total_retries
+                            .fetch_add((attempt as u64) - 1, Ordering::Relaxed);
                         tracing::info!("✅ {} succeeded on attempt {}", operation, attempt);
                     }
                     return Ok(result);
@@ -236,6 +311,7 @@ impl PostgresPersistence {
                     last_error = Some(err.clone());
 
                     if attempt >= MAX_ATTEMPTS {
+                        self.metrics.total_failures.fetch_add(1, Ordering::Relaxed);
                         tracing::error!(
                             "❌ {} failed after {} attempts: {}",
                             operation,
@@ -244,6 +320,8 @@ impl PostgresPersistence {
                         );
                         return Err(err);
                     }
+
+                    self.metrics.total_retries.fetch_add(1, Ordering::Relaxed);
 
                     let backoff = Duration::from_millis((attempt as u64).pow(2) * 100);
                     tracing::warn!(
@@ -261,12 +339,114 @@ impl PostgresPersistence {
         Err(last_error.unwrap_or_else(|| "Unknown persistence error".to_string()))
     }
 
+    pub fn metrics_snapshot(&self) -> PersistMetricsSnapshot {
+        self.metrics.snapshot()
+    }
+
+    async fn enqueue_persist(
+        &self,
+        operation: &'static str,
+        command: PersistCommand,
+    ) -> Result<(), String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        let command_arc = Arc::new(command);
+        let job = PersistJob {
+            operation,
+            command: command_arc.clone(),
+            response: response_tx,
+        };
+
+        if self.queue_tx.send(job).await.is_err() {
+            tracing::warn!(
+                "Persistence queue unavailable for {} — executing inline",
+                operation
+            );
+            let persistence_clone = self.clone();
+            return self
+                .execute_with_retry(operation, move || {
+                    let this = persistence_clone.clone();
+                    let command = command_arc.clone();
+                    async move { this.process_command_once(command.as_ref()).await }
+                })
+                .await;
+        }
+
+        match response_rx.await {
+            Ok(result) => result,
+            Err(_) => {
+                tracing::error!(
+                    "Persistence worker dropped response channel for {}",
+                    operation
+                );
+                Err("Persistence worker unavailable".to_string())
+            }
+        }
+    }
+
+    async fn process_command_once(&self, command: &PersistCommand) -> Result<(), String> {
+        match command {
+            PersistCommand::Circuit(circuit) => self.persist_circuit_once(circuit).await,
+            PersistCommand::User(user) => self.persist_user_once(user).await,
+            PersistCommand::Item(item) => self.persist_item_once(item).await,
+            PersistCommand::Event(event) => self.persist_event_once(event).await,
+            PersistCommand::LidMapping { local_id, dfid } => {
+                self.persist_lid_dfid_mapping_once(local_id, dfid).await
+            }
+            PersistCommand::CircuitOperation(operation) => {
+                self.persist_circuit_operation_once(operation).await
+            }
+            PersistCommand::Activity(activity) => self.persist_activity_once(activity).await,
+            PersistCommand::StorageRecord { dfid, record } => {
+                self.persist_storage_record_once(dfid, record).await
+            }
+            PersistCommand::AdapterConfig(config) => self.persist_adapter_config_once(config).await,
+            PersistCommand::WebhookConfig(webhook) => {
+                self.persist_webhook_config_once(webhook).await
+            }
+        }
+    }
+
+    async fn queue_worker(self, mut rx: mpsc::Receiver<PersistJob>) {
+        while let Some(job) = rx.recv().await {
+            let PersistJob {
+                operation,
+                command,
+                response,
+            } = job;
+
+            let this = self.clone();
+            let command_clone = command.clone();
+
+            let result = self
+                .execute_with_retry(operation, move || {
+                    let this = this.clone();
+                    let command = command_clone.clone();
+                    async move { this.process_command_once(command.as_ref()).await }
+                })
+                .await;
+
+            if let Err(ref err) = result {
+                tracing::error!(
+                    "❌ Persistence operation {} failed after retries: {}",
+                    operation,
+                    err
+                );
+            }
+
+            if response.send(result).is_err() {
+                tracing::warn!(
+                    "Persistence response receiver dropped for operation {}",
+                    operation
+                );
+            }
+        }
+
+        tracing::warn!("Persistence queue worker terminated");
+    }
     /// Persist a circuit to PostgreSQL
     pub async fn persist_circuit(&self, circuit: &Circuit) -> Result<(), String> {
-        self.execute_with_retry("persist_circuit", || async {
-            self.persist_circuit_once(circuit).await
-        })
-        .await
+        self.enqueue_persist("persist_circuit", PersistCommand::Circuit(circuit.clone()))
+            .await
     }
 
     async fn persist_circuit_once(&self, circuit: &Circuit) -> Result<(), String> {
@@ -447,10 +627,8 @@ impl PostgresPersistence {
 
     /// Persist user account to PostgreSQL
     pub async fn persist_user(&self, user: &UserAccount) -> Result<(), String> {
-        self.execute_with_retry("persist_user", || async {
-            self.persist_user_once(user).await
-        })
-        .await
+        self.enqueue_persist("persist_user", PersistCommand::User(user.clone()))
+            .await
     }
 
     async fn persist_user_once(&self, user: &UserAccount) -> Result<(), String> {
@@ -577,10 +755,8 @@ impl PostgresPersistence {
 
     /// Persist item to PostgreSQL (write-through cache)
     pub async fn persist_item(&self, item: &crate::types::Item) -> Result<(), String> {
-        self.execute_with_retry("persist_item", || async {
-            self.persist_item_once(item).await
-        })
-        .await
+        self.enqueue_persist("persist_item", PersistCommand::Item(item.clone()))
+            .await
     }
 
     async fn persist_item_once(&self, item: &crate::types::Item) -> Result<(), String> {
@@ -668,10 +844,8 @@ impl PostgresPersistence {
 
     /// Persist event to PostgreSQL (write-through cache)
     pub async fn persist_event(&self, event: &crate::types::Event) -> Result<(), String> {
-        self.execute_with_retry("persist_event", || async {
-            self.persist_event_once(event).await
-        })
-        .await
+        self.enqueue_persist("persist_event", PersistCommand::Event(event.clone()))
+            .await
     }
 
     async fn persist_event_once(&self, event: &crate::types::Event) -> Result<(), String> {
@@ -792,9 +966,13 @@ impl PostgresPersistence {
         local_id: &Uuid,
         dfid: &str,
     ) -> Result<(), String> {
-        self.execute_with_retry("persist_lid_dfid_mapping", || async {
-            self.persist_lid_dfid_mapping_once(local_id, dfid).await
-        })
+        self.enqueue_persist(
+            "persist_lid_dfid_mapping",
+            PersistCommand::LidMapping {
+                local_id: *local_id,
+                dfid: dfid.to_string(),
+            },
+        )
         .await
     }
 
@@ -854,9 +1032,10 @@ impl PostgresPersistence {
         &self,
         operation: &CircuitOperation,
     ) -> Result<(), String> {
-        self.execute_with_retry("persist_circuit_operation", || async {
-            self.persist_circuit_operation_once(operation).await
-        })
+        self.enqueue_persist(
+            "persist_circuit_operation",
+            PersistCommand::CircuitOperation(operation.clone()),
+        )
         .await
     }
 
@@ -954,9 +1133,10 @@ impl PostgresPersistence {
 
     /// Persist activity to PostgreSQL
     pub async fn persist_activity(&self, activity: &Activity) -> Result<(), String> {
-        self.execute_with_retry("persist_activity", || async {
-            self.persist_activity_once(activity).await
-        })
+        self.enqueue_persist(
+            "persist_activity",
+            PersistCommand::Activity(activity.clone()),
+        )
         .await
     }
 
@@ -1084,9 +1264,13 @@ impl PostgresPersistence {
         dfid: &str,
         record: &StorageRecord,
     ) -> Result<(), String> {
-        self.execute_with_retry("persist_storage_record", || async {
-            self.persist_storage_record_once(dfid, record).await
-        })
+        self.enqueue_persist(
+            "persist_storage_record",
+            PersistCommand::StorageRecord {
+                dfid: dfid.to_string(),
+                record: record.clone(),
+            },
+        )
         .await
     }
 
@@ -1202,9 +1386,10 @@ impl PostgresPersistence {
 
     /// Persist adapter config to PostgreSQL
     pub async fn persist_adapter_config(&self, config: &AdapterConfig) -> Result<(), String> {
-        self.execute_with_retry("persist_adapter_config", || async {
-            self.persist_adapter_config_once(config).await
-        })
+        self.enqueue_persist(
+            "persist_adapter_config",
+            PersistCommand::AdapterConfig(config.clone()),
+        )
         .await
     }
 
@@ -1326,9 +1511,10 @@ impl PostgresPersistence {
 
     /// Persist webhook config to PostgreSQL
     pub async fn persist_webhook_config(&self, webhook: &WebhookConfig) -> Result<(), String> {
-        self.execute_with_retry("persist_webhook_config", || async {
-            self.persist_webhook_config_once(webhook).await
-        })
+        self.enqueue_persist(
+            "persist_webhook_config",
+            PersistCommand::WebhookConfig(webhook.clone()),
+        )
         .await
     }
 
