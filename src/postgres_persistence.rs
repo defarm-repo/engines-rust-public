@@ -377,10 +377,24 @@ impl PostgresPersistence {
             AccountStatus::TrialExpired => "TrialExpired",
         };
 
-        // Serialize available_adapters as TEXT array for PostgreSQL
-        // Use Display format (to_string) for proper round-trip with from_string()
-        let adapters_array: Option<Vec<String>> = user.available_adapters.as_ref()
-            .map(|adapters| adapters.iter().map(|a| a.to_string()).collect());
+        // Serialize available adapters for PostgreSQL.
+        // If no explicit overrides are set, persist the tier defaults so the table
+        // reflects the adapters actually granted to the user.
+        let adapters_to_persist: Vec<String> = match user.available_adapters.as_ref() {
+            Some(custom) => custom.iter().map(|adapter| adapter.to_string()).collect(),
+            None => user
+                .limits
+                .available_adapters
+                .iter()
+                .map(|adapter| adapter.to_string())
+                .collect(),
+        };
+
+        let adapters_array: Option<Vec<String>> = if adapters_to_persist.is_empty() {
+            None
+        } else {
+            Some(adapters_to_persist)
+        };
 
         client.execute(
             "INSERT INTO user_accounts (
@@ -396,7 +410,8 @@ impl PostgresPersistence {
                 is_admin = EXCLUDED.is_admin,
                 workspace_id = EXCLUDED.workspace_id,
                 last_login_ts = EXCLUDED.last_login_ts,
-                available_adapters = EXCLUDED.available_adapters",
+                available_adapters = EXCLUDED.available_adapters,
+                updated_at = NOW()",
             &[
                 &user.user_id,
                 &user.username,
@@ -593,6 +608,10 @@ impl PostgresPersistence {
         let last_login_ts: Option<i64> = row.get("last_login_ts");
         let credits: i64 = row.get("credits");
 
+        // Calculate limits before moving tier
+        let limits = TierLimits::for_tier(&tier);
+        let default_adapters = limits.available_adapters.clone();
+
         // Deserialize available_adapters from TEXT array
         // Parse adapter strings back to AdapterType enum using from_string()
         let adapters_str: Option<Vec<String>> = row.get("available_adapters");
@@ -611,16 +630,13 @@ impl PostgresPersistence {
                     })
                     .collect();
 
-                if parsed.is_empty() {
-                    None  // All parsing failed, use tier defaults
+                if parsed.is_empty() || parsed == default_adapters {
+                    None  // All parsing failed or matches tier defaults, use tier defaults
                 } else {
                     Some(parsed)
                 }
             }
         });
-
-        // Calculate limits before moving tier
-        let limits = TierLimits::for_tier(&tier);
 
         Ok(UserAccount {
             user_id: row.get("user_id"),
