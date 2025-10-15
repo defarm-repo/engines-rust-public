@@ -11,7 +11,7 @@ use crate::types::{
     Item, MemberRole, Notification, NotificationType, OperationStatus, OperationType, Permission, CustomRole, AdapterType, UserTier, Identifier, ItemStatus,
     PostActionTrigger, WebhookPayload, WebhookItemData, WebhookStorageData,
 };
-use crate::adapters::{StorageAdapter, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter, LocalLocalAdapter, LocalIpfsAdapter, StellarMainnetStellarMainnetAdapter};
+use crate::adapters::{StorageAdapter, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter};
 use chrono::Utc;
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -50,22 +50,16 @@ impl std::error::Error for CircuitsError {}
 fn get_tier_default_adapters(tier: &UserTier) -> Vec<AdapterType> {
     match tier {
         UserTier::Admin | UserTier::Enterprise => vec![
-            AdapterType::LocalLocal,
             AdapterType::IpfsIpfs,
             AdapterType::StellarTestnetIpfs,
             AdapterType::StellarMainnetIpfs,
-            AdapterType::LocalIpfs,
-            AdapterType::StellarMainnetStellarMainnet,
         ],
         UserTier::Professional => vec![
-            AdapterType::LocalLocal,
             AdapterType::IpfsIpfs,
             AdapterType::StellarTestnetIpfs,
-            AdapterType::LocalIpfs,
         ],
         UserTier::Basic => vec![
-            AdapterType::LocalLocal,
-            AdapterType::LocalIpfs,
+            AdapterType::IpfsIpfs,
         ],
     }
 }
@@ -73,20 +67,20 @@ fn get_tier_default_adapters(tier: &UserTier) -> Vec<AdapterType> {
 // Helper function to validate if a user tier has access to an adapter
 fn validate_adapter_tier_access(user_tier: &UserTier, adapter_type: &AdapterType) -> bool {
     match adapter_type {
-        // Basic tier adapters - all tiers have access
-        AdapterType::LocalLocal | AdapterType::LocalIpfs => true,
+        // Basic tier adapter - all tiers have access
+        AdapterType::IpfsIpfs => true,
 
-        // Professional tier adapters - Professional, Enterprise, Admin
-        AdapterType::IpfsIpfs | AdapterType::StellarTestnetIpfs => {
+        // Professional tier adapter - Professional, Enterprise, Admin
+        AdapterType::StellarTestnetIpfs => {
             matches!(user_tier, UserTier::Professional | UserTier::Enterprise | UserTier::Admin)
         }
 
-        // Enterprise tier adapters - Enterprise, Admin only
-        AdapterType::StellarMainnetIpfs | AdapterType::StellarMainnetStellarMainnet => {
+        // Enterprise tier adapter - Enterprise, Admin only
+        AdapterType::StellarMainnetIpfs => {
             matches!(user_tier, UserTier::Enterprise | UserTier::Admin)
         }
 
-        // Other adapters (Ethereum, Polygon, etc.) - currently not available
+        // Other adapters - currently not available
         _ => false,
     }
 }
@@ -528,21 +522,6 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to create Stellar Mainnet adapter: {}", e)))?;
                         adapter.store_new_item(&item, is_new_dfid, requester_id).await
                             .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Stellar Mainnet: {}", e)))?
-                    },
-                    AdapterType::LocalLocal => {
-                        let adapter = LocalLocalAdapter::new();
-                        adapter.store_new_item(&item, is_new_dfid, requester_id).await
-                            .map_err(|e| CircuitsError::StorageError(format!("Failed to store locally: {}", e)))?
-                    },
-                    AdapterType::LocalIpfs => {
-                        let adapter = LocalIpfsAdapter::new();
-                        adapter.store_new_item(&item, is_new_dfid, requester_id).await
-                            .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Local-IPFS: {}", e)))?
-                    },
-                    AdapterType::StellarMainnetStellarMainnet => {
-                        let adapter = StellarMainnetStellarMainnetAdapter::new();
-                        adapter.store_new_item(&item, is_new_dfid, requester_id).await
-                            .map_err(|e| CircuitsError::StorageError(format!("Failed to upload to Stellar Mainnet-Mainnet: {}", e)))?
                     },
                     _ => {
                         return Err(CircuitsError::StorageError(format!("Unsupported adapter type: {:?}", adapter_type)));

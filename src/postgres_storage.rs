@@ -1623,12 +1623,11 @@ impl StorageBackend for PostgresStorage {
 
             let adapter_strs: Vec<String> = row.get("available_adapters");
             let available_adapters = adapter_strs.iter().filter_map(|a| match a.as_str() {
-                "LocalLocal" => Some(AdapterType::LocalLocal),
-                "LocalIpfs" => Some(AdapterType::LocalIpfs),
                 "IpfsIpfs" => Some(AdapterType::IpfsIpfs),
                 "StellarTestnetIpfs" => Some(AdapterType::StellarTestnetIpfs),
                 "StellarMainnetIpfs" => Some(AdapterType::StellarMainnetIpfs),
-                "StellarMainnetStellarMainnet" => Some(AdapterType::StellarMainnetStellarMainnet),
+                "EthereumGoerliIpfs" => Some(AdapterType::EthereumGoerliIpfs),
+                "PolygonArweave" => Some(AdapterType::PolygonArweave),
                 _ => None,
             }).collect();
 
@@ -2718,13 +2717,12 @@ impl StorageBackend for PostgresStorage {
 
             let adapter_type_str: String = row.get("adapter_type");
             let adapter_type = match adapter_type_str.as_str() {
-                "LocalLocal" => AdapterType::LocalLocal,
-                "LocalIpfs" => AdapterType::LocalIpfs,
                 "IpfsIpfs" => AdapterType::IpfsIpfs,
                 "StellarTestnetIpfs" => AdapterType::StellarTestnetIpfs,
                 "StellarMainnetIpfs" => AdapterType::StellarMainnetIpfs,
-                "StellarMainnetStellarMainnet" => AdapterType::StellarMainnetStellarMainnet,
-                _ => AdapterType::LocalLocal,
+                "EthereumGoerliIpfs" => AdapterType::EthereumGoerliIpfs,
+                "PolygonArweave" => AdapterType::PolygonArweave,
+                _ => AdapterType::IpfsIpfs,  // Default to IpfsIpfs
             };
 
             let connection_details_json: serde_json::Value = row.get("connection_details");

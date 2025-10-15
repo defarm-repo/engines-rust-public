@@ -948,8 +948,8 @@ impl PostgresPersistence {
                     "IpfsIpfs" => AdapterType::IpfsIpfs,
                     "StellarTestnetIpfs" => AdapterType::StellarTestnetIpfs,
                     "StellarMainnetIpfs" => AdapterType::StellarMainnetIpfs,
-                    "LocalLocal" => AdapterType::LocalLocal,
-                    "LocalIpfs" => AdapterType::LocalIpfs,
+                    "EthereumGoerliIpfs" => AdapterType::EthereumGoerliIpfs,
+                    "PolygonArweave" => AdapterType::PolygonArweave,
                     _ => return None,
                 };
 
@@ -1062,8 +1062,8 @@ impl PostgresPersistence {
                     "IpfsIpfs" => AdapterType::IpfsIpfs,
                     "StellarTestnetIpfs" => AdapterType::StellarTestnetIpfs,
                     "StellarMainnetIpfs" => AdapterType::StellarMainnetIpfs,
-                    "LocalLocal" => AdapterType::LocalLocal,
-                    "LocalIpfs" => AdapterType::LocalIpfs,
+                    "EthereumGoerliIpfs" => AdapterType::EthereumGoerliIpfs,
+                    "PolygonArweave" => AdapterType::PolygonArweave,
                     _ => return None,
                 };
 

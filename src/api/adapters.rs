@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
-use crate::adapters::{AdapterInstance, LocalLocalAdapter, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter, LocalIpfsAdapter, StellarMainnetStellarMainnetAdapter, StorageAdapter};
+use crate::adapters::{AdapterInstance, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter, StorageAdapter};
 use crate::types::{AdapterType, StorageBackendType, UserTier};
 use crate::api::shared_state::AppState;
 use crate::api::auth::Claims;
@@ -283,36 +283,27 @@ fn get_client_available_adapters(
     // Otherwise, fall back to tier defaults
     match tier {
         UserTier::Admin | UserTier::Enterprise => vec![
-            AdapterType::LocalLocal,
             AdapterType::IpfsIpfs,
             AdapterType::StellarTestnetIpfs,
             AdapterType::StellarMainnetIpfs,
-            AdapterType::LocalIpfs,
-            AdapterType::StellarMainnetStellarMainnet,
         ],
         UserTier::Professional => vec![
-            AdapterType::LocalLocal,
             AdapterType::IpfsIpfs,
             AdapterType::StellarTestnetIpfs,
-            AdapterType::LocalIpfs,
         ],
         UserTier::Basic => vec![
-            AdapterType::LocalLocal,
-            AdapterType::LocalIpfs,
+            AdapterType::IpfsIpfs,
         ],
     }
 }
 
 pub fn create_adapter_instance(adapter_type: &AdapterType) -> Result<AdapterInstance, StorageError> {
     match adapter_type {
-        AdapterType::LocalLocal => Ok(AdapterInstance::LocalLocal(LocalLocalAdapter::new())),
         AdapterType::IpfsIpfs => Ok(AdapterInstance::IpfsIpfs(IpfsIpfsAdapter::new()?)),
         AdapterType::StellarTestnetIpfs => Ok(AdapterInstance::StellarTestnetIpfs(StellarTestnetIpfsAdapter::new()?)),
         AdapterType::StellarMainnetIpfs => Ok(AdapterInstance::StellarMainnetIpfs(StellarMainnetIpfsAdapter::new()?)),
-        AdapterType::LocalIpfs => Ok(AdapterInstance::LocalIpfs(LocalIpfsAdapter::new())),
-        AdapterType::StellarMainnetStellarMainnet => Ok(AdapterInstance::StellarMainnetStellarMainnet(StellarMainnetStellarMainnetAdapter::new())),
-        AdapterType::Custom(_) => Ok(AdapterInstance::LocalLocal(LocalLocalAdapter::new())), // Fallback
-        _ => Ok(AdapterInstance::LocalLocal(LocalLocalAdapter::new())), // Fallback
+        AdapterType::Custom(_) => Ok(AdapterInstance::IpfsIpfs(IpfsIpfsAdapter::new()?)), // Fallback to IpfsIpfs
+        _ => Ok(AdapterInstance::IpfsIpfs(IpfsIpfsAdapter::new()?)), // Fallback to IpfsIpfs
     }
 }
 

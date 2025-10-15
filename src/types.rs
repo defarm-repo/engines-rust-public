@@ -1943,12 +1943,9 @@ pub use crate::zk_proof_engine::{
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum AdapterType {
-    LocalLocal,
     IpfsIpfs,
     StellarTestnetIpfs,
     StellarMainnetIpfs,
-    LocalIpfs,
-    StellarMainnetStellarMainnet,
     EthereumGoerliIpfs,
     PolygonArweave,
     Custom(String),
@@ -1957,12 +1954,9 @@ pub enum AdapterType {
 impl std::fmt::Display for AdapterType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AdapterType::LocalLocal => write!(f, "local-local"),
             AdapterType::IpfsIpfs => write!(f, "ipfs-ipfs"),
             AdapterType::StellarTestnetIpfs => write!(f, "stellar_testnet-ipfs"),
             AdapterType::StellarMainnetIpfs => write!(f, "stellar_mainnet-ipfs"),
-            AdapterType::LocalIpfs => write!(f, "local-ipfs"),
-            AdapterType::StellarMainnetStellarMainnet => write!(f, "stellar_mainnet-stellar_mainnet"),
             AdapterType::EthereumGoerliIpfs => write!(f, "ethereum_goerli-ipfs"),
             AdapterType::PolygonArweave => write!(f, "polygon-arweave"),
             AdapterType::Custom(name) => write!(f, "custom-{}", name),
@@ -1973,12 +1967,9 @@ impl std::fmt::Display for AdapterType {
 impl AdapterType {
     pub fn from_string(s: &str) -> Result<Self, String> {
         match s {
-            "local-local" => Ok(AdapterType::LocalLocal),
             "ipfs-ipfs" => Ok(AdapterType::IpfsIpfs),
             "stellar_testnet-ipfs" => Ok(AdapterType::StellarTestnetIpfs),
             "stellar_mainnet-ipfs" => Ok(AdapterType::StellarMainnetIpfs),
-            "local-ipfs" => Ok(AdapterType::LocalIpfs),
-            "stellar_mainnet-stellar_mainnet" => Ok(AdapterType::StellarMainnetStellarMainnet),
             "ethereum_goerli-ipfs" => Ok(AdapterType::EthereumGoerliIpfs),
             "polygon-arweave" => Ok(AdapterType::PolygonArweave),
             custom if custom.starts_with("custom-") => {
@@ -1990,12 +1981,9 @@ impl AdapterType {
 
     pub fn description(&self) -> &'static str {
         match self {
-            AdapterType::LocalLocal => "Local storage only - for development and testing",
             AdapterType::IpfsIpfs => "Full IPFS storage - decentralized with no blockchain",
             AdapterType::StellarTestnetIpfs => "Stellar testnet NFTs + IPFS events - for testing blockchain integration",
             AdapterType::StellarMainnetIpfs => "Stellar mainnet NFTs + IPFS events - production blockchain + IPFS",
-            AdapterType::LocalIpfs => "Local item storage + IPFS events - hybrid approach",
-            AdapterType::StellarMainnetStellarMainnet => "Full Stellar mainnet storage - complete on-chain solution",
             AdapterType::EthereumGoerliIpfs => "Ethereum Goerli testnet + IPFS - Ethereum ecosystem testing",
             AdapterType::PolygonArweave => "Polygon NFTs + Arweave permanent storage - low cost + permanence",
             AdapterType::Custom(_) => "Custom adapter configuration",
@@ -2004,19 +1992,16 @@ impl AdapterType {
 
     pub fn requires_blockchain(&self) -> bool {
         match self {
-            AdapterType::LocalLocal | AdapterType::IpfsIpfs | AdapterType::LocalIpfs => false,
+            AdapterType::IpfsIpfs => false,
             _ => true,
         }
     }
 
     pub fn storage_locations(&self) -> (StorageBackendType, StorageBackendType) {
         match self {
-            AdapterType::LocalLocal => (StorageBackendType::Local, StorageBackendType::Local),
             AdapterType::IpfsIpfs => (StorageBackendType::IPFS, StorageBackendType::IPFS),
             AdapterType::StellarTestnetIpfs => (StorageBackendType::StellarTestnet, StorageBackendType::IPFS),
             AdapterType::StellarMainnetIpfs => (StorageBackendType::StellarMainnet, StorageBackendType::IPFS),
-            AdapterType::LocalIpfs => (StorageBackendType::Local, StorageBackendType::IPFS),
-            AdapterType::StellarMainnetStellarMainnet => (StorageBackendType::StellarMainnet, StorageBackendType::StellarMainnet),
             AdapterType::EthereumGoerliIpfs => (StorageBackendType::EthereumGoerli, StorageBackendType::IPFS),
             AdapterType::PolygonArweave => (StorageBackendType::Polygon, StorageBackendType::Arweave),
             AdapterType::Custom(_) => (StorageBackendType::Custom, StorageBackendType::Custom),
@@ -2401,7 +2386,7 @@ impl TierLimits {
                 max_storage_locations: Some(1),
                 max_api_requests_per_hour: Some(100),
                 max_workspace_members: Some(3),
-                available_adapters: vec![AdapterType::LocalLocal, AdapterType::LocalIpfs],
+                available_adapters: vec![AdapterType::IpfsIpfs],
                 can_use_premium_adapters: false,
                 max_audit_retention_days: 30,
                 priority_support: false,
@@ -2413,10 +2398,8 @@ impl TierLimits {
                 max_api_requests_per_hour: Some(1000),
                 max_workspace_members: Some(10),
                 available_adapters: vec![
-                    AdapterType::LocalLocal,
                     AdapterType::IpfsIpfs,
                     AdapterType::StellarTestnetIpfs,
-                    AdapterType::LocalIpfs,
                 ],
                 can_use_premium_adapters: false,
                 max_audit_retention_days: 90,
@@ -2429,12 +2412,9 @@ impl TierLimits {
                 max_api_requests_per_hour: Some(10000),
                 max_workspace_members: None,
                 available_adapters: vec![
-                    AdapterType::LocalLocal,
                     AdapterType::IpfsIpfs,
                     AdapterType::StellarTestnetIpfs,
                     AdapterType::StellarMainnetIpfs,
-                    AdapterType::LocalIpfs,
-                    AdapterType::StellarMainnetStellarMainnet,
                 ],
                 can_use_premium_adapters: true,
                 max_audit_retention_days: 365,
@@ -2447,12 +2427,9 @@ impl TierLimits {
                 max_api_requests_per_hour: None,
                 max_workspace_members: None,
                 available_adapters: vec![
-                    AdapterType::LocalLocal,
                     AdapterType::IpfsIpfs,
                     AdapterType::StellarTestnetIpfs,
                     AdapterType::StellarMainnetIpfs,
-                    AdapterType::LocalIpfs,
-                    AdapterType::StellarMainnetStellarMainnet,
                     AdapterType::EthereumGoerliIpfs,
                     AdapterType::PolygonArweave,
                 ],

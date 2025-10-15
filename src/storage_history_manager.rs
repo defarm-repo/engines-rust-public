@@ -24,11 +24,10 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         user_id: &str,
     ) -> Result<(), StorageError> {
         let storage_location = match adapter_type {
-            AdapterType::LocalLocal | AdapterType::LocalIpfs => StorageLocation::Local { id: storage_id.clone() },
             AdapterType::IpfsIpfs => StorageLocation::IPFS { cid: storage_id.clone(), pinned: true },
             AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS { cid: storage_id.clone(), pinned: true },
             AdapterType::PolygonArweave => StorageLocation::Local { id: storage_id.clone() }, // TODO: Add Arweave storage location type
-            AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs | AdapterType::StellarMainnetStellarMainnet => {
+            AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                 StorageLocation::Stellar {
                     transaction_id: storage_id.clone(),
                     contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration
@@ -64,11 +63,10 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         user_id: &str,
     ) -> Result<(), StorageError> {
         let storage_location = match adapter_type {
-            AdapterType::LocalLocal | AdapterType::LocalIpfs => StorageLocation::Local { id: storage_id.clone() },
             AdapterType::IpfsIpfs => StorageLocation::IPFS { cid: storage_id.clone(), pinned: true },
             AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS { cid: storage_id.clone(), pinned: true },
             AdapterType::PolygonArweave => StorageLocation::Local { id: storage_id.clone() }, // TODO: Add Arweave storage location type
-            AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs | AdapterType::StellarMainnetStellarMainnet => {
+            AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                 StorageLocation::Stellar {
                     transaction_id: storage_id.clone(),
                     contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration
@@ -140,11 +138,10 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
             // For now, we'll record the migration intent
 
             let storage_location = match adapter_type {
-                AdapterType::LocalLocal | AdapterType::LocalIpfs => StorageLocation::Local { id: format!("migrated_{}", dfid) },
                 AdapterType::IpfsIpfs => StorageLocation::IPFS { cid: format!("migrated_{}", dfid), pinned: true },
                 AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS { cid: format!("migrated_{}", dfid), pinned: true },
                 AdapterType::PolygonArweave => StorageLocation::Arweave { transaction_id: format!("migrated_{}", dfid) },
-                AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs | AdapterType::StellarMainnetStellarMainnet => {
+                AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                     StorageLocation::Stellar {
                         transaction_id: format!("migrated_{}", dfid),
                         contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration

@@ -61,7 +61,7 @@ pub enum EthereumNetwork {
 impl Default for AdapterConfig {
     fn default() -> Self {
         Self {
-            adapter_type: AdapterType::LocalLocal,
+            adapter_type: AdapterType::IpfsIpfs,
             settings: HashMap::new(),
             enabled: true,
         }
