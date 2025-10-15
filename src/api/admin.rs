@@ -349,6 +349,22 @@ async fn update_user(
 
     storage.update_user_account(&user).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update user"}))))?;
 
+    // Write-through to PostgreSQL if enabled
+    {
+        let pg_persistence = Arc::clone(&app_state.postgres_persistence);
+        let user_clone = user.clone();
+        tokio::spawn(async move {
+            let pg_guard = pg_persistence.read().await;
+            if let Some(pg) = pg_guard.as_ref() {
+                if let Err(e) = pg.persist_user(&user_clone).await {
+                    tracing::error!("Failed to persist user update to PostgreSQL: {}", e);
+                } else {
+                    tracing::debug!("User {} persisted to PostgreSQL", user_clone.user_id);
+                }
+            }
+        });
+    }
+
     // Record admin action
     let admin_action = AdminAction {
         action_id: Uuid::new_v4().to_string(),
