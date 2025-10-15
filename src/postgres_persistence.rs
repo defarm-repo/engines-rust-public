@@ -14,11 +14,10 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep, timeout};
 
 use chrono::{DateTime, Utc};
-use deadpool_postgres::{CreatePoolError, Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
-use tokio_postgres::{Error as PgError, NoTls, Row};
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
+use tokio_postgres::{NoTls, Row};
 use uuid::Uuid;
 
-use crate::storage::{InMemoryStorage, StorageBackend, StorageError};
 use crate::types::*;
 
 /// PostgreSQL persistence manager with circuit breaker

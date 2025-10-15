@@ -25,6 +25,35 @@ use defarm_engine::postgres_persistence::PostgresPersistence;
 use defarm_engine::StorageBackend;
 use std::sync::Arc;
 
+fn allow_in_memory_fallback() -> bool {
+    std::env::var("ALLOW_IN_MEMORY_FALLBACK")
+        .map(|value| matches!(value.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
+fn handle_postgres_failure(app_state: &Arc<AppState>) -> bool {
+    if allow_in_memory_fallback() {
+        tracing::warn!(
+            "⚠️  ALLOW_IN_MEMORY_FALLBACK enabled — continuing with in-memory storage only"
+        );
+        tracing::warn!("⚠️  Data will not persist between restarts");
+
+        if let Ok(mut storage) = app_state.shared_storage.lock() {
+            if let Err(e) = setup_development_data(&mut storage) {
+                tracing::error!("Failed to setup development data: {}", e);
+            }
+        }
+
+        true
+    } else {
+        tracing::error!(
+            "❌ PostgreSQL connection is required when DATABASE_URL is set. \
+             Set ALLOW_IN_MEMORY_FALLBACK=true if you want to force in-memory mode."
+        );
+        false
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // Initialize tracing
@@ -311,25 +340,7 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
             }
             Err(e) => {
                 tracing::error!("❌ PostgreSQL connection failed: {}", e);
-
-                let fallback_allowed = std::env::var("ALLOW_IN_MEMORY_FALLBACK")
-                    .map(|value| {
-                        let value = value.to_lowercase();
-                        value == "1" || value == "true" || value == "yes"
-                    })
-                    .unwrap_or(false);
-
-                if fallback_allowed {
-                    tracing::warn!("⚠️  ALLOW_IN_MEMORY_FALLBACK enabled — continuing with in-memory storage only");
-                    tracing::warn!("⚠️  Data will not persist between restarts");
-
-                    if let Ok(mut storage) = app_state.shared_storage.lock() {
-                        if let Err(e) = setup_development_data(&mut storage) {
-                            tracing::error!("Failed to setup development data: {}", e);
-                        }
-                    }
-                } else {
-                    tracing::error!("❌ PostgreSQL connection is required when DATABASE_URL is set. Set ALLOW_IN_MEMORY_FALLBACK=true if you want to force in-memory mode.");
+                if !handle_postgres_failure(&app_state) {
                     std::process::exit(1);
                 }
             }
@@ -403,6 +414,51 @@ async fn load_data_from_postgres(
     }
 
     Ok(user_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::allow_in_memory_fallback;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn fallback_defaults_to_false() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
+        assert!(!allow_in_memory_fallback());
+    }
+
+    #[test]
+    fn fallback_accepts_truthy_values() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        for value in ["1", "true", "TRUE", "YeS"] {
+            std::env::set_var("ALLOW_IN_MEMORY_FALLBACK", value);
+            assert!(
+                allow_in_memory_fallback(),
+                "expected {value} to enable fallback"
+            );
+        }
+        std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
+    }
+
+    #[test]
+    fn fallback_rejects_other_values() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        for value in ["", "0", "false", "no", "sometimes"] {
+            if value.is_empty() {
+                std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
+            } else {
+                std::env::set_var("ALLOW_IN_MEMORY_FALLBACK", value);
+            }
+            assert!(
+                !allow_in_memory_fallback(),
+                "expected {value} to disable fallback"
+            );
+        }
+        std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
+    }
 }
 
 /// Initialize development data directly to PostgreSQL
