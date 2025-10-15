@@ -181,8 +181,8 @@
         <ul style="color: #ef6c00;">
             <li><strong>Your Username:</strong> <code>gerbov</code></li>
             <li><strong>Your Password:</strong> <code>Gerbov2024!Test</code></li>
-            <li><strong>Your Circuit:</strong> Gerbov Stellar Testnet Circuit (ID: <code>d1a91fb5-e13c-4141-854d-80128243ca1b</code>)</li>
-            <li><strong>Blockchain:</strong> Stellar Testnet + IPFS (real blockchain NFTs!)</li>
+            <li><strong>Your Circuit:</strong> Gerbov Basic Circuit (ID: <code>f247b573-20f6-427f-9a07-7742ae6b474a</code>)</li>
+            <li><strong>Note:</strong> Basic circuit (no blockchain adapter - tier upgrade needed for Stellar Testnet)</li>
         </ul>
         <hr style="border-color: #ff6f00; opacity: 0.3;">
         <p style="color: #ef6c00;"><strong>Quick Test Flow:</strong></p>
@@ -190,9 +190,9 @@
             <li><strong>Step 1:</strong> Login with your credentials above → Get JWT token</li>
             <li><strong>Step 2:</strong> Click <code>Authorize</code> button → Paste token</li>
             <li><strong>Step 3:</strong> Create item via <code>POST /api/items/local</code> with SISBOV (e.g., BR921180523565)</li>
-            <li><strong>Step 4:</strong> Push to your circuit: <code>POST /api/circuits/d1a91fb5-e13c-4141-854d-80128243ca1b/push-local</code></li>
+            <li><strong>Step 4:</strong> Push to your circuit: <code>POST /api/circuits/f247b573-20f6-427f-9a07-7742ae6b474a/push-local</code> (include identifiers array!)</li>
             <li><strong>Step 5:</strong> View storage history: <code>GET /api/items/{dfid}/storage-history</code></li>
-            <li style="margin-left: 30px;">✅ You'll see: NFT Mint TX Hash, IPFS CID, Stellar Testnet!</li>
+            <li style="margin-left: 30px;">✅ You'll see: DFID assigned, tokenization complete!</li>
         </ul>
         <p style="color: #ef6c00;">📖 Need code examples? See <a href="../../INTEGRATION_QUICKSTART.md" target="_blank" style="color: #e65100;">INTEGRATION_QUICKSTART.md</a></p>
         <p style="color: #ef6c00;">🔗 <strong>API:</strong> <code>https://connect.defarm.net</code></p>
@@ -290,9 +290,9 @@
             console.log('7. Paste token in "Value" field and click "Authorize"');
             console.log('8. You can now test any endpoint with authentication!');
             console.log('%cPre-configured Circuit:', 'color: #2e7d32; font-size: 14px; font-weight: bold;');
-            console.log('Circuit ID: 187318ae-8f6d-4a03-aac1-bfc051f2d2ff');
-            console.log('Name: MS Rastreabilidade');
-            console.log('Adapter: StellarTestnetIpfs (Stellar Testnet + IPFS)');
+            console.log('Circuit ID: f247b573-20f6-427f-9a07-7742ae6b474a');
+            console.log('Name: Gerbov Basic Circuit');
+            console.log('Adapter: None (Basic tier - upgrade for blockchain adapters)');
         }
     </script>
 </body>
