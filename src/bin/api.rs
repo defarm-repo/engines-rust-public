@@ -8,12 +8,17 @@ use axum::{
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
 use tower_http::services::ServeDir;
+use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber;
 
-use defarm_engine::api::{auth_routes, receipt_routes, event_routes, circuit_routes, item_routes, workspace_routes, activity_routes, audit_routes, zk_proof_routes, adapter_routes, storage_history_routes, admin_routes, user_credits_routes, notifications_rest_routes, notifications_ws_route, test_blockchain_routes, shared_state::AppState};
+use defarm_engine::api::{
+    activity_routes, adapter_routes, admin_routes, audit_routes, auth_routes, circuit_routes,
+    event_routes, item_routes, notifications_rest_routes, notifications_ws_route, receipt_routes,
+    shared_state::AppState, storage_history_routes, test_blockchain_routes, user_credits_routes,
+    workspace_routes, zk_proof_routes,
+};
 use defarm_engine::auth_middleware::jwt_auth_middleware;
 use defarm_engine::db_init::setup_development_data;
 use defarm_engine::postgres_persistence::PostgresPersistence;
@@ -23,9 +28,7 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() {
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     // Load environment variables
     dotenv::dotenv().ok();
@@ -40,7 +43,6 @@ async fn main() {
     // Development data will be set up after PostgreSQL connects (or in-memory if no DB)
     initialize_postgres_background(app_state.clone());
 
-
     // Health endpoints with state
     let health_routes = Router::new()
         .route("/health/db", get(health_check_db))
@@ -53,7 +55,10 @@ async fn main() {
         .merge(health_routes)
         .nest("/api/auth", auth_routes(app_state.clone()))
         // WebSocket route does NOT use JWT middleware (verifies token from query param)
-        .nest("/api/notifications", notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()));
+        .nest(
+            "/api/notifications",
+            notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()),
+        );
 
     // Protected routes (require JWT authentication)
     let protected_routes = Router::new()
@@ -66,10 +71,16 @@ async fn main() {
         .nest("/audit", audit_routes(app_state.clone()))
         .nest("/api/proofs", zk_proof_routes(app_state.clone()))
         .nest("/api/adapters", adapter_routes(app_state.clone()))
-        .nest("/api/storage-history", storage_history_routes(app_state.clone()))
+        .nest(
+            "/api/storage-history",
+            storage_history_routes(app_state.clone()),
+        )
         .nest("/api/test", test_blockchain_routes(app_state.clone()))
         // Notification REST API routes (protected by JWT middleware)
-        .nest("/api/notifications", notifications_rest_routes().with_state(app_state.clone()))
+        .nest(
+            "/api/notifications",
+            notifications_rest_routes().with_state(app_state.clone()),
+        )
         .merge(user_credits_routes().with_state(app_state.clone()))
         .nest("/api/admin", admin_routes().with_state(app_state.clone()))
         .layer(middleware::from_fn_with_state(
@@ -97,8 +108,15 @@ async fn main() {
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => {
-            info!("✅ Server listening and ready to accept connections on {}", addr);
-            info!("🏥 Health check endpoint: http://[{}]:{}/health", addr.ip(), addr.port());
+            info!(
+                "✅ Server listening and ready to accept connections on {}",
+                addr
+            );
+            info!(
+                "🏥 Health check endpoint: http://[{}]:{}/health",
+                addr.ip(),
+                addr.port()
+            );
             l
         }
         Err(e) => {
@@ -138,11 +156,14 @@ async fn root() -> Json<Value> {
 }
 
 async fn health_check() -> (StatusCode, Json<Value>) {
-    (StatusCode::OK, Json(json!({
-        "status": "healthy",
-        "timestamp": chrono::Utc::now(),
-        "uptime": "System operational"
-    })))
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "healthy",
+            "timestamp": chrono::Utc::now(),
+            "uptime": "System operational"
+        })),
+    )
 }
 
 async fn health_check_db(
@@ -161,23 +182,27 @@ async fn health_check_db(
                 StatusCode::SERVICE_UNAVAILABLE
             };
 
-            (status_code, Json(json!({
-                "database": {
-                    "status": status,
-                    "message": message,
-                    "timestamp": chrono::Utc::now(),
-                }
-            })))
+            (
+                status_code,
+                Json(json!({
+                    "database": {
+                        "status": status,
+                        "message": message,
+                        "timestamp": chrono::Utc::now(),
+                    }
+                })),
+            )
         }
-        None => {
-            (StatusCode::SERVICE_UNAVAILABLE, Json(json!({
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
                 "database": {
                     "status": "not_initialized",
                     "message": "PostgreSQL persistence not initialized (using in-memory storage)",
                     "timestamp": chrono::Utc::now(),
                 }
-            })))
-        }
+            })),
+        ),
     }
 }
 
@@ -225,12 +250,16 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                     tracing::info!("🚀 Initializing development data in PostgreSQL...");
                     match initialize_development_data_to_postgres(&pg_persistence).await {
                         Ok(()) => tracing::info!("✅ Development data initialized in PostgreSQL"),
-                        Err(e) => tracing::error!("❌ Failed to initialize development data: {}", e),
+                        Err(e) => {
+                            tracing::error!("❌ Failed to initialize development data: {}", e)
+                        }
                     }
 
                     // Load the newly created data into in-memory storage
                     match load_data_from_postgres(&pg_persistence, &app_state).await {
-                        Ok(count) => tracing::info!("✅ Loaded {} users into in-memory cache", count),
+                        Ok(count) => {
+                            tracing::info!("✅ Loaded {} users into in-memory cache", count)
+                        }
                         Err(e) => tracing::warn!("⚠️  Could not load data: {}", e),
                     }
                 } else {
@@ -238,10 +267,16 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                     tracing::info!("🔍 Checking if production adapters need initialization...");
                     match pg_persistence.load_adapter_configs().await {
                         Ok(adapters) if adapters.is_empty() => {
-                            tracing::info!("🔌 No adapters found - initializing production adapters...");
+                            tracing::info!(
+                                "🔌 No adapters found - initializing production adapters..."
+                            );
                             match initialize_adapters_to_postgres(&pg_persistence).await {
-                                Ok(count) => tracing::info!("✅ {} production adapters initialized!", count),
-                                Err(e) => tracing::error!("❌ Failed to initialize adapters: {}", e),
+                                Ok(count) => {
+                                    tracing::info!("✅ {} production adapters initialized!", count)
+                                }
+                                Err(e) => {
+                                    tracing::error!("❌ Failed to initialize adapters: {}", e)
+                                }
                             }
                             // Reload adapters into memory
                             match load_data_from_postgres(&pg_persistence, &app_state).await {
@@ -250,7 +285,10 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                             }
                         }
                         Ok(adapters) => {
-                            tracing::info!("✅ {} adapters already exist in database", adapters.len());
+                            tracing::info!(
+                                "✅ {} adapters already exist in database",
+                                adapters.len()
+                            );
                         }
                         Err(e) => {
                             tracing::warn!("⚠️  Could not check adapters: {}", e);
@@ -265,20 +303,34 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
 
                 // Enable event persistence now that PostgreSQL is connected
                 app_state.enable_event_persistence();
-                tracing::info!("✅ Event persistence enabled - events will now persist to PostgreSQL");
+                tracing::info!(
+                    "✅ Event persistence enabled - events will now persist to PostgreSQL"
+                );
 
                 tracing::info!("🎉 PostgreSQL persistence fully operational!");
             }
             Err(e) => {
                 tracing::error!("❌ PostgreSQL connection failed: {}", e);
-                tracing::warn!("⚠️  Continuing with in-memory storage only");
-                tracing::warn!("⚠️  Data will not persist between restarts");
 
-                // Fallback: Setup development data in in-memory storage
-                if let Ok(mut storage) = app_state.shared_storage.lock() {
-                    if let Err(e) = setup_development_data(&mut storage) {
-                        tracing::error!("Failed to setup development data: {}", e);
+                let fallback_allowed = std::env::var("ALLOW_IN_MEMORY_FALLBACK")
+                    .map(|value| {
+                        let value = value.to_lowercase();
+                        value == "1" || value == "true" || value == "yes"
+                    })
+                    .unwrap_or(false);
+
+                if fallback_allowed {
+                    tracing::warn!("⚠️  ALLOW_IN_MEMORY_FALLBACK enabled — continuing with in-memory storage only");
+                    tracing::warn!("⚠️  Data will not persist between restarts");
+
+                    if let Ok(mut storage) = app_state.shared_storage.lock() {
+                        if let Err(e) = setup_development_data(&mut storage) {
+                            tracing::error!("Failed to setup development data: {}", e);
+                        }
                     }
+                } else {
+                    tracing::error!("❌ PostgreSQL connection is required when DATABASE_URL is set. Set ALLOW_IN_MEMORY_FALLBACK=true if you want to force in-memory mode.");
+                    std::process::exit(1);
                 }
             }
         }
@@ -295,11 +347,14 @@ async fn load_data_from_postgres(
     let users = pg.load_users().await?;
     let user_count = users.len();
     if !users.is_empty() {
-        let mut storage = app_state.shared_storage.lock()
+        let mut storage = app_state
+            .shared_storage
+            .lock()
             .map_err(|e| format!("Failed to lock storage: {}", e))?;
 
         for user in users {
-            storage.store_user_account(&user)
+            storage
+                .store_user_account(&user)
                 .map_err(|e| format!("Failed to store user: {}", e))?;
         }
         tracing::info!("📥 Loaded {} users from PostgreSQL", user_count);
@@ -309,13 +364,20 @@ async fn load_data_from_postgres(
     let circuits = pg.load_circuits().await?;
     let circuit_count = circuits.len();
     if !circuits.is_empty() {
-        let mut storage = app_state.shared_storage.lock()
+        let mut storage = app_state
+            .shared_storage
+            .lock()
             .map_err(|e| format!("Failed to lock storage: {}", e))?;
 
         for circuit in circuits {
-            storage.store_circuit(&circuit)
+            storage
+                .store_circuit(&circuit)
                 .map_err(|e| format!("Failed to store circuit: {}", e))?;
-            tracing::debug!("📥 Loaded circuit: {} ({})", circuit.name, circuit.circuit_id);
+            tracing::debug!(
+                "📥 Loaded circuit: {} ({})",
+                circuit.name,
+                circuit.circuit_id
+            );
         }
         tracing::info!("📥 Loaded {} circuits from PostgreSQL", circuit_count);
     }
@@ -324,33 +386,37 @@ async fn load_data_from_postgres(
     let adapters = pg.load_adapter_configs().await?;
     let adapter_count = adapters.len();
     if !adapters.is_empty() {
-        let mut storage = app_state.shared_storage.lock()
+        let mut storage = app_state
+            .shared_storage
+            .lock()
             .map_err(|e| format!("Failed to lock storage: {}", e))?;
 
         for adapter in adapters {
-            storage.store_adapter_config(&adapter)
+            storage
+                .store_adapter_config(&adapter)
                 .map_err(|e| format!("Failed to store adapter config: {}", e))?;
         }
-        tracing::info!("📥 Loaded {} adapter configs from PostgreSQL", adapter_count);
+        tracing::info!(
+            "📥 Loaded {} adapter configs from PostgreSQL",
+            adapter_count
+        );
     }
 
     Ok(user_count)
 }
 
 /// Initialize development data directly to PostgreSQL
-async fn initialize_development_data_to_postgres(
-    pg: &PostgresPersistence,
-) -> Result<(), String> {
+async fn initialize_development_data_to_postgres(pg: &PostgresPersistence) -> Result<(), String> {
     use bcrypt::{hash, DEFAULT_COST};
     use chrono::Utc;
-    use defarm_engine::types::{UserAccount, UserTier, AccountStatus, TierLimits};
+    use defarm_engine::types::{AccountStatus, TierLimits, UserAccount, UserTier};
 
     println!("🚀 Setting up development data in PostgreSQL...");
 
     // Create hen admin
     println!("🐔 Initializing default admin user 'hen'...");
-    let hen_password_hash = hash("demo123", DEFAULT_COST)
-        .map_err(|e| format!("Failed to hash password: {}", e))?;
+    let hen_password_hash =
+        hash("demo123", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {}", e))?;
 
     let hen_admin = UserAccount {
         user_id: "hen-admin-001".to_string(),
@@ -375,8 +441,8 @@ async fn initialize_development_data_to_postgres(
 
     // Create sample users
     println!("🌱 Creating sample users...");
-    let demo_password_hash = hash("demo123", DEFAULT_COST)
-        .map_err(|e| format!("Failed to hash password: {}", e))?;
+    let demo_password_hash =
+        hash("demo123", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {}", e))?;
 
     let sample_users = vec![
         UserAccount {
@@ -495,9 +561,12 @@ async fn initialize_development_data_to_postgres(
 
 /// Initialize production adapters to PostgreSQL
 async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usize, String> {
-    use defarm_engine::types::{AdapterConfig, AdapterType, AdapterConnectionDetails, AuthType, ContractConfigs, ContractInfo};
-    use std::collections::HashMap;
     use chrono::Utc;
+    use defarm_engine::types::{
+        AdapterConfig, AdapterConnectionDetails, AdapterType, AuthType, ContractConfigs,
+        ContractInfo,
+    };
+    use std::collections::HashMap;
     use uuid::Uuid;
 
     let mut adapter_count = 0;
@@ -543,10 +612,13 @@ async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usi
     }
 
     // 2. Create Stellar Testnet + IPFS adapter
-    if let (Some(api_key), Some(secret), Some(contract_addr)) = (pinata_api_key.clone(), pinata_secret.clone(), testnet_ipcm) {
+    if let (Some(api_key), Some(secret), Some(contract_addr)) =
+        (pinata_api_key.clone(), pinata_secret.clone(), testnet_ipcm)
+    {
         let testnet_secret = std::env::var("STELLAR_TESTNET_SECRET").ok();
-        let interface_address = std::env::var("DEFARM_OWNER_WALLET")
-            .unwrap_or_else(|_| "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string());
+        let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
+            "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+        });
 
         let mut custom_headers = HashMap::new();
         if let Some(secret_key) = testnet_secret {
@@ -556,7 +628,10 @@ async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usi
             custom_headers.insert("nft_contract".to_string(), nft_contract);
         }
         custom_headers.insert("interface_address".to_string(), interface_address);
-        custom_headers.insert("source_account_identity".to_string(), "defarm-admin-testnet".to_string());
+        custom_headers.insert(
+            "source_account_identity".to_string(),
+            "defarm-admin-testnet".to_string(),
+        );
 
         let testnet_config = AdapterConfig {
             config_id: Uuid::new_v4(),
@@ -598,9 +673,12 @@ async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usi
     }
 
     // 3. Create Stellar Mainnet + IPFS adapter
-    if let (Some(api_key), Some(secret), Some(contract_addr), Some(mainnet_key)) = (pinata_api_key, pinata_secret, mainnet_ipcm, mainnet_secret) {
-        let interface_address = std::env::var("DEFARM_OWNER_WALLET")
-            .unwrap_or_else(|_| "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string());
+    if let (Some(api_key), Some(secret), Some(contract_addr), Some(mainnet_key)) =
+        (pinata_api_key, pinata_secret, mainnet_ipcm, mainnet_secret)
+    {
+        let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
+            "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+        });
 
         let mut custom_headers = HashMap::new();
         custom_headers.insert("stellar_secret".to_string(), mainnet_key);
@@ -608,7 +686,10 @@ async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usi
             custom_headers.insert("nft_contract".to_string(), nft_contract);
         }
         custom_headers.insert("interface_address".to_string(), interface_address);
-        custom_headers.insert("source_account_identity".to_string(), "defarm-admin-secure-v2".to_string());
+        custom_headers.insert(
+            "source_account_identity".to_string(),
+            "defarm-admin-secure-v2".to_string(),
+        );
 
         let mainnet_config = AdapterConfig {
             config_id: Uuid::new_v4(),
@@ -653,13 +734,12 @@ async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usi
 }
 
 /// Sync current in-memory data to PostgreSQL
-async fn sync_to_postgres(
-    pg: &PostgresPersistence,
-    app_state: &AppState,
-) -> Result<(), String> {
+async fn sync_to_postgres(pg: &PostgresPersistence, app_state: &AppState) -> Result<(), String> {
     // Sync users
     let users: Vec<String> = {
-        let _storage = app_state.shared_storage.lock()
+        let _storage = app_state
+            .shared_storage
+            .lock()
             .map_err(|e| format!("Failed to lock storage: {}", e))?;
 
         // Get all users from storage

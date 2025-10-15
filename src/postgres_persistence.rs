@@ -6,24 +6,27 @@
 /// - Migration execution with timeout handling
 /// - Circuit breaker pattern for failed connections
 /// - Background sync from in-memory to PostgreSQL
-
-use tokio_postgres::{NoTls, Error as PgError, Row};
-use deadpool_postgres::{Pool, Manager, ManagerConfig, RecyclingMethod, Runtime, CreatePoolError};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::{timeout, sleep};
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
+use tokio::time::{sleep, timeout};
 
+use chrono::{DateTime, Utc};
+use deadpool_postgres::{CreatePoolError, Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
+use tokio_postgres::{Error as PgError, NoTls, Row};
+use uuid::Uuid;
+
+use crate::storage::{InMemoryStorage, StorageBackend, StorageError};
 use crate::types::*;
-use crate::storage::{StorageBackend, StorageError, InMemoryStorage};
 
 /// PostgreSQL persistence manager with circuit breaker
+#[derive(Clone)]
 pub struct PostgresPersistence {
     pool: Option<Pool>,
     database_url: String,
     connection_state: Arc<tokio::sync::RwLock<ConnectionState>>,
 }
+
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ConnectionState {
@@ -57,7 +60,10 @@ impl PostgresPersistence {
                 Ok(pool) => {
                     self.pool = Some(pool);
                     *self.connection_state.write().await = ConnectionState::Connected;
-                    tracing::info!("✅ PostgreSQL connected successfully on attempt {}", attempt);
+                    tracing::info!(
+                        "✅ PostgreSQL connected successfully on attempt {}",
+                        attempt
+                    );
 
                     // Run migrations
                     if let Err(e) = self.run_migrations().await {
@@ -68,7 +74,11 @@ impl PostgresPersistence {
                     return Ok(());
                 }
                 Err(e) => {
-                    tracing::warn!("⚠️  PostgreSQL connection attempt {} failed: {}", attempt, e);
+                    tracing::warn!(
+                        "⚠️  PostgreSQL connection attempt {} failed: {}",
+                        attempt,
+                        e
+                    );
 
                     if attempt < max_retries {
                         tracing::info!("🔄 Retrying in {:?}...", retry_delay);
@@ -80,12 +90,17 @@ impl PostgresPersistence {
         }
 
         *self.connection_state.write().await = ConnectionState::Failed;
-        Err(format!("Failed to connect to PostgreSQL after {} attempts", max_retries))
+        Err(format!(
+            "Failed to connect to PostgreSQL after {} attempts",
+            max_retries
+        ))
     }
 
     /// Try to establish a connection pool
     async fn try_connect(&self) -> Result<Pool, String> {
-        let config = self.database_url.parse::<tokio_postgres::Config>()
+        let config = self
+            .database_url
+            .parse::<tokio_postgres::Config>()
             .map_err(|e| format!("Invalid database URL: {}", e))?;
 
         let manager_config = ManagerConfig {
@@ -110,7 +125,8 @@ impl PostgresPersistence {
             .map_err(|e| format!("Failed to get test connection: {}", e))?;
 
         // Verify connection works
-        client.execute("SELECT 1", &[])
+        client
+            .execute("SELECT 1", &[])
             .await
             .map_err(|e| format!("Connection test failed: {}", e))?;
 
@@ -121,7 +137,9 @@ impl PostgresPersistence {
     pub async fn run_migrations(&self) -> Result<(), String> {
         tracing::info!("🔄 Running database migrations...");
 
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| "PostgreSQL not connected".to_string())?;
 
         let client = timeout(Duration::from_secs(10), pool.get())
@@ -184,7 +202,9 @@ impl PostgresPersistence {
 
     /// Get a database client from the pool with timeout
     async fn get_client(&self) -> Result<deadpool_postgres::Client, String> {
-        let pool = self.pool.as_ref()
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| "PostgreSQL not connected".to_string())?;
 
         timeout(Duration::from_secs(5), pool.get())
@@ -193,8 +213,63 @@ impl PostgresPersistence {
             .map_err(|e| format!("Failed to get connection: {}", e))
     }
 
+    async fn execute_with_retry<F, Fut, T>(&self, operation: &str, mut task: F) -> Result<T, String>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, String>> + Send,
+    {
+        const MAX_ATTEMPTS: u8 = 3;
+        let mut attempt: u8 = 0;
+        let mut last_error: Option<String> = None;
+
+        while attempt < MAX_ATTEMPTS {
+            attempt += 1;
+
+            match task().await {
+                Ok(result) => {
+                    if attempt > 1 {
+                        tracing::info!("✅ {} succeeded on attempt {}", operation, attempt);
+                    }
+                    return Ok(result);
+                }
+                Err(err) => {
+                    last_error = Some(err.clone());
+
+                    if attempt >= MAX_ATTEMPTS {
+                        tracing::error!(
+                            "❌ {} failed after {} attempts: {}",
+                            operation,
+                            attempt,
+                            err
+                        );
+                        return Err(err);
+                    }
+
+                    let backoff = Duration::from_millis((attempt as u64).pow(2) * 100);
+                    tracing::warn!(
+                        "⚠️  {} attempt {} failed: {}. Retrying in {:?}",
+                        operation,
+                        attempt,
+                        err,
+                        backoff
+                    );
+                    sleep(backoff).await;
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| "Unknown persistence error".to_string()))
+    }
+
     /// Persist a circuit to PostgreSQL
     pub async fn persist_circuit(&self, circuit: &Circuit) -> Result<(), String> {
+        self.execute_with_retry("persist_circuit", || async {
+            self.persist_circuit_once(circuit).await
+        })
+        .await
+    }
+
+    async fn persist_circuit_once(&self, circuit: &Circuit) -> Result<(), String> {
         if !self.is_connected().await {
             return Err("PostgreSQL not connected".to_string());
         }
@@ -204,22 +279,30 @@ impl PostgresPersistence {
         let permissions_json = serde_json::to_value(&circuit.permissions)
             .map_err(|e| format!("Failed to serialize permissions: {}", e))?;
 
-        let alias_config_json = circuit.alias_config.as_ref()
+        let alias_config_json = circuit
+            .alias_config
+            .as_ref()
             .map(|c| serde_json::to_value(c))
             .transpose()
             .map_err(|e| format!("Failed to serialize alias_config: {}", e))?;
 
-        let adapter_config_json = circuit.adapter_config.as_ref()
+        let adapter_config_json = circuit
+            .adapter_config
+            .as_ref()
             .map(|c| serde_json::to_value(c))
             .transpose()
             .map_err(|e| format!("Failed to serialize adapter_config: {}", e))?;
 
-        let public_settings_json = circuit.public_settings.as_ref()
+        let public_settings_json = circuit
+            .public_settings
+            .as_ref()
             .map(|s| serde_json::to_value(s))
             .transpose()
             .map_err(|e| format!("Failed to serialize public_settings: {}", e))?;
 
-        let post_action_json = circuit.post_action_settings.as_ref()
+        let post_action_json = circuit
+            .post_action_settings
+            .as_ref()
             .map(|s| serde_json::to_value(s))
             .transpose()
             .map_err(|e| format!("Failed to serialize post_action_settings: {}", e))?;
@@ -230,8 +313,9 @@ impl PostgresPersistence {
             CircuitStatus::Archived => "Archived",
         };
 
-        client.execute(
-            "INSERT INTO circuits (
+        client
+            .execute(
+                "INSERT INTO circuits (
                 circuit_id, name, description, owner_id, status,
                 created_at_ts, last_modified_ts, permissions,
                 alias_config, adapter_config, public_settings, post_action_settings
@@ -246,22 +330,23 @@ impl PostgresPersistence {
                 adapter_config = EXCLUDED.adapter_config,
                 public_settings = EXCLUDED.public_settings,
                 post_action_settings = EXCLUDED.post_action_settings",
-            &[
-                &circuit.circuit_id,
-                &circuit.name,
-                &circuit.description,
-                &circuit.owner_id,
-                &status_str,
-                &circuit.created_timestamp.timestamp(),
-                &circuit.last_modified.timestamp(),
-                &permissions_json,
-                &alias_config_json,
-                &adapter_config_json,
-                &public_settings_json,
-                &post_action_json,
-            ],
-        ).await
-        .map_err(|e| format!("Failed to persist circuit: {}", e))?;
+                &[
+                    &circuit.circuit_id,
+                    &circuit.name,
+                    &circuit.description,
+                    &circuit.owner_id,
+                    &status_str,
+                    &circuit.created_timestamp.timestamp(),
+                    &circuit.last_modified.timestamp(),
+                    &permissions_json,
+                    &alias_config_json,
+                    &adapter_config_json,
+                    &public_settings_json,
+                    &post_action_json,
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist circuit: {}", e))?;
 
         tracing::debug!("✅ Persisted circuit {} to PostgreSQL", circuit.circuit_id);
         Ok(())
@@ -275,16 +360,18 @@ impl PostgresPersistence {
 
         let client = self.get_client().await?;
 
-        let rows = client.query(
-            "SELECT circuit_id, name, description, owner_id, status,
+        let rows = client
+            .query(
+                "SELECT circuit_id, name, description, owner_id, status,
                     created_at_ts, last_modified_ts, permissions,
                     alias_config, adapter_config, public_settings, post_action_settings
              FROM circuits
              WHERE status != 'Archived'
              ORDER BY created_at_ts DESC",
-            &[],
-        ).await
-        .map_err(|e| format!("Failed to load circuits: {}", e))?;
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to load circuits: {}", e))?;
 
         let mut circuits = Vec::new();
         for row in rows {
@@ -345,15 +432,13 @@ impl PostgresPersistence {
             owner_id: row.get("owner_id"),
             default_namespace: String::new(), // Will be loaded from storage if needed
             alias_config,
-            created_timestamp: DateTime::from_timestamp(created_at_ts, 0)
-                .unwrap_or_else(Utc::now),
-            last_modified: DateTime::from_timestamp(last_modified_ts, 0)
-                .unwrap_or_else(Utc::now),
+            created_timestamp: DateTime::from_timestamp(created_at_ts, 0).unwrap_or_else(Utc::now),
+            last_modified: DateTime::from_timestamp(last_modified_ts, 0).unwrap_or_else(Utc::now),
             members: Vec::new(), // Load separately if needed
             permissions,
             status,
             pending_requests: Vec::new(), // Load separately if needed
-            custom_roles: Vec::new(), // Load separately if needed
+            custom_roles: Vec::new(),     // Load separately if needed
             public_settings,
             adapter_config,
             post_action_settings,
@@ -362,6 +447,13 @@ impl PostgresPersistence {
 
     /// Persist user account to PostgreSQL
     pub async fn persist_user(&self, user: &UserAccount) -> Result<(), String> {
+        self.execute_with_retry("persist_user", || async {
+            self.persist_user_once(user).await
+        })
+        .await
+    }
+
+    async fn persist_user_once(&self, user: &UserAccount) -> Result<(), String> {
         if !self.is_connected().await {
             return Err("PostgreSQL not connected".to_string());
         }
@@ -396,8 +488,9 @@ impl PostgresPersistence {
             Some(adapters_to_persist)
         };
 
-        client.execute(
-            "INSERT INTO user_accounts (
+        client
+            .execute(
+                "INSERT INTO user_accounts (
                 user_id, username, email, password_hash, tier, status,
                 is_admin, workspace_id, created_at_ts, last_login_ts, available_adapters
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -412,32 +505,39 @@ impl PostgresPersistence {
                 last_login_ts = EXCLUDED.last_login_ts,
                 available_adapters = EXCLUDED.available_adapters,
                 updated_at = NOW()",
-            &[
-                &user.user_id,
-                &user.username,
-                &user.email,
-                &user.password_hash,
-                &tier_str,
-                &status_str,
-                &user.is_admin,
-                &user.workspace_id,
-                &user.created_at.timestamp(),
-                &user.last_login.map(|t| t.timestamp()),
-                &adapters_array,
-            ],
-        ).await
-        .map_err(|e| format!("Failed to persist user: {}", e))?;
+                &[
+                    &user.user_id,
+                    &user.username,
+                    &user.email,
+                    &user.password_hash,
+                    &tier_str,
+                    &status_str,
+                    &user.is_admin,
+                    &user.workspace_id,
+                    &user.created_at.timestamp(),
+                    &user.last_login.map(|t| t.timestamp()),
+                    &adapters_array,
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist user: {}", e))?;
 
         // Also persist credit balance
-        client.execute(
-            "INSERT INTO credit_balances (user_id, credits, updated_at_ts)
+        client
+            .execute(
+                "INSERT INTO credit_balances (user_id, credits, updated_at_ts)
              VALUES ($1, $2, $3)
              ON CONFLICT (user_id) DO UPDATE SET
                 credits = EXCLUDED.credits,
                 updated_at_ts = EXCLUDED.updated_at_ts",
-            &[&user.user_id, &(user.credits as i64), &Utc::now().timestamp()],
-        ).await
-        .map_err(|e| format!("Failed to persist credit balance: {}", e))?;
+                &[
+                    &user.user_id,
+                    &(user.credits as i64),
+                    &Utc::now().timestamp(),
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist credit balance: {}", e))?;
 
         tracing::debug!("✅ Persisted user {} to PostgreSQL", user.username);
         Ok(())
@@ -477,6 +577,13 @@ impl PostgresPersistence {
 
     /// Persist item to PostgreSQL (write-through cache)
     pub async fn persist_item(&self, item: &crate::types::Item) -> Result<(), String> {
+        self.execute_with_retry("persist_item", || async {
+            self.persist_item_once(item).await
+        })
+        .await
+    }
+
+    async fn persist_item_once(&self, item: &crate::types::Item) -> Result<(), String> {
         if !self.is_connected().await {
             return Err("PostgreSQL not connected".to_string());
         }
@@ -507,43 +614,53 @@ impl PostgresPersistence {
         .map_err(|e| format!("Failed to persist item: {}", e))?;
 
         // Insert identifiers (delete old ones first)
-        client.execute(
-            "DELETE FROM item_identifiers WHERE dfid = $1",
-            &[&item.dfid],
-        ).await
-        .map_err(|e| format!("Failed to delete old identifiers: {}", e))?;
+        client
+            .execute(
+                "DELETE FROM item_identifiers WHERE dfid = $1",
+                &[&item.dfid],
+            )
+            .await
+            .map_err(|e| format!("Failed to delete old identifiers: {}", e))?;
 
         for identifier in &item.identifiers {
-            client.execute(
-                "INSERT INTO item_identifiers (dfid, key, value) VALUES ($1, $2, $3)",
-                &[&item.dfid, &identifier.key, &identifier.value],
-            ).await
-            .map_err(|e| format!("Failed to insert identifier: {}", e))?;
+            client
+                .execute(
+                    "INSERT INTO item_identifiers (dfid, key, value) VALUES ($1, $2, $3)",
+                    &[&item.dfid, &identifier.key, &identifier.value],
+                )
+                .await
+                .map_err(|e| format!("Failed to insert identifier: {}", e))?;
         }
 
         // Insert source entries (delete old ones first)
-        client.execute(
-            "DELETE FROM item_source_entries WHERE dfid = $1",
-            &[&item.dfid],
-        ).await
-        .map_err(|e| format!("Failed to delete old source entries: {}", e))?;
+        client
+            .execute(
+                "DELETE FROM item_source_entries WHERE dfid = $1",
+                &[&item.dfid],
+            )
+            .await
+            .map_err(|e| format!("Failed to delete old source entries: {}", e))?;
 
         for entry_id in &item.source_entries {
-            client.execute(
-                "INSERT INTO item_source_entries (dfid, entry_id) VALUES ($1, $2)",
-                &[&item.dfid, entry_id],
-            ).await
-            .map_err(|e| format!("Failed to insert source entry: {}", e))?;
+            client
+                .execute(
+                    "INSERT INTO item_source_entries (dfid, entry_id) VALUES ($1, $2)",
+                    &[&item.dfid, entry_id],
+                )
+                .await
+                .map_err(|e| format!("Failed to insert source entry: {}", e))?;
         }
 
         // Insert LID mapping if exists
         if let Some(local_id) = item.local_id {
-            client.execute(
-                "INSERT INTO lid_dfid_mappings (local_id, dfid) VALUES ($1, $2)
+            client
+                .execute(
+                    "INSERT INTO lid_dfid_mappings (local_id, dfid) VALUES ($1, $2)
                  ON CONFLICT (local_id) DO UPDATE SET dfid = EXCLUDED.dfid",
-                &[&local_id, &item.dfid],
-            ).await
-            .map_err(|e| format!("Failed to insert LID mapping: {}", e))?;
+                    &[&local_id, &item.dfid],
+                )
+                .await
+                .map_err(|e| format!("Failed to insert LID mapping: {}", e))?;
         }
 
         Ok(())
@@ -551,6 +668,13 @@ impl PostgresPersistence {
 
     /// Persist event to PostgreSQL (write-through cache)
     pub async fn persist_event(&self, event: &crate::types::Event) -> Result<(), String> {
+        self.execute_with_retry("persist_event", || async {
+            self.persist_event_once(event).await
+        })
+        .await
+    }
+
+    async fn persist_event_once(&self, event: &crate::types::Event) -> Result<(), String> {
         if !self.is_connected().await {
             return Err("PostgreSQL not connected".to_string());
         }
@@ -617,9 +741,10 @@ impl PostgresPersistence {
         let adapters_str: Option<Vec<String>> = row.get("available_adapters");
         let available_adapters: Option<Vec<AdapterType>> = adapters_str.and_then(|arr| {
             if arr.is_empty() {
-                None  // Empty array means use tier defaults
+                None // Empty array means use tier defaults
             } else {
-                let parsed: Vec<AdapterType> = arr.iter()
+                let parsed: Vec<AdapterType> = arr
+                    .iter()
                     .filter_map(|s| {
                         AdapterType::from_string(s)
                             .map_err(|e| {
@@ -631,7 +756,7 @@ impl PostgresPersistence {
                     .collect();
 
                 if parsed.is_empty() || parsed == default_adapters {
-                    None  // All parsing failed or matches tier defaults, use tier defaults
+                    None // All parsing failed or matches tier defaults, use tier defaults
                 } else {
                     Some(parsed)
                 }
@@ -646,15 +771,14 @@ impl PostgresPersistence {
             tier,
             status,
             credits: credits as i64,
-            created_at: DateTime::from_timestamp(created_at_ts, 0)
-                .unwrap_or_else(Utc::now),
+            created_at: DateTime::from_timestamp(created_at_ts, 0).unwrap_or_else(Utc::now),
             updated_at: Utc::now(),
             last_login: last_login_ts.and_then(|ts| DateTime::from_timestamp(ts, 0)),
             subscription: None,
             limits,
             is_admin: row.get("is_admin"),
             workspace_id: row.get("workspace_id"),
-            available_adapters,  // Now properly parsed from PostgreSQL
+            available_adapters, // Now properly parsed from PostgreSQL
         })
     }
 
@@ -663,20 +787,40 @@ impl PostgresPersistence {
     // ========================================================================
 
     /// Persist LID-DFID mapping to PostgreSQL
-    pub async fn persist_lid_dfid_mapping(&self, local_id: &Uuid, dfid: &str) -> Result<(), String> {
+    pub async fn persist_lid_dfid_mapping(
+        &self,
+        local_id: &Uuid,
+        dfid: &str,
+    ) -> Result<(), String> {
+        self.execute_with_retry("persist_lid_dfid_mapping", || async {
+            self.persist_lid_dfid_mapping_once(local_id, dfid).await
+        })
+        .await
+    }
+
+    async fn persist_lid_dfid_mapping_once(
+        &self,
+        local_id: &Uuid,
+        dfid: &str,
+    ) -> Result<(), String> {
         let client = self.get_client().await?;
 
-        client.execute(
-            "INSERT INTO lid_dfid_mappings (local_id, dfid, created_at)
+        client
+            .execute(
+                "INSERT INTO lid_dfid_mappings (local_id, dfid, created_at)
              VALUES ($1, $2, NOW())
              ON CONFLICT (local_id) DO UPDATE
              SET dfid = EXCLUDED.dfid",
-            &[&local_id, &dfid],
-        )
-        .await
-        .map_err(|e| format!("Failed to persist LID-DFID mapping: {}", e))?;
+                &[&local_id, &dfid],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist LID-DFID mapping: {}", e))?;
 
-        tracing::debug!("✅ Persisted LID-DFID mapping {} -> {} to PostgreSQL", local_id, dfid);
+        tracing::debug!(
+            "✅ Persisted LID-DFID mapping {} -> {} to PostgreSQL",
+            local_id,
+            dfid
+        );
         Ok(())
     }
 
@@ -706,7 +850,20 @@ impl PostgresPersistence {
     // ========================================================================
 
     /// Persist circuit operation to PostgreSQL
-    pub async fn persist_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), String> {
+    pub async fn persist_circuit_operation(
+        &self,
+        operation: &CircuitOperation,
+    ) -> Result<(), String> {
+        self.execute_with_retry("persist_circuit_operation", || async {
+            self.persist_circuit_operation_once(operation).await
+        })
+        .await
+    }
+
+    async fn persist_circuit_operation_once(
+        &self,
+        operation: &CircuitOperation,
+    ) -> Result<(), String> {
         let client = self.get_client().await?;
 
         // Note: approved_at_ts, approver_id, completed_at_ts exist in schema but not in CircuitOperation struct yet
@@ -729,12 +886,18 @@ impl PostgresPersistence {
         .await
         .map_err(|e| format!("Failed to persist circuit operation: {}", e))?;
 
-        tracing::debug!("✅ Persisted circuit operation {} to PostgreSQL", operation.operation_id);
+        tracing::debug!(
+            "✅ Persisted circuit operation {} to PostgreSQL",
+            operation.operation_id
+        );
         Ok(())
     }
 
     /// Load circuit operations from PostgreSQL
-    pub async fn load_circuit_operations(&self, circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, String> {
+    pub async fn load_circuit_operations(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitOperation>, String> {
         let client = self.get_client().await?;
 
         let rows = client
@@ -791,42 +954,56 @@ impl PostgresPersistence {
 
     /// Persist activity to PostgreSQL
     pub async fn persist_activity(&self, activity: &Activity) -> Result<(), String> {
+        self.execute_with_retry("persist_activity", || async {
+            self.persist_activity_once(activity).await
+        })
+        .await
+    }
+
+    async fn persist_activity_once(&self, activity: &Activity) -> Result<(), String> {
         let client = self.get_client().await?;
 
         let details_json = serde_json::to_value(&activity.details)
             .map_err(|e| format!("Failed to serialize activity details: {}", e))?;
 
-        let activity_id_uuid = Uuid::parse_str(&activity.activity_id)
-            .unwrap_or_else(|_| Uuid::new_v4());
+        let activity_id_uuid =
+            Uuid::parse_str(&activity.activity_id).unwrap_or_else(|_| Uuid::new_v4());
 
-        client.execute(
-            "INSERT INTO activities
+        client
+            .execute(
+                "INSERT INTO activities
              (activity_id, activity_type, circuit_id, circuit_name, dfids,
               performed_by, status, details, timestamp_ts, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
              ON CONFLICT (activity_id) DO UPDATE
              SET status = EXCLUDED.status",
-            &[
-                &activity_id_uuid,
-                &format!("{:?}", activity.activity_type),
-                &activity.circuit_id,
-                &activity.circuit_name,
-                &activity.item_dfids,
-                &activity.user_id,
-                &format!("{:?}", activity.status),
-                &details_json,
-                &activity.timestamp.timestamp(),
-            ],
-        )
-        .await
-        .map_err(|e| format!("Failed to persist activity: {}", e))?;
+                &[
+                    &activity_id_uuid,
+                    &format!("{:?}", activity.activity_type),
+                    &activity.circuit_id,
+                    &activity.circuit_name,
+                    &activity.item_dfids,
+                    &activity.user_id,
+                    &format!("{:?}", activity.status),
+                    &details_json,
+                    &activity.timestamp.timestamp(),
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist activity: {}", e))?;
 
-        tracing::debug!("✅ Persisted activity {} to PostgreSQL", activity.activity_id);
+        tracing::debug!(
+            "✅ Persisted activity {} to PostgreSQL",
+            activity.activity_id
+        );
         Ok(())
     }
 
     /// Load activities from PostgreSQL
-    pub async fn load_activities(&self, circuit_id: Option<&Uuid>) -> Result<Vec<Activity>, String> {
+    pub async fn load_activities(
+        &self,
+        circuit_id: Option<&Uuid>,
+    ) -> Result<Vec<Activity>, String> {
         let client = self.get_client().await?;
 
         let rows = if let Some(cid) = circuit_id {
@@ -902,7 +1079,22 @@ impl PostgresPersistence {
     // ========================================================================
 
     /// Persist storage record to PostgreSQL
-    pub async fn persist_storage_record(&self, dfid: &str, record: &StorageRecord) -> Result<(), String> {
+    pub async fn persist_storage_record(
+        &self,
+        dfid: &str,
+        record: &StorageRecord,
+    ) -> Result<(), String> {
+        self.execute_with_retry("persist_storage_record", || async {
+            self.persist_storage_record_once(dfid, record).await
+        })
+        .await
+    }
+
+    async fn persist_storage_record_once(
+        &self,
+        dfid: &str,
+        record: &StorageRecord,
+    ) -> Result<(), String> {
         let client = self.get_client().await?;
 
         let storage_location_json = serde_json::to_value(&record.storage_location)
@@ -911,7 +1103,8 @@ impl PostgresPersistence {
         let metadata_json = serde_json::to_value(&record.metadata)
             .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
 
-        let (events_range_start, events_range_end) = record.events_range
+        let (events_range_start, events_range_end) = record
+            .events_range
             .map(|(start, end)| (Some(start.timestamp()), end.map(|e| e.timestamp())))
             .unwrap_or((None, None));
 
@@ -1009,17 +1202,27 @@ impl PostgresPersistence {
 
     /// Persist adapter config to PostgreSQL
     pub async fn persist_adapter_config(&self, config: &AdapterConfig) -> Result<(), String> {
+        self.execute_with_retry("persist_adapter_config", || async {
+            self.persist_adapter_config_once(config).await
+        })
+        .await
+    }
+
+    async fn persist_adapter_config_once(&self, config: &AdapterConfig) -> Result<(), String> {
         let client = self.get_client().await?;
 
         let connection_details_json = serde_json::to_value(&config.connection_details)
             .map_err(|e| format!("Failed to serialize connection details: {}", e))?;
 
-        let contract_configs_json = config.contract_configs.as_ref()
+        let contract_configs_json = config
+            .contract_configs
+            .as_ref()
             .map(|c| serde_json::to_value(c).ok())
             .flatten();
 
-        client.execute(
-            "INSERT INTO adapter_configs
+        client
+            .execute(
+                "INSERT INTO adapter_configs
              (config_id, name, description, adapter_type, connection_details,
               contract_configs, is_active, is_default, created_by,
               created_at_ts, updated_at_ts, created_at, updated_at)
@@ -1033,24 +1236,27 @@ impl PostgresPersistence {
                  is_default = EXCLUDED.is_default,
                  updated_at_ts = EXCLUDED.updated_at_ts,
                  updated_at = NOW()",
-            &[
-                &config.config_id,
-                &config.name,
-                &config.description,
-                &format!("{:?}", config.adapter_type),
-                &connection_details_json,
-                &contract_configs_json,
-                &config.is_active,
-                &config.is_default,
-                &config.created_by,
-                &config.created_at.timestamp(),
-                &config.updated_at.timestamp(),
-            ],
-        )
-        .await
-        .map_err(|e| format!("Failed to persist adapter config: {}", e))?;
+                &[
+                    &config.config_id,
+                    &config.name,
+                    &config.description,
+                    &format!("{:?}", config.adapter_type),
+                    &connection_details_json,
+                    &contract_configs_json,
+                    &config.is_active,
+                    &config.is_default,
+                    &config.created_by,
+                    &config.created_at.timestamp(),
+                    &config.updated_at.timestamp(),
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist adapter config: {}", e))?;
 
-        tracing::debug!("✅ Persisted adapter config {} to PostgreSQL", config.config_id);
+        tracing::debug!(
+            "✅ Persisted adapter config {} to PostgreSQL",
+            config.config_id
+        );
         Ok(())
     }
 
@@ -1087,8 +1293,8 @@ impl PostgresPersistence {
                 let connection_details = serde_json::from_value(connection_details_json).ok()?;
 
                 let contract_configs_json: Option<serde_json::Value> = row.get("contract_configs");
-                let contract_configs = contract_configs_json
-                    .and_then(|j| serde_json::from_value(j).ok());
+                let contract_configs =
+                    contract_configs_json.and_then(|j| serde_json::from_value(j).ok());
 
                 let created_at_ts: i64 = row.get("created_at_ts");
                 let updated_at_ts: i64 = row.get("updated_at_ts");
@@ -1120,6 +1326,13 @@ impl PostgresPersistence {
 
     /// Persist webhook config to PostgreSQL
     pub async fn persist_webhook_config(&self, webhook: &WebhookConfig) -> Result<(), String> {
+        self.execute_with_retry("persist_webhook_config", || async {
+            self.persist_webhook_config_once(webhook).await
+        })
+        .await
+    }
+
+    async fn persist_webhook_config_once(&self, webhook: &WebhookConfig) -> Result<(), String> {
         let client = self.get_client().await?;
 
         let auth_config_json = serde_json::to_value(&webhook.auth_type)
@@ -1127,9 +1340,6 @@ impl PostgresPersistence {
 
         let retry_config_json = serde_json::to_value(&webhook.retry_config)
             .map_err(|e| format!("Failed to serialize retry config: {}", e))?;
-
-        // For circuit_id, we need to get it from context - webhooks are associated with circuits
-        // This is a simplified version - in production you'd pass circuit_id as parameter
 
         client.execute(
             "INSERT INTO webhook_configs
@@ -1168,7 +1378,10 @@ impl PostgresPersistence {
     }
 
     /// Load webhook configs for a circuit from PostgreSQL
-    pub async fn load_webhook_configs(&self, circuit_id: &Uuid) -> Result<Vec<WebhookConfig>, String> {
+    pub async fn load_webhook_configs(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<WebhookConfig>, String> {
         let client = self.get_client().await?;
 
         let rows = client

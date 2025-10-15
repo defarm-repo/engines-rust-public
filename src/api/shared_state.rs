@@ -1,13 +1,15 @@
-use std::sync::{Arc, Mutex};
-use tokio::sync::{broadcast, RwLock};
-use crate::{CircuitsEngine, ItemsEngine, AuditEngine, InMemoryStorage, NotificationEngine, EventsEngine};
-use crate::storage_history_manager::StorageHistoryManager;
+use crate::api::notifications::NotificationMessage;
 use crate::api_key_engine::ApiKeyEngine;
 use crate::api_key_storage::ApiKeyStorage;
 use crate::logging::LoggingEngine;
-use crate::rate_limiter::RateLimiter;
-use crate::api::notifications::NotificationMessage;
 use crate::postgres_persistence::PostgresPersistence;
+use crate::rate_limiter::RateLimiter;
+use crate::storage_history_manager::StorageHistoryManager;
+use crate::{
+    AuditEngine, CircuitsEngine, EventsEngine, InMemoryStorage, ItemsEngine, NotificationEngine,
+};
+use std::sync::{Arc, Mutex};
+use tokio::sync::{broadcast, RwLock};
 
 pub struct AppState<S: ApiKeyStorage = crate::api_key_storage::InMemoryApiKeyStorage> {
     pub circuits_engine: Arc<Mutex<CircuitsEngine<InMemoryStorage>>>,
@@ -51,7 +53,9 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
 
         // Initialize notification engine with Arc<Mutex<>> wrapped storage
         let storage_for_notifications = Arc::clone(&shared_storage);
-        let notification_engine = Arc::new(Mutex::new(NotificationEngine::new(storage_for_notifications.clone())));
+        let notification_engine = Arc::new(Mutex::new(NotificationEngine::new(
+            storage_for_notifications.clone(),
+        )));
 
         // Create broadcast channel for WebSocket notifications
         let (notification_tx, _notification_rx) = broadcast::channel(1000);
