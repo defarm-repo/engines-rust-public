@@ -1,0 +1,14 @@
+Deployment Trigger File
+
+This file is used to force Railway redeployments when needed.
+
+Last Deployment Trigger: 2025-10-15 09:15:00 UTC
+
+Changes in this deployment:
+- Added PostgreSQL write-through persistence to 8 critical endpoints
+- Admin endpoints: update_user, freeze_user, unfreeze_user
+- Circuit endpoints: update_circuit, deactivate_circuit, approve_join_request, reject_join_request, update_public_settings
+- Commit: 062f42d
+
+Purpose: Force Railway to rebuild and deploy with new PostgreSQL persistence layer
+Status: Ready for production deployment
