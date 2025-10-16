@@ -63,6 +63,9 @@ async fn test_ipfs_adapter_stores_item_and_generates_cid() {
             assert!(!cid.is_empty(), "CID should not be empty");
             assert!(cid.starts_with("Qm") || cid.starts_with("bafy"), "CID should have valid format");
             assert!(*pinned, "Item should be pinned");
+            println!("✅ Generated CID: {}", cid);
+            println!("✅ CID Length: {} characters", cid.len());
+            println!("✅ Item pinned on IPFS: {}", pinned);
         }
         _ => panic!("Expected IPFS storage location"),
     }

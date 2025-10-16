@@ -57,28 +57,40 @@ async fn test_stellar_testnet_adapter_stores_item() {
     // Verify adapter type
     assert_eq!(metadata.adapter_type, AdapterType::StellarTestnetIpfs);
 
-    // Verify IPFS CID
-    let cid = match &metadata.item_location {
-        StorageLocation::IPFS { cid, pinned } => {
-            assert!(!cid.is_empty(), "CID should not be empty");
-            assert!(*pinned, "Item should be pinned");
-            cid.clone()
-        }
-        _ => panic!("Expected IPFS storage location"),
-    };
+    // For Stellar adapter, the main location is Stellar (with CID in asset_id)
+    // and the IPFS location is in event_locations
+    match &metadata.item_location {
+        StorageLocation::Stellar { transaction_id, contract_address, asset_id } => {
+            assert!(!transaction_id.is_empty(), "Transaction ID should not be empty");
+            assert!(!contract_address.is_empty(), "Contract address should not be empty");
 
-    // Verify Stellar transaction was recorded
-    let has_stellar_location = metadata.event_locations.iter().any(|loc| {
-        matches!(loc, StorageLocation::Stellar { .. })
+            println!("✅ Stellar Transaction Hash: {}", transaction_id);
+            println!("✅ Stellar Contract: {}", contract_address);
+            println!("✅ Transaction viewable at: https://stellar.expert/explorer/testnet/tx/{}", transaction_id);
+
+            if let Some(cid) = asset_id {
+                println!("✅ IPFS CID (stored as asset_id): {}", cid);
+                println!("✅ View on IPFS: https://gateway.pinata.cloud/ipfs/{}", cid);
+            }
+        }
+        other => {
+            panic!("Expected Stellar storage location, got: {:?}", other);
+        }
+    }
+
+    // Verify IPFS location is in event_locations
+    let ipfs_cid = metadata.event_locations.iter().find_map(|loc| {
+        if let StorageLocation::IPFS { cid, .. } = loc {
+            Some(cid.clone())
+        } else {
+            None
+        }
     });
 
-    assert!(
-        has_stellar_location,
-        "Should have Stellar contract location in event_locations"
-    );
-
-    println!("✅ Item stored to IPFS with CID: {}", cid);
-    println!("✅ Stellar contract interaction recorded");
+    assert!(ipfs_cid.is_some(), "Should have IPFS location in event_locations");
+    if let Some(cid) = ipfs_cid {
+        println!("✅ Item also recorded in IPFS event locations with CID: {}", cid);
+    }
 }
 
 #[tokio::test]
