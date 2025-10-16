@@ -1,7 +1,6 @@
 /// Standalone example demonstrating the BigInt serialization fix
 /// Run with: cargo run --example test_bigint_serialization
 use serde::{Deserialize, Serialize};
-use serde_json;
 
 // JavaScript's MAX_SAFE_INTEGER (2^53 - 1)
 const JS_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
@@ -66,7 +65,7 @@ fn main() {
 
     let json1 = serde_json::to_string_pretty(&response1).unwrap();
     println!("Test 1 - Safe values (serialized as numbers):");
-    println!("{}\n", json1);
+    println!("{json1}\n");
 
     // Test case 2: Mixed values (some safe, some exceed safe range)
     let response2 = ApiResponse {
@@ -78,7 +77,7 @@ fn main() {
 
     let json2 = serde_json::to_string_pretty(&response2).unwrap();
     println!("Test 2 - Mixed values:");
-    println!("{}", json2);
+    println!("{json2}");
     println!("Note: events_last_24h and events_last_7d are strings!\n");
 
     // Test case 3: Very large values
@@ -91,7 +90,7 @@ fn main() {
 
     let json3 = serde_json::to_string_pretty(&response3).unwrap();
     println!("Test 3 - Very large values (all as strings):");
-    println!("{}\n", json3);
+    println!("{json3}\n");
 
     // Demonstrate deserialization works both ways
     println!("=== Deserialization Test ===\n");
@@ -105,7 +104,7 @@ fn main() {
     }"#;
 
     let parsed1: ApiResponse = serde_json::from_str(json_with_numbers).unwrap();
-    println!("Parsed from numbers: {:?}\n", parsed1);
+    println!("Parsed from numbers: {parsed1:?}\n");
 
     // JSON with strings (for large numbers from JavaScript)
     let json_with_strings = r#"{
@@ -116,16 +115,14 @@ fn main() {
     }"#;
 
     let parsed2: ApiResponse = serde_json::from_str(json_with_strings).unwrap();
-    println!("Parsed from mixed (strings and numbers): {:?}\n", parsed2);
+    println!("Parsed from mixed (strings and numbers): {parsed2:?}\n");
 
     println!("=== Summary ===");
     println!(
-        "✅ Values <= {} are serialized as JSON numbers",
-        JS_MAX_SAFE_INTEGER
+        "✅ Values <= {JS_MAX_SAFE_INTEGER} are serialized as JSON numbers"
     );
     println!(
-        "✅ Values > {} are serialized as JSON strings",
-        JS_MAX_SAFE_INTEGER
+        "✅ Values > {JS_MAX_SAFE_INTEGER} are serialized as JSON strings"
     );
     println!("✅ Deserialization accepts both formats");
     println!("✅ Frontend can safely handle all values without BigInt issues");

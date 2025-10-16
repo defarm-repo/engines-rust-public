@@ -98,7 +98,7 @@ impl<S: StorageBackend> ConflictDetectionEngine<S> {
             if let Ok(items) = storage.find_items_by_identifier(identifier) {
                 let dfids: Vec<String> = items.into_iter().map(|item| item.dfid).collect();
                 if !dfids.is_empty() {
-                    dfid_mappings.insert(format!("{:?}", identifier), dfids);
+                    dfid_mappings.insert(format!("{identifier:?}"), dfids);
                 }
             }
         }
@@ -109,7 +109,7 @@ impl<S: StorageBackend> ConflictDetectionEngine<S> {
                 // Find the actual identifier from the string representation
                 let affected_identifier = identifiers
                     .iter()
-                    .find(|id| format!("{:?}", id) == identifier_str)
+                    .find(|id| format!("{id:?}") == identifier_str)
                     .cloned()
                     .unwrap_or_else(|| identifiers[0].clone());
 
@@ -213,7 +213,7 @@ impl<S: StorageBackend> ConflictDetectionEngine<S> {
                         QualitySeverity::Medium => ConflictSeverity::Medium,
                         QualitySeverity::Low => ConflictSeverity::Low,
                     },
-                    description: format!("Data quality issue ({}): {}", issue_type, details),
+                    description: format!("Data quality issue ({issue_type}): {details}"),
                     affected_identifiers: vec![identifier.clone()],
                     suggested_resolution: match severity {
                         QualitySeverity::Critical | QualitySeverity::High => {
@@ -363,7 +363,7 @@ impl<S: StorageBackend> ConflictDetectionEngine<S> {
             matches!(
                 conflict.severity,
                 ConflictSeverity::None | ConflictSeverity::Low
-            ) && conflict.suggested_resolution.as_ref().map_or(false, |res| {
+            ) && conflict.suggested_resolution.as_ref().is_some_and(|res| {
                 matches!(
                     res,
                     ResolutionStrategy::AutoMerge | ResolutionStrategy::SkipProcessing

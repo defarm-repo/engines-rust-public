@@ -141,6 +141,12 @@ pub struct WorkspaceState {
     pub workspaces: Arc<Mutex<HashMap<Uuid, Workspace>>>,
 }
 
+impl Default for WorkspaceState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkspaceState {
     pub fn new() -> Self {
         Self {

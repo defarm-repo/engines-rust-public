@@ -100,12 +100,12 @@ pub enum ZkProofError {
 impl std::fmt::Display for ZkProofError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ZkProofError::StorageError(e) => write!(f, "Storage error: {}", e),
-            ZkProofError::ProofGenerationError(e) => write!(f, "Proof generation error: {}", e),
-            ZkProofError::VerificationError(e) => write!(f, "Verification error: {}", e),
-            ZkProofError::InvalidCircuit(e) => write!(f, "Invalid circuit: {}", e),
-            ZkProofError::ExpiredProof(id) => write!(f, "Proof expired: {}", id),
-            ZkProofError::InvalidInput(e) => write!(f, "Invalid input: {}", e),
+            ZkProofError::StorageError(e) => write!(f, "Storage error: {e}"),
+            ZkProofError::ProofGenerationError(e) => write!(f, "Proof generation error: {e}"),
+            ZkProofError::VerificationError(e) => write!(f, "Verification error: {e}"),
+            ZkProofError::InvalidCircuit(e) => write!(f, "Invalid circuit: {e}"),
+            ZkProofError::ExpiredProof(id) => write!(f, "Proof expired: {id}"),
+            ZkProofError::InvalidInput(e) => write!(f, "Invalid input: {e}"),
         }
     }
 }

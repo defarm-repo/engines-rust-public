@@ -95,6 +95,12 @@ pub struct AuthState {
     pub jwt_secret: String,
 }
 
+impl Default for AuthState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AuthState {
     pub fn new() -> Self {
         let jwt_secret = std::env::var("JWT_SECRET")
@@ -320,7 +326,7 @@ async fn register(
     let workspace_id = payload
         .workspace_name
         .as_ref()
-        .map(|name| format!("{}-workspace", name))
+        .map(|name| format!("{name}-workspace"))
         .or_else(|| Some(format!("{}-workspace", payload.username)));
 
     let new_user = UserAccount {

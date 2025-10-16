@@ -1,17 +1,10 @@
-use axum::{
-    http::StatusCode,
-    middleware,
-    response::Json,
-    routing::get,
-    Router,
-};
+use axum::{http::StatusCode, middleware, response::Json, routing::get, Router};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
-use tracing_subscriber;
 
 use defarm_engine::api::{
     activity_routes, adapter_routes, admin_routes, audit_routes, auth_routes, circuit_routes,
@@ -361,12 +354,12 @@ async fn load_data_from_postgres(
         let mut storage = app_state
             .shared_storage
             .lock()
-            .map_err(|e| format!("Failed to lock storage: {}", e))?;
+            .map_err(|e| format!("Failed to lock storage: {e}"))?;
 
         for user in users {
             storage
                 .store_user_account(&user)
-                .map_err(|e| format!("Failed to store user: {}", e))?;
+                .map_err(|e| format!("Failed to store user: {e}"))?;
         }
         tracing::info!("📥 Loaded {} users from PostgreSQL", user_count);
     }
@@ -378,12 +371,12 @@ async fn load_data_from_postgres(
         let mut storage = app_state
             .shared_storage
             .lock()
-            .map_err(|e| format!("Failed to lock storage: {}", e))?;
+            .map_err(|e| format!("Failed to lock storage: {e}"))?;
 
         for circuit in circuits {
             storage
                 .store_circuit(&circuit)
-                .map_err(|e| format!("Failed to store circuit: {}", e))?;
+                .map_err(|e| format!("Failed to store circuit: {e}"))?;
             tracing::debug!(
                 "📥 Loaded circuit: {} ({})",
                 circuit.name,
@@ -400,12 +393,12 @@ async fn load_data_from_postgres(
         let mut storage = app_state
             .shared_storage
             .lock()
-            .map_err(|e| format!("Failed to lock storage: {}", e))?;
+            .map_err(|e| format!("Failed to lock storage: {e}"))?;
 
         for adapter in adapters {
             storage
                 .store_adapter_config(&adapter)
-                .map_err(|e| format!("Failed to store adapter config: {}", e))?;
+                .map_err(|e| format!("Failed to store adapter config: {e}"))?;
         }
         tracing::info!(
             "📥 Loaded {} adapter configs from PostgreSQL",
@@ -414,51 +407,6 @@ async fn load_data_from_postgres(
     }
 
     Ok(user_count)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::allow_in_memory_fallback;
-    use std::sync::Mutex;
-
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
-
-    #[test]
-    fn fallback_defaults_to_false() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
-        assert!(!allow_in_memory_fallback());
-    }
-
-    #[test]
-    fn fallback_accepts_truthy_values() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        for value in ["1", "true", "TRUE", "YeS"] {
-            std::env::set_var("ALLOW_IN_MEMORY_FALLBACK", value);
-            assert!(
-                allow_in_memory_fallback(),
-                "expected {value} to enable fallback"
-            );
-        }
-        std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
-    }
-
-    #[test]
-    fn fallback_rejects_other_values() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        for value in ["", "0", "false", "no", "sometimes"] {
-            if value.is_empty() {
-                std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
-            } else {
-                std::env::set_var("ALLOW_IN_MEMORY_FALLBACK", value);
-            }
-            assert!(
-                !allow_in_memory_fallback(),
-                "expected {value} to disable fallback"
-            );
-        }
-        std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
-    }
 }
 
 /// Initialize development data directly to PostgreSQL
@@ -472,7 +420,7 @@ async fn initialize_development_data_to_postgres(pg: &PostgresPersistence) -> Re
     // Create hen admin
     println!("🐔 Initializing default admin user 'hen'...");
     let hen_password_hash =
-        hash("demo123", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {}", e))?;
+        hash("demo123", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {e}"))?;
 
     let hen_admin = UserAccount {
         user_id: "hen-admin-001".to_string(),
@@ -498,7 +446,7 @@ async fn initialize_development_data_to_postgres(pg: &PostgresPersistence) -> Re
     // Create sample users
     println!("🌱 Creating sample users...");
     let demo_password_hash =
-        hash("demo123", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {}", e))?;
+        hash("demo123", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {e}"))?;
 
     let sample_users = vec![
         UserAccount {
@@ -593,14 +541,14 @@ async fn initialize_development_data_to_postgres(pg: &PostgresPersistence) -> Re
         let tier = user.tier.as_str();
         let credits = user.credits;
         pg.persist_user(&user).await?;
-        println!("   ✅ Created {} user: {} ({})", tier, username, credits);
+        println!("   ✅ Created {tier} user: {username} ({credits})");
     }
 
     // Initialize production adapters
     println!("🔌 Initializing production adapters...");
     match initialize_adapters_to_postgres(pg).await {
-        Ok(adapter_count) => println!("✅ {} production adapters initialized!", adapter_count),
-        Err(e) => println!("⚠️  Failed to initialize adapters: {}", e),
+        Ok(adapter_count) => println!("✅ {adapter_count} production adapters initialized!"),
+        Err(e) => println!("⚠️  Failed to initialize adapters: {e}"),
     }
 
     println!("✅ Development data initialized in PostgreSQL!");
@@ -789,3 +737,47 @@ async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usi
     Ok(adapter_count)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::allow_in_memory_fallback;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn fallback_defaults_to_false() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
+        assert!(!allow_in_memory_fallback());
+    }
+
+    #[test]
+    fn fallback_accepts_truthy_values() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        for value in ["1", "true", "TRUE", "YeS"] {
+            std::env::set_var("ALLOW_IN_MEMORY_FALLBACK", value);
+            assert!(
+                allow_in_memory_fallback(),
+                "expected {value} to enable fallback"
+            );
+        }
+        std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
+    }
+
+    #[test]
+    fn fallback_rejects_other_values() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        for value in ["", "0", "false", "no", "sometimes"] {
+            if value.is_empty() {
+                std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
+            } else {
+                std::env::set_var("ALLOW_IN_MEMORY_FALLBACK", value);
+            }
+            assert!(
+                !allow_in_memory_fallback(),
+                "expected {value} to disable fallback"
+            );
+        }
+        std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
+    }
+}

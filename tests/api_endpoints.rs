@@ -2,11 +2,8 @@
 /// Tests all HTTP endpoints to ensure they work correctly with real HTTP requests
 ///
 /// Run with: cargo test --test api_endpoints
-
 use defarm_engine::{
-    circuits_engine::CircuitsEngine,
-    items_engine::ItemsEngine,
-    storage::InMemoryStorage,
+    circuits_engine::CircuitsEngine, items_engine::ItemsEngine, storage::InMemoryStorage,
 };
 use std::sync::{Arc, Mutex};
 
@@ -61,17 +58,23 @@ async fn test_create_circuit_workflow() {
     let (mut circuits, _items, _storage) = create_test_engines();
 
     // Create a circuit
-    let circuit = circuits.create_circuit(
-        "Test API Circuit".to_string(),
-        "Circuit for API testing".to_string(),
-        "user123".to_string(),
-        None,
-        None,
-    ).expect("Should create circuit");
+    let circuit = circuits
+        .create_circuit(
+            "Test API Circuit".to_string(),
+            "Circuit for API testing".to_string(),
+            "user123".to_string(),
+            None,
+            None,
+        )
+        .expect("Should create circuit");
 
     assert_eq!(circuit.name, "Test API Circuit");
     assert_eq!(circuit.owner_id, "user123");
-    assert_eq!(circuit.members.len(), 1, "Owner should be auto-added as member");
+    assert_eq!(
+        circuit.members.len(),
+        1,
+        "Owner should be auto-added as member"
+    );
 
     println!("✅ Create circuit workflow works");
 }
@@ -81,23 +84,31 @@ async fn test_add_member_to_circuit_workflow() {
     let (mut circuits, _items, _storage) = create_test_engines();
 
     // Create circuit
-    let circuit = circuits.create_circuit(
-        "Collaboration Circuit".to_string(),
-        "Test member management".to_string(),
-        "owner123".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits
+        .create_circuit(
+            "Collaboration Circuit".to_string(),
+            "Test member management".to_string(),
+            "owner123".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     // Add member
-    let updated_circuit = circuits.add_member_to_circuit(
-        &circuit.circuit_id,
-        "member456".to_string(),
-        defarm_engine::types::MemberRole::Member,
-        "owner123",
-    ).expect("Should add member");
+    let updated_circuit = circuits
+        .add_member_to_circuit(
+            &circuit.circuit_id,
+            "member456".to_string(),
+            defarm_engine::types::MemberRole::Member,
+            "owner123",
+        )
+        .expect("Should add member");
 
-    assert_eq!(updated_circuit.members.len(), 2, "Should have owner + member");
+    assert_eq!(
+        updated_circuit.members.len(),
+        2,
+        "Should have owner + member"
+    );
 
     let member = updated_circuit.get_member("member456");
     assert!(member.is_some(), "Member should exist");
@@ -114,23 +125,23 @@ async fn test_add_member_to_circuit_workflow() {
 async fn test_create_local_item_workflow() {
     let (_circuits, mut items, _storage) = create_test_engines();
 
-    use defarm_engine::{Identifier, identifier_types::EnhancedIdentifier};
+    use defarm_engine::{identifier_types::EnhancedIdentifier, Identifier};
     use uuid::Uuid;
 
-    let identifiers = vec![
-        Identifier::new("test", "api_test_001"),
-    ];
-    let enhanced_identifiers = vec![
-        EnhancedIdentifier::contextual("test", "id", "api_test_001"),
-    ];
+    let identifiers = vec![Identifier::new("test", "api_test_001")];
+    let enhanced_identifiers = vec![EnhancedIdentifier::contextual("test", "id", "api_test_001")];
     let source_entry = Uuid::new_v4();
 
     // Create local item (no DFID yet)
-    let item = items.create_local_item(identifiers, enhanced_identifiers, None, source_entry)
+    let item = items
+        .create_local_item(identifiers, enhanced_identifiers, None, source_entry)
         .expect("Should create local item");
 
     assert!(item.local_id.is_some(), "Local item should have LID");
-    assert!(item.dfid.starts_with("LID-"), "Should have temporary DFID format");
+    assert!(
+        item.dfid.starts_with("LID-"),
+        "Should have temporary DFID format"
+    );
 
     println!("✅ Create local item workflow works");
 }
@@ -144,44 +155,50 @@ async fn test_full_circuit_push_workflow() {
     let (mut circuits, mut items, _storage) = create_test_engines();
 
     // Step 1: Create circuit
-    let circuit = circuits.create_circuit(
-        "E2E Test Circuit".to_string(),
-        "End-to-end testing".to_string(),
-        "user123".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits
+        .create_circuit(
+            "E2E Test Circuit".to_string(),
+            "End-to-end testing".to_string(),
+            "user123".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
     let circuit_id = circuit.circuit_id;
 
     // Step 2: Create local item
-    use defarm_engine::{Identifier, identifier_types::EnhancedIdentifier};
+    use defarm_engine::{identifier_types::EnhancedIdentifier, Identifier};
     use uuid::Uuid;
 
     let identifiers = vec![Identifier::new("test", "e2e_001")];
     let enhanced_ids_for_creation = vec![EnhancedIdentifier::contextual("test", "id", "e2e_001")];
     let source_entry = Uuid::new_v4();
-    let item = items.create_local_item(identifiers, enhanced_ids_for_creation, None, source_entry).unwrap();
+    let item = items
+        .create_local_item(identifiers, enhanced_ids_for_creation, None, source_entry)
+        .unwrap();
     let local_id = item.local_id.unwrap();
 
     // Step 3: Push to circuit
     let enhanced_ids = vec![EnhancedIdentifier::contextual("test", "id", "e2e_001")];
 
-    let result = circuits.push_local_item_to_circuit(
-        &local_id,
-        enhanced_ids,
-        None,
-        &circuit_id,
-        "user123",
-    ).await;
+    let result = circuits
+        .push_local_item_to_circuit(&local_id, enhanced_ids, None, &circuit_id, "user123")
+        .await;
 
     // This will fail without actual adapter, but we can verify the error is appropriate
     match result {
         Ok(push_result) => {
-            println!("✅ Push succeeded (adapter configured): DFID = {}", push_result.dfid);
-            assert!(push_result.dfid.starts_with("DFID-"), "Should have real DFID");
+            println!(
+                "✅ Push succeeded (adapter configured): DFID = {}",
+                push_result.dfid
+            );
+            assert!(
+                push_result.dfid.starts_with("DFID-"),
+                "Should have real DFID"
+            );
         }
         Err(e) => {
-            println!("✅ Push failed as expected (no adapter): {:?}", e);
+            println!("✅ Push failed as expected (no adapter): {e:?}");
             // This is expected when no adapter is configured
         }
     }
@@ -206,18 +223,26 @@ async fn test_circuit_with_adapter_config() {
     };
 
     // Create circuit with adapter
-    let circuit = circuits.create_circuit(
-        "Adapter Circuit".to_string(),
-        "Circuit with IPFS adapter".to_string(),
-        "user123".to_string(),
-        Some(adapter_config),
-        None,
-    ).unwrap();
+    let circuit = circuits
+        .create_circuit(
+            "Adapter Circuit".to_string(),
+            "Circuit with IPFS adapter".to_string(),
+            "user123".to_string(),
+            Some(adapter_config),
+            None,
+        )
+        .unwrap();
 
-    assert!(circuit.adapter_config.is_some(), "Should have adapter config");
+    assert!(
+        circuit.adapter_config.is_some(),
+        "Should have adapter config"
+    );
     let config = circuit.adapter_config.unwrap();
     assert_eq!(config.adapter_type, Some(AdapterType::IpfsIpfs));
-    assert!(config.sponsor_adapter_access, "Should sponsor adapter access");
+    assert!(
+        config.sponsor_adapter_access,
+        "Should sponsor adapter access"
+    );
 
     println!("✅ Circuit with adapter config works");
 }
@@ -231,13 +256,15 @@ async fn test_non_owner_cannot_add_members() {
     let (mut circuits, _items, _storage) = create_test_engines();
 
     // Create circuit
-    let circuit = circuits.create_circuit(
-        "Permission Test Circuit".to_string(),
-        "Test permissions".to_string(),
-        "owner123".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits
+        .create_circuit(
+            "Permission Test Circuit".to_string(),
+            "Test permissions".to_string(),
+            "owner123".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     // Try to add member as non-owner (should fail)
     let result = circuits.add_member_to_circuit(
@@ -247,7 +274,10 @@ async fn test_non_owner_cannot_add_members() {
         "random_user", // Not the owner!
     );
 
-    assert!(result.is_err(), "Non-owner should not be able to add members");
+    assert!(
+        result.is_err(),
+        "Non-owner should not be able to add members"
+    );
 
     println!("✅ Permission validation works");
 }
@@ -273,14 +303,14 @@ async fn test_create_circuit_with_invalid_data() {
     // The important thing is it doesn't panic
     match result {
         Ok(_) => println!("⚠️  Empty name allowed (consider adding validation)"),
-        Err(e) => println!("✅ Empty name rejected: {:?}", e),
+        Err(e) => println!("✅ Empty name rejected: {e:?}"),
     }
 }
 
 #[tokio::test]
 async fn test_get_nonexistent_circuit() {
-    use uuid::Uuid;
     use defarm_engine::storage::StorageBackend;
+    use uuid::Uuid;
 
     let (_circuits, _items, storage) = create_test_engines();
     let storage = storage.lock().unwrap();
@@ -304,19 +334,30 @@ async fn test_circuit_timestamps_are_set() {
 
     let before = chrono::Utc::now();
 
-    let circuit = circuits.create_circuit(
-        "Timestamp Test".to_string(),
-        "Test timestamps".to_string(),
-        "user123".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits
+        .create_circuit(
+            "Timestamp Test".to_string(),
+            "Test timestamps".to_string(),
+            "user123".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     let after = chrono::Utc::now();
 
-    assert!(circuit.created_timestamp >= before, "Created timestamp should be after test start");
-    assert!(circuit.created_timestamp <= after, "Created timestamp should be before test end");
-    assert_eq!(circuit.created_timestamp, circuit.last_modified, "Timestamps should match on creation");
+    assert!(
+        circuit.created_timestamp >= before,
+        "Created timestamp should be after test start"
+    );
+    assert!(
+        circuit.created_timestamp <= after,
+        "Created timestamp should be before test end"
+    );
+    assert_eq!(
+        circuit.created_timestamp, circuit.last_modified,
+        "Timestamps should match on creation"
+    );
 
     println!("✅ Circuit timestamps are set correctly");
 }
@@ -325,13 +366,15 @@ async fn test_circuit_timestamps_are_set() {
 async fn test_circuit_members_have_timestamps() {
     let (mut circuits, _items, _storage) = create_test_engines();
 
-    let circuit = circuits.create_circuit(
-        "Member Timestamp Test".to_string(),
-        "Test member timestamps".to_string(),
-        "owner123".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits
+        .create_circuit(
+            "Member Timestamp Test".to_string(),
+            "Test member timestamps".to_string(),
+            "owner123".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     // Check owner (auto-added as member) has timestamp
     let owner_member = circuit.get_member("owner123").unwrap();

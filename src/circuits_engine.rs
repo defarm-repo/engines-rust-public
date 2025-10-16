@@ -38,12 +38,12 @@ pub enum CircuitsError {
 impl std::fmt::Display for CircuitsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CircuitsError::StorageError(e) => write!(f, "Storage error: {}", e),
-            CircuitsError::PermissionDenied(e) => write!(f, "Permission denied: {}", e),
+            CircuitsError::StorageError(e) => write!(f, "Storage error: {e}"),
+            CircuitsError::PermissionDenied(e) => write!(f, "Permission denied: {e}"),
             CircuitsError::AdapterPermissionDenied(e) => {
-                write!(f, "Adapter permission denied: {}", e)
+                write!(f, "Adapter permission denied: {e}")
             }
-            CircuitsError::ValidationError(e) => write!(f, "Validation error: {}", e),
+            CircuitsError::ValidationError(e) => write!(f, "Validation error: {e}"),
             CircuitsError::NotFound => write!(f, "Circuit not found"),
             CircuitsError::ItemNotFound => write!(f, "Item not found"),
             CircuitsError::CircuitNotFound => write!(f, "Circuit not found"),
@@ -135,7 +135,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .info(
                 "circuits_engine",
                 "auto_publish_check",
-                &format!("Checking auto-publish for circuit {}", circuit_id),
+                format!("Checking auto-publish for circuit {circuit_id}"),
             )
             .with_context("circuit_id", circuit_id.to_string())
             .with_context("dfid", dfid.to_string());
@@ -155,7 +155,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                             .info(
                                 "circuits_engine",
                                 "auto_publish_success",
-                                &format!("Auto-published item {} to circuit {}", dfid, circuit_id),
+                                format!("Auto-published item {dfid} to circuit {circuit_id}"),
                             )
                             .with_context("circuit_id", circuit_id.to_string())
                             .with_context("dfid", dfid.to_string());
@@ -203,7 +203,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .info(
                 "circuits_engine",
                 "circuit_creation_started",
-                &format!("Creating circuit: {}", name),
+                format!("Creating circuit: {name}"),
             )
             .with_context("circuit_id", circuit.circuit_id.to_string())
             .with_context("owner_id", owner_id.clone());
@@ -211,7 +211,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         storage
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
@@ -239,7 +239,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
@@ -257,7 +257,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             ));
         }
 
-        circuit.add_member(member_id.clone(), role.clone());
+        circuit.add_member(member_id.clone(), role);
 
         storage
             .update_circuit(&circuit)
@@ -268,7 +268,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .info("circuits_engine", "member_added", "Member added to circuit")
             .with_context("circuit_id", circuit_id.to_string())
             .with_context("member_id", member_id)
-            .with_context("role", format!("{:?}", role))
+            .with_context("role", format!("{role:?}"))
             .with_context("requester_id", requester_id.to_string());
 
         Ok(circuit)
@@ -285,9 +285,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .info(
                 "circuits_engine",
                 "push_item_attempt",
-                &format!(
-                    "Attempting to push item {} to circuit {} by user {}",
-                    dfid, circuit_id, requester_id
+                format!(
+                    "Attempting to push item {dfid} to circuit {circuit_id} by user {requester_id}"
                 ),
             )
             .with_context("dfid", dfid)
@@ -297,7 +296,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         let _item = storage
             .get_item_by_dfid(dfid)
@@ -312,7 +311,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     .error(
                         "circuits_engine",
                         "push_item_storage_error",
-                        &format!("Storage error while getting circuit {}: {}", circuit_id, e),
+                        format!("Storage error while getting circuit {circuit_id}: {e}"),
                     )
                     .with_context("circuit_id", circuit_id.to_string())
                     .with_context("error", e.to_string());
@@ -324,7 +323,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     .warn(
                         "circuits_engine",
                         "push_item_circuit_not_found",
-                        &format!("Circuit {} not found in storage", circuit_id),
+                        format!("Circuit {circuit_id} not found in storage"),
                     )
                     .with_context("circuit_id", circuit_id.to_string());
                 CircuitsError::CircuitNotFound
@@ -335,7 +334,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .info(
                 "circuits_engine",
                 "push_item_permission_check",
-                &format!("Circuit {} found, checking permissions", circuit_id),
+                format!("Circuit {circuit_id} found, checking permissions"),
             )
             .with_context("circuit_id", circuit_id.to_string())
             .with_context("circuit_name", &circuit.name)
@@ -369,17 +368,15 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
                     // Check if user has access to the required adapter
                     if !user_adapters.contains(required_adapter) {
-                        let adapter_name = format!("{:?}", required_adapter);
+                        let adapter_name = format!("{required_adapter:?}");
                         let user_adapters_str = user_adapters
                             .iter()
-                            .map(|a| format!("{:?}", a))
+                            .map(|a| format!("{a:?}"))
                             .collect::<Vec<_>>()
                             .join(", ");
                         return Err(CircuitsError::AdapterPermissionDenied(
                             format!(
-                                "This circuit requires '{}' adapter access. You currently have access to: {}. Please contact your administrator to request access to this adapter.",
-                                adapter_name,
-                                user_adapters_str
+                                "This circuit requires '{adapter_name}' adapter access. You currently have access to: {user_adapters_str}. Please contact your administrator to request access to this adapter."
                             )
                         ));
                     }
@@ -461,7 +458,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             self.handle_storage_migration(dfid, &circuit, requester_id)
                 .await
                 .map_err(|e| {
-                    CircuitsError::StorageError(format!("Storage migration failed: {}", e))
+                    CircuitsError::StorageError(format!("Storage migration failed: {e}"))
                 })?;
         }
 
@@ -500,7 +497,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         // 1. Get circuit and validate permissions
         let circuit = storage
@@ -585,8 +582,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     AdapterType::IpfsIpfs => {
                         let adapter = IpfsIpfsAdapter::new().map_err(|e| {
                             CircuitsError::StorageError(format!(
-                                "Failed to create IPFS adapter: {}",
-                                e
+                                "Failed to create IPFS adapter: {e}"
                             ))
                         })?;
                         adapter
@@ -594,8 +590,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                             .await
                             .map_err(|e| {
                                 CircuitsError::StorageError(format!(
-                                    "Failed to upload to IPFS: {}",
-                                    e
+                                    "Failed to upload to IPFS: {e}"
                                 ))
                             })?
                     }
@@ -605,8 +600,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                         )
                         .map_err(|e| {
                             CircuitsError::StorageError(format!(
-                                "Failed to create Stellar Testnet adapter: {}",
-                                e
+                                "Failed to create Stellar Testnet adapter: {e}"
                             ))
                         })?;
                         adapter
@@ -614,8 +608,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                             .await
                             .map_err(|e| {
                                 CircuitsError::StorageError(format!(
-                                    "Failed to upload to Stellar Testnet: {}",
-                                    e
+                                    "Failed to upload to Stellar Testnet: {e}"
                                 ))
                             })?
                     }
@@ -625,8 +618,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                         )
                         .map_err(|e| {
                             CircuitsError::StorageError(format!(
-                                "Failed to create Stellar Mainnet adapter: {}",
-                                e
+                                "Failed to create Stellar Mainnet adapter: {e}"
                             ))
                         })?;
                         adapter
@@ -634,15 +626,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                             .await
                             .map_err(|e| {
                                 CircuitsError::StorageError(format!(
-                                    "Failed to upload to Stellar Mainnet: {}",
-                                    e
+                                    "Failed to upload to Stellar Mainnet: {e}"
                                 ))
                             })?
                     }
                     _ => {
                         return Err(CircuitsError::StorageError(format!(
-                            "Unsupported adapter type: {:?}",
-                            adapter_type
+                            "Unsupported adapter type: {adapter_type:?}"
                         )));
                     }
                 };
@@ -728,11 +718,11 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                         "Item uploaded to adapter",
                     )
                     .with_context("dfid", dfid.clone())
-                    .with_context("adapter_type", format!("{:?}", adapter_type))
+                    .with_context("adapter_type", format!("{adapter_type:?}"))
                     .with_context("storage_hash", storage_hash.clone());
 
                 Some(WebhookStorageData {
-                    adapter_type: format!("{:?}", adapter_type),
+                    adapter_type: format!("{adapter_type:?}"),
                     location: format!("{:?}", upload_result.metadata.item_location),
                     hash: storage_hash.clone(),
                     cid: if matches!(storage_location, StorageLocation::IPFS { .. }) {
@@ -822,7 +812,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .with_context("local_id", local_id.to_string())
             .with_context("dfid", dfid.clone())
             .with_context("circuit_id", circuit_id.to_string())
-            .with_context("status", format!("{:?}", status));
+            .with_context("status", format!("{status:?}"));
 
         // Trigger webhooks if configured (optional)
         let trigger_event = match status {
@@ -883,8 +873,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
             if !found {
                 return Err(CircuitsError::ValidationError(format!(
-                    "Required canonical identifier '{}' not provided",
-                    required
+                    "Required canonical identifier '{required}' not provided"
                 )));
             }
         }
@@ -897,8 +886,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
             if !found {
                 return Err(CircuitsError::ValidationError(format!(
-                    "Required contextual identifier '{}' not provided",
-                    required
+                    "Required contextual identifier '{required}' not provided"
                 )));
             }
         }
@@ -1054,10 +1042,10 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         // Add alias from requester
         item.aliases.push(ExternalAlias::new(
-            &format!("user:{}", requester_id),
+            &format!("user:{requester_id}"),
             &local_id.to_string(),
             requester_id,
-            &blake3::hash(local_id.as_bytes()).to_hex().to_string(),
+            blake3::hash(local_id.as_bytes()).to_hex().as_ref(),
         ));
 
         storage
@@ -1098,10 +1086,10 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         // Add alias from this push
         item.aliases.push(ExternalAlias::new(
-            &format!("user:{}", requester_id),
+            &format!("user:{requester_id}"),
             &Uuid::new_v4().to_string(),
             requester_id,
-            &blake3::hash(dfid.as_bytes()).to_hex().to_string(),
+            blake3::hash(dfid.as_bytes()).to_hex().as_ref(),
         ));
 
         // Add enriched data
@@ -1173,7 +1161,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         let circuit = storage
             .get_circuit(circuit_id)
@@ -1264,7 +1252,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         let mut operation = storage
             .get_circuit_operation(operation_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
@@ -1355,7 +1343,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         let mut operation = storage
             .get_circuit_operation(operation_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
@@ -1411,7 +1399,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         storage
             .list_circuits()
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
@@ -1421,7 +1409,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
@@ -1431,7 +1419,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         storage
             .get_circuits_for_member(member_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
@@ -1444,7 +1432,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         storage
             .get_circuit_operations(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
@@ -1469,7 +1457,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
@@ -1523,7 +1511,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         let mut circuit = storage
             .get_circuit(circuit_id)
@@ -1532,7 +1520,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         circuit
             .add_join_request(requester_id.to_string(), message)
-            .map_err(|e| CircuitsError::ValidationError(e))?;
+            .map_err(CircuitsError::ValidationError)?;
 
         storage
             .update_circuit(&circuit)
@@ -1561,7 +1549,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         let mut circuit = storage
             .get_circuit(circuit_id)
@@ -1577,7 +1565,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         circuit
             .approve_join_request(requester_id, role)
-            .map_err(|e| CircuitsError::ValidationError(e))?;
+            .map_err(CircuitsError::ValidationError)?;
 
         storage
             .update_circuit(&circuit)
@@ -1606,7 +1594,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         let mut circuit = storage
             .get_circuit(circuit_id)
@@ -1622,7 +1610,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         circuit
             .reject_join_request(requester_id)
-            .map_err(|e| CircuitsError::ValidationError(e))?;
+            .map_err(CircuitsError::ValidationError)?;
 
         storage
             .update_circuit(&circuit)
@@ -1649,7 +1637,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         let circuit = storage
             .get_circuit(circuit_id)
@@ -1674,7 +1662,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         let mut circuit = storage
             .get_circuit(circuit_id)
@@ -1732,7 +1720,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         // Get the circuit
         let mut circuit = storage
@@ -1799,7 +1787,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 serde_json::json!({
                     "circuit_id": circuit_id,
                     "circuit_name": circuit.name,
-                    "adapter_type": adapter_config.adapter_type.as_ref().map(|a| format!("{:?}", a)),
+                    "adapter_type": adapter_config.adapter_type.as_ref().map(|a| format!("{a:?}")),
                     "sponsor_adapter_access": sponsor_adapter_access,
                     "configured_by": requester_id,
                 }),
@@ -1854,12 +1842,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 color,
                 requester_id.to_string(),
             )
-            .map_err(|e| CircuitsError::ValidationError(e))?;
+            .map_err(CircuitsError::ValidationError)?;
 
         // Save the updated circuit
         self.storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -1912,12 +1900,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         // Assign the custom role
         circuit
             .assign_custom_role(member_id, role_name)
-            .map_err(|e| CircuitsError::ValidationError(e))?;
+            .map_err(CircuitsError::ValidationError)?;
 
         // Save the updated circuit
         self.storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -1956,12 +1944,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         // Remove the custom role
         circuit
             .remove_custom_role(role_name)
-            .map_err(|e| CircuitsError::ValidationError(e))?;
+            .map_err(CircuitsError::ValidationError)?;
 
         // Save the updated circuit
         self.storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -2007,12 +1995,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 new_description.clone(),
                 new_color.clone(),
             )
-            .map_err(|e| CircuitsError::ValidationError(e))?;
+            .map_err(CircuitsError::ValidationError)?;
 
         // Save the updated circuit
         self.storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -2046,7 +2034,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         let mut circuit = storage
             .get_circuit(circuit_id)
@@ -2065,7 +2053,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         // Update public settings
         circuit
             .update_public_settings(settings)
-            .map_err(|e| CircuitsError::ValidationError(e))?;
+            .map_err(CircuitsError::ValidationError)?;
 
         // Store updated circuit
         storage
@@ -2091,7 +2079,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
     ) -> Result<Option<crate::types::PublicCircuitInfo>, CircuitsError> {
         let (mut public_info, show_encrypted_events) = {
             let storage = self.storage.lock().map_err(|e| {
-                CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e))
+                CircuitsError::StorageError(format!("Storage mutex poisoned: {e}"))
             })?;
 
             let circuit = storage
@@ -2153,7 +2141,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
         let mut circuit = storage
             .get_circuit(circuit_id)
@@ -2221,7 +2209,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             // Create join request
             circuit
                 .add_join_request(requester_id.to_string(), message)
-                .map_err(|e| CircuitsError::ValidationError(e))?;
+                .map_err(CircuitsError::ValidationError)?;
 
             storage
                 .store_circuit(&circuit)
@@ -2287,7 +2275,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         storage
             .get_circuit_items(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
@@ -2297,7 +2285,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         storage
             .get_activities_for_user(user_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
@@ -2310,7 +2298,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         storage
             .get_activities_for_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
@@ -2320,7 +2308,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {}", e)))?;
+            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
         storage
             .get_all_activities()
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
@@ -2418,7 +2406,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                         .info(
                             "circuits_engine",
                             "webhooks_triggered",
-                            &format!(
+                            format!(
                                 "Triggered {} webhooks for event {:?}",
                                 delivery_ids.len(),
                                 trigger_event
@@ -2435,7 +2423,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     .warn(
                         "circuits_engine",
                         "webhook_trigger_failed",
-                        &format!("Failed to trigger webhooks: {}", e),
+                        format!("Failed to trigger webhooks: {e}"),
                     )
                     .with_context("circuit_id", circuit.circuit_id.to_string())
                     .with_context("dfid", dfid.to_string());

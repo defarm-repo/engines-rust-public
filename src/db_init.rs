@@ -65,7 +65,7 @@ pub fn initialize_default_admin(
     storage.record_credit_transaction(&initial_credit_transaction)?;
 
     println!("✅ Default admin 'hen' created successfully!");
-    println!("   - User ID: {}", admin_user_id);
+    println!("   - User ID: {admin_user_id}");
     println!("   - Username: hen");
     println!("   - Email: hen@defarm.com");
     println!("   - Tier: Admin");

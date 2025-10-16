@@ -15,7 +15,7 @@ impl std::fmt::Display for ReceiptError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReceiptError::NoIdentifiers => write!(f, "At least one identifier is required"),
-            ReceiptError::StorageError(e) => write!(f, "Storage error: {}", e),
+            ReceiptError::StorageError(e) => write!(f, "Storage error: {e}"),
         }
     }
 }

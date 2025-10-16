@@ -179,15 +179,15 @@ impl Default for InMemoryApiKeyStorage {
 impl ApiKeyStorage for InMemoryApiKeyStorage {
     async fn create_api_key(&self, api_key: ApiKey) -> Result<ApiKey, ApiKeyStorageError> {
         let mut keys = self.api_keys.write().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {e}"))
         })?;
 
         let mut hash_index = self.hash_index.write().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire hash index lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire hash index lock: {e}"))
         })?;
 
         let mut user_index = self.user_index.write().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire user index lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire user index lock: {e}"))
         })?;
 
         // Check if key hash already exists
@@ -214,7 +214,7 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
 
     async fn get_api_key(&self, id: Uuid) -> Result<ApiKey, ApiKeyStorageError> {
         let keys = self.api_keys.read().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire read lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire read lock: {e}"))
         })?;
 
         keys.get(&id)
@@ -225,7 +225,7 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
     async fn get_api_key_by_hash(&self, key_hash: &str) -> Result<ApiKey, ApiKeyStorageError> {
         let key_id = {
             let hash_index = self.hash_index.read().map_err(|e| {
-                ApiKeyStorageError::LockError(format!("Failed to acquire hash index lock: {}", e))
+                ApiKeyStorageError::LockError(format!("Failed to acquire hash index lock: {e}"))
             })?;
 
             *hash_index
@@ -238,13 +238,13 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
 
     async fn get_user_api_keys(&self, user_id: Uuid) -> Result<Vec<ApiKey>, ApiKeyStorageError> {
         let user_index = self.user_index.read().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire user index lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire user index lock: {e}"))
         })?;
 
         let key_ids = user_index.get(&user_id).cloned().unwrap_or_default();
 
         let keys = self.api_keys.read().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire read lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire read lock: {e}"))
         })?;
 
         let user_keys = key_ids
@@ -257,7 +257,7 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
 
     async fn update_api_key(&self, api_key: ApiKey) -> Result<ApiKey, ApiKeyStorageError> {
         let mut keys = self.api_keys.write().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {e}"))
         })?;
 
         if !keys.contains_key(&api_key.id) {
@@ -270,18 +270,18 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
 
     async fn delete_api_key(&self, id: Uuid) -> Result<(), ApiKeyStorageError> {
         let mut keys = self.api_keys.write().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {e}"))
         })?;
 
         let api_key = keys.remove(&id).ok_or(ApiKeyStorageError::NotFound(id))?;
 
         // Clean up indexes
         let mut hash_index = self.hash_index.write().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire hash index lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire hash index lock: {e}"))
         })?;
 
         let mut user_index = self.user_index.write().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire user index lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire user index lock: {e}"))
         })?;
 
         hash_index.remove(&api_key.key_hash);
@@ -295,7 +295,7 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
 
     async fn record_usage(&self, id: Uuid) -> Result<(), ApiKeyStorageError> {
         let mut keys = self.api_keys.write().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {e}"))
         })?;
 
         let api_key = keys.get_mut(&id).ok_or(ApiKeyStorageError::NotFound(id))?;
@@ -308,7 +308,7 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
 
     async fn log_usage(&self, log: ApiKeyUsageLog) -> Result<(), ApiKeyStorageError> {
         let mut logs = self.usage_logs.write().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire usage logs lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire usage logs lock: {e}"))
         })?;
 
         logs.push(log);
@@ -321,7 +321,7 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
         days: u32,
     ) -> Result<ApiKeyUsageStats, ApiKeyStorageError> {
         let logs = self.usage_logs.read().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire usage logs lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire usage logs lock: {e}"))
         })?;
 
         let cutoff_date = Utc::now() - chrono::Duration::days(days as i64);
@@ -341,7 +341,7 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
         limit: Option<usize>,
     ) -> Result<Vec<ApiKeyUsageLog>, ApiKeyStorageError> {
         let logs = self.usage_logs.read().map_err(|e| {
-            ApiKeyStorageError::LockError(format!("Failed to acquire usage logs lock: {}", e))
+            ApiKeyStorageError::LockError(format!("Failed to acquire usage logs lock: {e}"))
         })?;
 
         let mut filtered_logs: Vec<ApiKeyUsageLog> = logs

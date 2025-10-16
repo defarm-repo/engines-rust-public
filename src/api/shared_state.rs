@@ -29,6 +29,12 @@ pub struct AppState<S: ApiKeyStorage = crate::api_key_storage::InMemoryApiKeySto
     pub postgres_persistence: Arc<RwLock<Option<PostgresPersistence>>>,
 }
 
+impl Default for AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
     pub fn new() -> Self {
         // Create a single shared storage instance for all engines

@@ -109,11 +109,11 @@ impl StellarMainnetIpfsAdapter {
         // Initialize IPFS client
         let ipfs_client = if let (Some(api_key), Some(secret)) = (api_key, secret_key) {
             IpfsClient::with_pinata(api_key, secret).map_err(|e| {
-                StorageError::ConnectionError(format!("Failed to configure Pinata: {}", e))
+                StorageError::ConnectionError(format!("Failed to configure Pinata: {e}"))
             })?
         } else {
             IpfsClient::with_endpoint(&ipfs_endpoint).map_err(|e| {
-                StorageError::ConnectionError(format!("Failed to connect to IPFS: {}", e))
+                StorageError::ConnectionError(format!("Failed to connect to IPFS: {e}"))
             })?
         };
 
@@ -124,7 +124,7 @@ impl StellarMainnetIpfsAdapter {
         // Configure with keypair if available
         if let Some(secret_key) = stellar_secret {
             stellar_client = stellar_client.with_keypair(&secret_key).map_err(|e| {
-                StorageError::ConfigurationError(format!("Invalid Stellar keypair: {}", e))
+                StorageError::ConfigurationError(format!("Invalid Stellar keypair: {e}"))
             })?;
         }
 
@@ -224,7 +224,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
         // Step 1: Upload item to IPFS
         let cid =
             self.ipfs_client.upload_json(item).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to upload to IPFS: {}", e))
+                StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
             })?;
 
         // Step 2: Register CID on Stellar mainnet blockchain using IPCM contract
@@ -233,7 +233,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
             .update_ipcm(&item.dfid, &cid)
             .await
             .map_err(|e| {
-                StorageError::WriteError(format!("Failed to register on Stellar: {}", e))
+                StorageError::WriteError(format!("Failed to register on Stellar: {e}"))
             })?;
 
         // Step 3: Create metadata with both IPFS CID and Stellar transaction
@@ -270,8 +270,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
                 .await
                 .map_err(|e| {
                     StorageError::WriteError(format!(
-                        "Failed to mint NFT on Stellar Mainnet: {}",
-                        e
+                        "Failed to mint NFT on Stellar Mainnet: {e}"
                     ))
                 })?;
 
@@ -283,7 +282,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
 
             // Step 2: Upload item to IPFS
             let cid = self.ipfs_client.upload_json(item).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to upload to IPFS: {}", e))
+                StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
             })?;
 
             // Step 3: Register CID in IPCM contract on MAINNET
@@ -293,8 +292,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
                 .await
                 .map_err(|e| {
                     StorageError::WriteError(format!(
-                        "Failed to register on Stellar Mainnet: {}",
-                        e
+                        "Failed to register on Stellar Mainnet: {e}"
                     ))
                 })?;
 
@@ -319,7 +317,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
     ) -> Result<AdapterResult<String>, StorageError> {
         // Step 1: Upload event to IPFS
         let cid = self.ipfs_client.upload_json(event).await.map_err(|e| {
-            StorageError::WriteError(format!("Failed to upload event to IPFS: {}", e))
+            StorageError::WriteError(format!("Failed to upload event to IPFS: {e}"))
         })?;
 
         // Step 2: Register event CID in IPCM contract with item reference
@@ -329,7 +327,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
             .update_ipcm(&event_key, &cid)
             .await
             .map_err(|e| {
-                StorageError::WriteError(format!("Failed to register event on Stellar: {}", e))
+                StorageError::WriteError(format!("Failed to register event on Stellar: {e}"))
             })?;
 
         // Step 3: Create metadata
@@ -344,7 +342,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
             .stellar_client
             .get_ipcm(item_id)
             .await
-            .map_err(|e| StorageError::ReadError(format!("Failed to query Stellar: {}", e)))?;
+            .map_err(|e| StorageError::ReadError(format!("Failed to query Stellar: {e}")))?;
 
         if let Some(entry) = ipcm_entry {
             // Step 2: Retrieve item from IPFS using CID
@@ -353,7 +351,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
                 .get_json::<Item>(&entry.cid)
                 .await
                 .map_err(|e| {
-                    StorageError::ReadError(format!("Failed to retrieve from IPFS: {}", e))
+                    StorageError::ReadError(format!("Failed to retrieve from IPFS: {e}"))
                 })?;
 
             let metadata = self.create_metadata("read_only", &entry.cid);
@@ -371,7 +369,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
             .stellar_client
             .get_ipcm(event_id)
             .await
-            .map_err(|e| StorageError::ReadError(format!("Failed to query Stellar: {}", e)))?;
+            .map_err(|e| StorageError::ReadError(format!("Failed to query Stellar: {e}")))?;
 
         if let Some(entry) = ipcm_entry {
             let event = self
@@ -379,7 +377,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
                 .get_json::<Event>(&entry.cid)
                 .await
                 .map_err(|e| {
-                    StorageError::ReadError(format!("Failed to retrieve from IPFS: {}", e))
+                    StorageError::ReadError(format!("Failed to retrieve from IPFS: {e}"))
                 })?;
 
             let metadata = self.create_metadata("read_only", &entry.cid);
@@ -438,7 +436,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
                 );
 
                 for (key, value) in stellar_status {
-                    details.insert(format!("stellar_{}", key), serde_json::Value::String(value));
+                    details.insert(format!("stellar_{key}"), serde_json::Value::String(value));
                 }
 
                 details

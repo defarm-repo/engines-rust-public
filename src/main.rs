@@ -69,7 +69,7 @@ async fn main() {
 
     // Create a mock item for demonstration
     let demo_dfid = "DFID-20240926-000001-A7B2C".to_string();
-    println!("   Creating events for item: {}", demo_dfid);
+    println!("   Creating events for item: {demo_dfid}");
 
     // Create item lifecycle events
     let created_event = events_engine
@@ -139,8 +139,7 @@ async fn main() {
 
     // Demonstrate push/pull operations with the item
     println!(
-        "   Demonstrating circuit operations with item: {}",
-        demo_dfid
+        "   Demonstrating circuit operations with item: {demo_dfid}"
     );
 
     // Push item to circuit
@@ -179,8 +178,8 @@ async fn main() {
     println!("\n6. System Summary:");
     let total_events = events_engine.list_all_events().unwrap().len();
     let total_circuits = circuits_engine.list_circuits().unwrap().len();
-    println!("   Total events: {}", total_events);
-    println!("   Total circuits: {}", total_circuits);
+    println!("   Total events: {total_events}");
+    println!("   Total circuits: {total_circuits}");
     println!("   Total receipts: {}", all_receipts.len());
     println!("   Data lake entries: {}", data_lake_logs.len());
 

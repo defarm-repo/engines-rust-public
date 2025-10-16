@@ -25,7 +25,7 @@ impl WebhookDeliveryQueue {
         self.tx
             .send(task)
             .await
-            .map_err(|e| format!("Failed to enqueue webhook delivery: {}", e))
+            .map_err(|e| format!("Failed to enqueue webhook delivery: {e}"))
     }
 }
 
@@ -152,7 +152,7 @@ async fn deliver_webhook_with_retry(
                 let status_code = response.status().as_u16();
                 let response_body = response.text().await.unwrap_or_default();
 
-                if status_code >= 200 && status_code < 300 {
+                if (200..300).contains(&status_code) {
                     // Success
                     let _ = storage_tx
                         .send(DeliveryStatusUpdate {
@@ -180,8 +180,7 @@ async fn deliver_webhook_with_retry(
                                 response_code: Some(status_code),
                                 response_body: Some(response_body.clone()),
                                 error_message: Some(format!(
-                                    "HTTP error {}: {}",
-                                    status_code, response_body
+                                    "HTTP error {status_code}: {response_body}"
                                 )),
                                 delivered_at: None,
                                 next_retry_at: None,
@@ -189,8 +188,7 @@ async fn deliver_webhook_with_retry(
                             .await;
 
                         return Err(format!(
-                            "HTTP error {} after {} attempts",
-                            status_code, attempt
+                            "HTTP error {status_code} after {attempt} attempts"
                         ));
                     }
                 }
@@ -206,13 +204,13 @@ async fn deliver_webhook_with_retry(
                             attempts: attempt,
                             response_code: None,
                             response_body: None,
-                            error_message: Some(format!("Network error: {}", e)),
+                            error_message: Some(format!("Network error: {e}")),
                             delivered_at: None,
                             next_retry_at: None,
                         })
                         .await;
 
-                    return Err(format!("Network error after {} attempts: {}", attempt, e));
+                    return Err(format!("Network error after {attempt} attempts: {e}"));
                 }
             }
         }

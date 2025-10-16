@@ -100,7 +100,7 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
             adapter_type,
             storage_location,
             stored_at: Utc::now(),
-            triggered_by: format!("store_event:{}", event_id),
+            triggered_by: format!("store_event:{event_id}"),
             triggered_by_id: Some(user_id.to_string()),
             events_range: None,
             is_active: false,
@@ -173,25 +173,25 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
 
             let storage_location = match adapter_type {
                 AdapterType::IpfsIpfs => StorageLocation::IPFS {
-                    cid: format!("migrated_{}", dfid),
+                    cid: format!("migrated_{dfid}"),
                     pinned: true,
                 },
                 AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS {
-                    cid: format!("migrated_{}", dfid),
+                    cid: format!("migrated_{dfid}"),
                     pinned: true,
                 },
                 AdapterType::PolygonArweave => StorageLocation::Arweave {
-                    transaction_id: format!("migrated_{}", dfid),
+                    transaction_id: format!("migrated_{dfid}"),
                 },
                 AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                     StorageLocation::Stellar {
-                        transaction_id: format!("migrated_{}", dfid),
+                        transaction_id: format!("migrated_{dfid}"),
                         contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration
                         asset_id: None,
                     }
                 }
                 AdapterType::Custom(_) => StorageLocation::Local {
-                    id: format!("migrated_{}", dfid),
+                    id: format!("migrated_{dfid}"),
                 }, // Fallback
             };
 

@@ -14,9 +14,9 @@ pub enum NotificationError {
 impl std::fmt::Display for NotificationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NotificationError::StorageError(e) => write!(f, "Storage error: {}", e),
+            NotificationError::StorageError(e) => write!(f, "Storage error: {e}"),
             NotificationError::NotFound => write!(f, "Notification not found"),
-            NotificationError::ValidationError(e) => write!(f, "Validation error: {}", e),
+            NotificationError::ValidationError(e) => write!(f, "Validation error: {e}"),
         }
     }
 }
@@ -44,8 +44,8 @@ impl<S: StorageBackend> NotificationEngine<S> {
         let notification = Notification::new(
             admin_user_id.to_string(),
             NotificationType::JoinRequestReceived,
-            format!("New join request for {}", circuit_name),
-            format!("User {} requested to join your circuit", requester_id),
+            format!("New join request for {circuit_name}"),
+            format!("User {requester_id} requested to join your circuit"),
             json!({
                 "requester_id": requester_id,
                 "circuit_id": circuit_id,
@@ -71,10 +71,9 @@ impl<S: StorageBackend> NotificationEngine<S> {
         let notification = Notification::new(
             requester_id.to_string(),
             NotificationType::JoinRequestApproved,
-            format!("Join request approved for {}", circuit_name),
+            format!("Join request approved for {circuit_name}"),
             format!(
-                "Your request to join {} has been approved. You are now a {}.",
-                circuit_name, assigned_role
+                "Your request to join {circuit_name} has been approved. You are now a {assigned_role}."
             ),
             json!({
                 "circuit_id": circuit_id,
@@ -100,8 +99,8 @@ impl<S: StorageBackend> NotificationEngine<S> {
         let notification = Notification::new(
             requester_id.to_string(),
             NotificationType::JoinRequestRejected,
-            format!("Join request rejected for {}", circuit_name),
-            format!("Your request to join {} has been rejected.", circuit_name),
+            format!("Join request rejected for {circuit_name}"),
+            format!("Your request to join {circuit_name} has been rejected."),
             json!({
                 "circuit_id": circuit_id,
                 "circuit_name": circuit_name,
@@ -126,10 +125,9 @@ impl<S: StorageBackend> NotificationEngine<S> {
         let notification = Notification::new(
             invited_user_id.to_string(),
             NotificationType::CircuitInvite,
-            format!("Invited to {}", circuit_name),
+            format!("Invited to {circuit_name}"),
             format!(
-                "You have been invited to join {} as a {}.",
-                circuit_name, role
+                "You have been invited to join {circuit_name} as a {role}."
             ),
             json!({
                 "circuit_id": circuit_id,
@@ -156,8 +154,8 @@ impl<S: StorageBackend> NotificationEngine<S> {
         let notification = Notification::new(
             member_user_id.to_string(),
             NotificationType::ItemShared,
-            format!("New item in {}", circuit_name),
-            format!("User {} shared a new item to {}.", shared_by, circuit_name),
+            format!("New item in {circuit_name}"),
+            format!("User {shared_by} shared a new item to {circuit_name}."),
             json!({
                 "item_id": item_id,
                 "circuit_id": circuit_id,
@@ -183,8 +181,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
             NotificationType::AccountUpdated,
             "Account Updated".to_string(),
             format!(
-                "Your account has been updated by admin {}. Changes: {}",
-                admin_username, changes
+                "Your account has been updated by admin {admin_username}. Changes: {changes}"
             ),
             json!({
                 "admin_username": admin_username,
@@ -244,8 +241,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
             NotificationType::AccountFrozen,
             "Account Frozen".to_string(),
             format!(
-                "Your account has been frozen by admin {}. Reason: {}",
-                admin_username, reason
+                "Your account has been frozen by admin {admin_username}. Reason: {reason}"
             ),
             json!({
                 "admin_username": admin_username,
@@ -269,8 +265,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
             NotificationType::AccountUnfrozen,
             "Account Unfrozen".to_string(),
             format!(
-                "Your account has been reactivated by admin {}. You can now access all features.",
-                admin_username
+                "Your account has been reactivated by admin {admin_username}. You can now access all features."
             ),
             json!({
                 "admin_username": admin_username,

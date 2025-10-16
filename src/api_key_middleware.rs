@@ -145,7 +145,7 @@ pub async fn api_key_auth_middleware<S: ApiKeyStorage + 'static>(
                 logger.warn(
                     "api_key_middleware",
                     "invalid_key",
-                    format!("Invalid API key provided with hash {}", key_hash),
+                    format!("Invalid API key provided with hash {key_hash}"),
                 );
             }
             error_response(
@@ -336,7 +336,7 @@ pub fn require_permission(
                 return Err(error_response(
                     StatusCode::FORBIDDEN,
                     "insufficient_permissions",
-                    &format!("This operation requires '{}' permission", permission),
+                    &format!("This operation requires '{permission}' permission"),
                 ));
             }
 

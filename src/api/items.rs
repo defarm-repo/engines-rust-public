@@ -315,6 +315,12 @@ pub struct ItemState {
     pub engine: Arc<Mutex<ItemsEngine<InMemoryStorage>>>,
 }
 
+impl Default for ItemState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ItemState {
     pub fn new() -> Self {
         let storage = InMemoryStorage::new();
@@ -365,7 +371,7 @@ fn parse_item_status(status_str: &str) -> Result<ItemStatus, String> {
         "deprecated" => Ok(ItemStatus::Deprecated),
         "merged" => Ok(ItemStatus::Merged),
         "split" => Ok(ItemStatus::Split),
-        _ => Err(format!("Invalid item status: {}", status_str)),
+        _ => Err(format!("Invalid item status: {status_str}")),
     }
 }
 
@@ -466,7 +472,7 @@ async fn create_items_batch(
                         BatchItemResult {
                             success: false,
                             item: None,
-                            error: Some(format!("Failed to create item: {}", e)),
+                            error: Some(format!("Failed to create item: {e}")),
                         }
                     }
                 }
@@ -1453,7 +1459,7 @@ async fn organize_local_items(
                         master_lid: master_lid.to_string(),
                         merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
                         status: "error".to_string(),
-                        reason: Some(format!("{}", e)),
+                        reason: Some(format!("{e}")),
                     });
                 }
             }

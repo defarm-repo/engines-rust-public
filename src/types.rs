@@ -185,7 +185,7 @@ impl Item {
 
     pub fn new_with_lid(local_id: Uuid, identifiers: Vec<Identifier>, source_entry: Uuid) -> Self {
         Self {
-            dfid: format!("LID-{}", local_id), // Temporary DFID
+            dfid: format!("LID-{local_id}"), // Temporary DFID
             local_id: Some(local_id),
             legacy_mode: false,
             identifiers,
@@ -555,7 +555,7 @@ impl PendingReason {
                 "Item has no identifiers for entity resolution".to_string()
             }
             PendingReason::InvalidIdentifiers(details) => {
-                format!("Invalid identifiers: {}", details)
+                format!("Invalid identifiers: {details}")
             }
             PendingReason::ConflictingDFIDs {
                 identifier,
@@ -563,8 +563,7 @@ impl PendingReason {
                 ..
             } => {
                 format!(
-                    "Identifier {:?} maps to multiple DFIDs: {:?}",
-                    identifier, conflicting_dfids
+                    "Identifier {identifier:?} maps to multiple DFIDs: {conflicting_dfids:?}"
                 )
             }
             PendingReason::IdentifierMappingConflict {
@@ -572,8 +571,7 @@ impl PendingReason {
                 ..
             } => {
                 format!(
-                    "Conflicting identifier mappings: {:?}",
-                    conflicting_mappings
+                    "Conflicting identifier mappings: {conflicting_mappings:?}"
                 )
             }
             PendingReason::DataQualityIssue {
@@ -581,10 +579,10 @@ impl PendingReason {
                 details,
                 ..
             } => {
-                format!("Data quality issue ({}): {}", issue_type, details)
+                format!("Data quality issue ({issue_type}): {details}")
             }
-            PendingReason::ProcessingError(error) => format!("Processing error: {}", error),
-            PendingReason::ValidationError(error) => format!("Validation error: {}", error),
+            PendingReason::ProcessingError(error) => format!("Processing error: {error}"),
+            PendingReason::ValidationError(error) => format!("Validation error: {error}"),
             PendingReason::DuplicateDetectionAmbiguous {
                 potential_matches, ..
             } => {
@@ -598,8 +596,7 @@ impl PendingReason {
                 conflict_type,
             } => {
                 format!(
-                    "Conflict with external system {}: {}",
-                    external_system, conflict_type
+                    "Conflict with external system {external_system}: {conflict_type}"
                 )
             }
         }
@@ -769,6 +766,7 @@ pub enum Permission {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct CircuitPermissions {
     pub require_approval_for_push: bool,
     pub require_approval_for_pull: bool,
@@ -860,7 +858,7 @@ impl Event {
         let mut hasher = blake3::Hasher::new();
 
         // Add event_type to hash
-        hasher.update(format!("{:?}", event_type).as_bytes());
+        hasher.update(format!("{event_type:?}").as_bytes());
 
         // Add source to hash
         hasher.update(source.as_bytes());
@@ -1146,7 +1144,7 @@ impl Circuit {
     ) -> Result<(), String> {
         // Check if role name already exists
         if self.custom_roles.iter().any(|r| r.role_name == role_name) {
-            return Err(format!("Role '{}' already exists", role_name));
+            return Err(format!("Role '{role_name}' already exists"));
         }
 
         let mut custom_role = CustomRole::new(
@@ -1172,7 +1170,7 @@ impl Circuit {
         // Check if custom role exists and get the permissions
         let custom_role_permissions = self
             .get_custom_role(role_name)
-            .ok_or_else(|| format!("Custom role '{}' not found", role_name))?
+            .ok_or_else(|| format!("Custom role '{role_name}' not found"))?
             .permissions
             .clone();
 
@@ -1181,7 +1179,7 @@ impl Circuit {
             .members
             .iter()
             .find(|m| m.member_id == member_id)
-            .ok_or_else(|| format!("Member '{}' not found", member_id))?;
+            .ok_or_else(|| format!("Member '{member_id}' not found"))?;
 
         // Custom role REPLACES permissions entirely (no combination with base role)
         let final_permissions = custom_role_permissions;
@@ -1244,7 +1242,7 @@ impl Circuit {
             .custom_roles
             .iter_mut()
             .find(|r| r.role_name == role_name)
-            .ok_or_else(|| format!("Custom role '{}' not found", role_name))?;
+            .ok_or_else(|| format!("Custom role '{role_name}' not found"))?;
 
         // Update fields if provided
         if let Some(permissions) = new_permissions {
@@ -1325,15 +1323,15 @@ impl Circuit {
         Some(PublicCircuitInfo {
             circuit_id: self.circuit_id,
             public_name: settings
-                .and_then(|s| s.public_name.as_ref().map(|n| n.clone()))
+                .and_then(|s| s.public_name.clone())
                 .unwrap_or_else(|| self.name.clone()),
             public_description: settings
-                .and_then(|s| s.public_description.as_ref().map(|d| d.clone())),
-            primary_color: settings.and_then(|s| s.primary_color.as_ref().map(|c| c.clone())),
-            secondary_color: settings.and_then(|s| s.secondary_color.as_ref().map(|c| c.clone())),
-            logo_url: settings.and_then(|s| s.logo_url.as_ref().map(|l| l.clone())),
-            tagline: settings.and_then(|s| s.tagline.as_ref().map(|t| t.clone())),
-            footer_text: settings.and_then(|s| s.footer_text.as_ref().map(|f| f.clone())),
+                .and_then(|s| s.public_description.clone()),
+            primary_color: settings.and_then(|s| s.primary_color.clone()),
+            secondary_color: settings.and_then(|s| s.secondary_color.clone()),
+            logo_url: settings.and_then(|s| s.logo_url.clone()),
+            tagline: settings.and_then(|s| s.tagline.clone()),
+            footer_text: settings.and_then(|s| s.footer_text.clone()),
             member_count: self.members.len(),
             access_mode: settings
                 .map(|s| s.access_mode.clone())
@@ -1345,7 +1343,7 @@ impl Circuit {
             is_currently_accessible: self.is_publicly_accessible(),
             published_items: settings
                 .map(|s| s.published_items.clone())
-                .unwrap_or_else(Vec::new),
+                .unwrap_or_default(),
             auto_publish_pushed_items: settings
                 .map(|s| s.auto_publish_pushed_items)
                 .unwrap_or(false),
@@ -1361,7 +1359,7 @@ impl Circuit {
                 member
                     .custom_role_name
                     .as_deref()
-                    .unwrap_or_else(|| match member.role {
+                    .unwrap_or(match member.role {
                         MemberRole::Owner => "Owner",
                         MemberRole::Admin => "Admin",
                         MemberRole::Member => "Member",
@@ -1375,15 +1373,6 @@ impl Circuit {
     }
 }
 
-impl Default for CircuitPermissions {
-    fn default() -> Self {
-        Self {
-            require_approval_for_push: false,
-            require_approval_for_pull: false,
-            allow_public_visibility: false,
-        }
-    }
-}
 
 impl CircuitOperation {
     pub fn new(
@@ -1717,6 +1706,7 @@ pub enum AuditSeverity {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct AuditEventMetadata {
     pub user_agent: Option<String>,
     pub ip_address: Option<String>,
@@ -1726,6 +1716,7 @@ pub struct AuditEventMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ComplianceInfo {
     pub gdpr: Option<bool>,
     pub ccpa: Option<bool>,
@@ -1961,28 +1952,7 @@ impl AuditEvent {
     }
 }
 
-impl Default for AuditEventMetadata {
-    fn default() -> Self {
-        Self {
-            user_agent: None,
-            ip_address: None,
-            location: None,
-            device_id: None,
-            session_duration: None,
-        }
-    }
-}
 
-impl Default for ComplianceInfo {
-    fn default() -> Self {
-        Self {
-            gdpr: None,
-            ccpa: None,
-            hipaa: None,
-            sox: None,
-        }
-    }
-}
 
 impl SecurityIncident {
     pub fn new(
@@ -2120,7 +2090,7 @@ impl std::fmt::Display for AdapterType {
             AdapterType::StellarMainnetIpfs => write!(f, "stellar_mainnet-ipfs"),
             AdapterType::EthereumGoerliIpfs => write!(f, "ethereum_goerli-ipfs"),
             AdapterType::PolygonArweave => write!(f, "polygon-arweave"),
-            AdapterType::Custom(name) => write!(f, "custom-{}", name),
+            AdapterType::Custom(name) => write!(f, "custom-{name}"),
         }
     }
 }
@@ -2136,7 +2106,7 @@ impl AdapterType {
             custom if custom.starts_with("custom-") => {
                 Ok(AdapterType::Custom(custom[7..].to_string()))
             }
-            _ => Err(format!("Unknown adapter type: {}", s)),
+            _ => Err(format!("Unknown adapter type: {s}")),
         }
     }
 
@@ -2481,7 +2451,7 @@ impl UserTier {
             "professional" => Ok(UserTier::Professional),
             "enterprise" => Ok(UserTier::Enterprise),
             "admin" => Ok(UserTier::Admin),
-            _ => Err(format!("Invalid tier: {}", s)),
+            _ => Err(format!("Invalid tier: {s}")),
         }
     }
 }

@@ -20,9 +20,9 @@ pub enum EventsError {
 impl std::fmt::Display for EventsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EventsError::StorageError(e) => write!(f, "Storage error: {}", e),
-            EventsError::EncryptionError(e) => write!(f, "Encryption error: {}", e),
-            EventsError::ValidationError(e) => write!(f, "Validation error: {}", e),
+            EventsError::StorageError(e) => write!(f, "Storage error: {e}"),
+            EventsError::EncryptionError(e) => write!(f, "Encryption error: {e}"),
+            EventsError::ValidationError(e) => write!(f, "Validation error: {e}"),
             EventsError::NotFound => write!(f, "Event not found"),
         }
     }
@@ -70,10 +70,10 @@ impl<S: StorageBackend> EventsEngine<S> {
             .info(
                 "events_engine",
                 "event_creation_started",
-                &format!("Creating event for DFID: {}", dfid),
+                format!("Creating event for DFID: {dfid}"),
             )
             .with_context("dfid", dfid.clone())
-            .with_context("event_type", format!("{:?}", event_type))
+            .with_context("event_type", format!("{event_type:?}"))
             .with_context("source", source.clone());
 
         if matches!(visibility, EventVisibility::Private) {
@@ -83,7 +83,7 @@ impl<S: StorageBackend> EventsEngine<S> {
                 .info(
                     "events_engine",
                     "event_encrypted",
-                    &format!("Event encrypted for DFID: {}", dfid),
+                    format!("Event encrypted for DFID: {dfid}"),
                 )
                 .with_context("event_id", event.event_id.to_string());
         }
@@ -246,7 +246,7 @@ impl<S: StorageBackend> EventsEngine<S> {
 
         let identifiers_json: Vec<serde_json::Value> = identifiers
             .into_iter()
-            .map(|id| serde_json::Value::String(id))
+            .map(serde_json::Value::String)
             .collect();
 
         self.add_event_metadata(
@@ -276,7 +276,7 @@ impl<S: StorageBackend> EventsEngine<S> {
 
         let keys_json: Vec<serde_json::Value> = data_keys
             .into_iter()
-            .map(|key| serde_json::Value::String(key))
+            .map(serde_json::Value::String)
             .collect();
 
         self.add_event_metadata(

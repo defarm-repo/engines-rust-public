@@ -61,11 +61,11 @@ pub enum StellarError {
 impl std::fmt::Display for StellarError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StellarError::NetworkError(e) => write!(f, "Network error: {}", e),
-            StellarError::ContractError(e) => write!(f, "Contract error: {}", e),
-            StellarError::SerializationError(e) => write!(f, "Serialization error: {}", e),
-            StellarError::SigningError(e) => write!(f, "Signing error: {}", e),
-            StellarError::NotConfigured(e) => write!(f, "Not configured: {}", e),
+            StellarError::NetworkError(e) => write!(f, "Network error: {e}"),
+            StellarError::ContractError(e) => write!(f, "Contract error: {e}"),
+            StellarError::SerializationError(e) => write!(f, "Serialization error: {e}"),
+            StellarError::SigningError(e) => write!(f, "Signing error: {e}"),
+            StellarError::NotConfigured(e) => write!(f, "Not configured: {e}"),
         }
     }
 }
@@ -129,7 +129,7 @@ impl StellarClient {
 
     pub fn with_keypair(mut self, secret_key: &str) -> Result<Self, StellarError> {
         let keypair = Keypair::from_secret(secret_key)
-            .map_err(|e| StellarError::SigningError(format!("Invalid secret key: {:?}", e)))?;
+            .map_err(|e| StellarError::SigningError(format!("Invalid secret key: {e:?}")))?;
         self.keypair = Some(keypair);
         Ok(self)
     }
@@ -162,20 +162,20 @@ impl StellarClient {
             .server
             .get_account(&keypair.public_key())
             .await
-            .map_err(|e| StellarError::NetworkError(format!("Failed to get account: {:?}", e)))?;
+            .map_err(|e| StellarError::NetworkError(format!("Failed to get account: {e:?}")))?;
 
         // Create contract instance
         let contract = Contracts::new(&self.contract_address).map_err(|e| {
-            StellarError::ContractError(format!("Invalid contract address: {:?}", e))
+            StellarError::ContractError(format!("Invalid contract address: {e:?}"))
         })?;
 
         // Build ScVal arguments for the contract call
         // IPCM contract signature: update(env: Env, ipcm_key: String, cid: String, interface_address: Address)
         let ipcm_key_val = ScVal::String(ScString(dfid.try_into().map_err(|e| {
-            StellarError::SerializationError(format!("Failed to convert ipcm_key: {:?}", e))
+            StellarError::SerializationError(format!("Failed to convert ipcm_key: {e:?}"))
         })?));
         let cid_val = ScVal::String(ScString(cid.try_into().map_err(|e| {
-            StellarError::SerializationError(format!("Failed to convert cid: {:?}", e))
+            StellarError::SerializationError(format!("Failed to convert cid: {e:?}"))
         })?));
 
         // Convert keypair's public key to Address ScVal
@@ -185,7 +185,7 @@ impl StellarClient {
         // Decode the strkey (G-address) to get the raw 32-byte public key
         let decoded =
             stellar_strkey::ed25519::PublicKey::from_string(&public_key_str).map_err(|e| {
-                StellarError::SerializationError(format!("Failed to decode public key: {:?}", e))
+                StellarError::SerializationError(format!("Failed to decode public key: {e:?}"))
             })?;
 
         let mut key_bytes = [0u8; 32];
@@ -214,7 +214,7 @@ impl StellarClient {
 
         // Prepare transaction (simulate and assemble)
         let mut prepared_tx = self.server.prepare_transaction(&tx).await.map_err(|e| {
-            StellarError::NetworkError(format!("Failed to prepare transaction: {:?}", e))
+            StellarError::NetworkError(format!("Failed to prepare transaction: {e:?}"))
         })?;
 
         // Sign transaction
@@ -226,7 +226,7 @@ impl StellarClient {
             .send_transaction(prepared_tx)
             .await
             .map_err(|e| {
-                StellarError::NetworkError(format!("Failed to send transaction: {:?}", e))
+                StellarError::NetworkError(format!("Failed to send transaction: {e:?}"))
             })?;
 
         let tx_hash = response.hash.clone();
@@ -249,8 +249,7 @@ impl StellarClient {
                 tx_result.status
             ))),
             Err(e) => Err(StellarError::NetworkError(format!(
-                "Failed to wait for transaction: {:?}",
-                e
+                "Failed to wait for transaction: {e:?}"
             ))),
         }
     }
@@ -280,11 +279,11 @@ impl StellarClient {
             .server
             .get_account(&keypair.public_key())
             .await
-            .map_err(|e| StellarError::NetworkError(format!("Failed to get account: {:?}", e)))?;
+            .map_err(|e| StellarError::NetworkError(format!("Failed to get account: {e:?}")))?;
 
         // Create contract instance for NFT contract
         let contract = Contracts::new(nft_contract).map_err(|e| {
-            StellarError::ContractError(format!("Invalid NFT contract address: {:?}", e))
+            StellarError::ContractError(format!("Invalid NFT contract address: {e:?}"))
         })?;
 
         // Extract valuechain from canonical identifiers or use "generic"
@@ -334,17 +333,16 @@ impl StellarClient {
         let valuechain_id_val = ScVal::String(ScString(
             valuechain_id.as_str().try_into().map_err(|e| {
                 StellarError::SerializationError(format!(
-                    "Failed to convert valuechain_id: {:?}",
-                    e
+                    "Failed to convert valuechain_id: {e:?}"
                 ))
             })?,
         ));
         let token_id_val = ScVal::U64(token_id);
         let ipcm_key_val = ScVal::String(ScString(dfid.try_into().map_err(|e| {
-            StellarError::SerializationError(format!("Failed to convert ipcm_key: {:?}", e))
+            StellarError::SerializationError(format!("Failed to convert ipcm_key: {e:?}"))
         })?));
         let data_val = ScVal::String(ScString(metadata_str.as_str().try_into().map_err(|e| {
-            StellarError::SerializationError(format!("Failed to convert data: {:?}", e))
+            StellarError::SerializationError(format!("Failed to convert data: {e:?}"))
         })?));
 
         // Get network for transaction builder
@@ -369,7 +367,7 @@ impl StellarClient {
 
         // Prepare transaction (simulate and assemble)
         let mut prepared_tx = self.server.prepare_transaction(&tx).await.map_err(|e| {
-            StellarError::NetworkError(format!("Failed to prepare NFT mint transaction: {:?}", e))
+            StellarError::NetworkError(format!("Failed to prepare NFT mint transaction: {e:?}"))
         })?;
 
         // Sign transaction
@@ -381,7 +379,7 @@ impl StellarClient {
             .send_transaction(prepared_tx)
             .await
             .map_err(|e| {
-                StellarError::NetworkError(format!("Failed to send NFT mint transaction: {:?}", e))
+                StellarError::NetworkError(format!("Failed to send NFT mint transaction: {e:?}"))
             })?;
 
         let tx_hash = response.hash.clone();
@@ -404,8 +402,7 @@ impl StellarClient {
                 tx_result.status
             ))),
             Err(e) => Err(StellarError::NetworkError(format!(
-                "Failed to wait for NFT mint transaction: {:?}",
-                e
+                "Failed to wait for NFT mint transaction: {e:?}"
             ))),
         }
     }
@@ -425,7 +422,7 @@ impl StellarClient {
             .get(&contract_url)
             .send()
             .await
-            .map_err(|e| StellarError::NetworkError(format!("Failed to query contract: {}", e)))?;
+            .map_err(|e| StellarError::NetworkError(format!("Failed to query contract: {e}")))?;
 
         if response.status().as_u16() == 404 {
             return Ok(None);
@@ -438,7 +435,7 @@ impl StellarClient {
         }
 
         let data: serde_json::Value = response.json().await.map_err(|e| {
-            StellarError::SerializationError(format!("Failed to parse response: {}", e))
+            StellarError::SerializationError(format!("Failed to parse response: {e}"))
         })?;
 
         // Parse contract data
@@ -471,7 +468,7 @@ impl StellarClient {
             .get(url)
             .send()
             .await
-            .map_err(|e| StellarError::NetworkError(format!("Health check failed: {}", e)))?;
+            .map_err(|e| StellarError::NetworkError(format!("Health check failed: {e}")))?;
 
         Ok(response.status().is_success())
     }
@@ -488,7 +485,7 @@ impl StellarClient {
             .get(&contract_url)
             .send()
             .await
-            .map_err(|e| StellarError::NetworkError(format!("Failed to check contract: {}", e)))?;
+            .map_err(|e| StellarError::NetworkError(format!("Failed to check contract: {e}")))?;
 
         let mut status = HashMap::new();
         status.insert(

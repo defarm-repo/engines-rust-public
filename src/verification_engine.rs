@@ -18,11 +18,11 @@ pub enum VerificationError {
 impl std::fmt::Display for VerificationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VerificationError::StorageError(e) => write!(f, "Storage error: {}", e),
+            VerificationError::StorageError(e) => write!(f, "Storage error: {e}"),
             VerificationError::ConflictDetected(c) => {
                 write!(f, "Conflict detected: {:?}", c.conflict_id)
             }
-            VerificationError::ProcessingError(e) => write!(f, "Processing error: {}", e),
+            VerificationError::ProcessingError(e) => write!(f, "Processing error: {e}"),
         }
     }
 }
@@ -146,7 +146,7 @@ impl<S: StorageBackend> VerificationEngine<S> {
             for mapping in active_mappings {
                 dfid_map
                     .entry(mapping.dfid.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(identifier.clone());
             }
         }
@@ -220,7 +220,7 @@ impl<S: StorageBackend> VerificationEngine<S> {
             .with_context("entry_id", entry.entry_id.to_string());
 
         let mut item = self.storage.get_item_by_dfid(dfid)?.ok_or_else(|| {
-            VerificationError::ProcessingError(format!("Item with DFID {} not found", dfid))
+            VerificationError::ProcessingError(format!("Item with DFID {dfid} not found"))
         })?;
 
         // Add new identifiers if any
@@ -416,8 +416,7 @@ mod tests {
                 assert_eq!(item.identifiers, identifiers);
             }
             other => panic!(
-                "expected VerificationResult::NewItemCreated, got {:?}",
-                other
+                "expected VerificationResult::NewItemCreated, got {other:?}"
             ),
         }
     }
@@ -458,7 +457,7 @@ mod tests {
                 assert_eq!(enriched_dfid, dfid);
                 assert_eq!(entry.status, ProcessingStatus::Completed);
             }
-            other => panic!("expected VerificationResult::ItemEnriched, got {:?}", other),
+            other => panic!("expected VerificationResult::ItemEnriched, got {other:?}"),
         }
     }
 }

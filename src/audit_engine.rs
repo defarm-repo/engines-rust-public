@@ -25,9 +25,9 @@ impl From<StorageError> for AuditError {
 impl std::fmt::Display for AuditError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AuditError::StorageError(e) => write!(f, "Storage error: {}", e),
-            AuditError::ValidationError(e) => write!(f, "Validation error: {}", e),
-            AuditError::ProcessingError(e) => write!(f, "Processing error: {}", e),
+            AuditError::StorageError(e) => write!(f, "Storage error: {e}"),
+            AuditError::ValidationError(e) => write!(f, "Validation error: {e}"),
+            AuditError::ProcessingError(e) => write!(f, "Processing error: {e}"),
         }
     }
 }
@@ -116,7 +116,7 @@ impl<S: StorageBackend> AuditEngine<S> {
             || matches!(outcome, AuditOutcome::Failure | AuditOutcome::Blocked)
         {
             let category = self.determine_incident_category(&action, &details);
-            let title = format!("Security Event: {} on {}", action, resource);
+            let title = format!("Security Event: {action} on {resource}");
             let description = format!(
                 "Automatic incident created for {} security event. User: {}, Resource: {}, Outcome: {:?}",
                 severity_to_string(&severity), user_id, resource, outcome

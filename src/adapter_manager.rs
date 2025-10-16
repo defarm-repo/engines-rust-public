@@ -310,7 +310,7 @@ impl<S: StorageBackend> AdapterManager<S> {
                 "Adapter configuration tested",
             )
             .with_context("config_id", config_id.to_string())
-            .with_context("status", format!("{:?}", status))
+            .with_context("status", format!("{status:?}"))
             .with_context("latency_ms", latency_ms.to_string());
 
         Ok(result)
@@ -473,16 +473,16 @@ pub enum AdapterManagerError {
 impl std::fmt::Display for AdapterManagerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AdapterManagerError::StorageError(msg) => write!(f, "Storage error: {}", msg),
+            AdapterManagerError::StorageError(msg) => write!(f, "Storage error: {msg}"),
             AdapterManagerError::NotFound => write!(f, "Adapter configuration not found"),
             AdapterManagerError::DuplicateName(name) => {
-                write!(f, "Adapter with name '{}' already exists", name)
+                write!(f, "Adapter with name '{name}' already exists")
             }
-            AdapterManagerError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            AdapterManagerError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
             AdapterManagerError::CannotDeleteDefault => {
                 write!(f, "Cannot delete the default adapter")
             }
-            AdapterManagerError::TestFailed(msg) => write!(f, "Adapter test failed: {}", msg),
+            AdapterManagerError::TestFailed(msg) => write!(f, "Adapter test failed: {msg}"),
         }
     }
 }

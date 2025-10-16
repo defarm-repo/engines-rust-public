@@ -140,6 +140,12 @@ pub struct AdapterRegistry {
     client_permissions: HashMap<String, Vec<AdapterType>>,
 }
 
+impl Default for AdapterRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AdapterRegistry {
     pub fn new() -> Self {
         Self {

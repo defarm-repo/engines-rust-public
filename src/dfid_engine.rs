@@ -18,10 +18,10 @@ impl DfidEngine {
         let sequence = self.sequence_counter.fetch_add(1, Ordering::SeqCst);
 
         let timestamp_str = timestamp.format("%Y%m%d").to_string();
-        let sequence_str = format!("{:06}", sequence);
+        let sequence_str = format!("{sequence:06}");
         let checksum = self.calculate_checksum(&timestamp_str, &sequence_str);
 
-        format!("DFID-{}-{}-{}", timestamp_str, sequence_str, checksum)
+        format!("DFID-{timestamp_str}-{sequence_str}-{checksum}")
     }
 
     pub fn validate_dfid(&self, dfid: &str) -> bool {
@@ -77,7 +77,7 @@ impl DfidEngine {
     }
 
     fn calculate_checksum(&self, timestamp: &str, sequence: &str) -> String {
-        let combined = format!("{}{}", timestamp, sequence);
+        let combined = format!("{timestamp}{sequence}");
         let mut hash = 0u32;
 
         for byte in combined.bytes() {

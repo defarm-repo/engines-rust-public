@@ -5,7 +5,6 @@
 /// testing multiple components working together.
 ///
 /// Run with: cargo test --test user_journeys
-
 use defarm_engine::{
     circuits_engine::CircuitsEngine,
     identifier_types::EnhancedIdentifier,
@@ -42,7 +41,7 @@ async fn journey_new_user_onboards_and_creates_first_circuit() {
 
     // Step 1: User registers (simulated - we skip auth for this test)
     let user_id = "new_user_001";
-    println!("✓ Step 1: User {} registered", user_id);
+    println!("✓ Step 1: User {user_id} registered");
 
     // Step 2: User creates their first circuit
     let circuit = circuits
@@ -68,7 +67,10 @@ async fn journey_new_user_onboards_and_creates_first_circuit() {
         .create_local_item(identifiers, enhanced_identifiers, None, source_entry)
         .expect("User should be able to create local item");
 
-    println!("✓ Step 3: Created first local item with LID: {:?}", item.local_id);
+    println!(
+        "✓ Step 3: Created first local item with LID: {:?}",
+        item.local_id
+    );
     assert!(item.local_id.is_some());
 
     // Step 4: User tries to push item to circuit
@@ -86,11 +88,14 @@ async fn journey_new_user_onboards_and_creates_first_circuit() {
 
     match result {
         Ok(push_result) => {
-            println!("✓ Step 4: Item pushed successfully! DFID: {}", push_result.dfid);
+            println!(
+                "✓ Step 4: Item pushed successfully! DFID: {}",
+                push_result.dfid
+            );
             assert!(push_result.dfid.starts_with("DFID-"));
         }
         Err(e) => {
-            println!("✓ Step 4: Push failed (no adapter configured): {:?}", e);
+            println!("✓ Step 4: Push failed (no adapter configured): {e:?}");
             // This is expected without adapter
         }
     }
@@ -140,7 +145,11 @@ async fn journey_two_users_collaborate_on_shared_circuit() {
 
     // Step 3: Bob creates a local item
     let bob_identifiers = vec![Identifier::new("batch", "bob_batch_001")];
-    let bob_enhanced_ids = vec![EnhancedIdentifier::contextual("batch", "id", "bob_batch_001")];
+    let bob_enhanced_ids = vec![EnhancedIdentifier::contextual(
+        "batch",
+        "id",
+        "bob_batch_001",
+    )];
     let bob_item = items
         .create_local_item(bob_identifiers, bob_enhanced_ids, None, Uuid::new_v4())
         .expect("Bob should create item");
@@ -148,7 +157,11 @@ async fn journey_two_users_collaborate_on_shared_circuit() {
     println!("✓ Step 3: Bob created local item");
 
     // Step 4: Bob pushes item to Alice's circuit
-    let enhanced_ids = vec![EnhancedIdentifier::contextual("batch", "id", "bob_batch_001")];
+    let enhanced_ids = vec![EnhancedIdentifier::contextual(
+        "batch",
+        "id",
+        "bob_batch_001",
+    )];
     let result = circuits
         .push_local_item_to_circuit(
             &bob_item.local_id.unwrap(),
@@ -171,7 +184,7 @@ async fn journey_two_users_collaborate_on_shared_circuit() {
             println!("✓ Step 5: Alice can now see Bob's item in the circuit");
         }
         Err(e) => {
-            println!("✓ Step 4: Push failed (expected without adapter): {:?}", e);
+            println!("✓ Step 4: Push failed (expected without adapter): {e:?}");
         }
     }
 
@@ -231,7 +244,11 @@ async fn journey_circuit_sponsors_adapter_for_members() {
     let member_item = items
         .create_local_item(
             vec![Identifier::new("data", "sponsored_item")],
-            vec![EnhancedIdentifier::contextual("data", "id", "sponsored_item")],
+            vec![EnhancedIdentifier::contextual(
+                "data",
+                "id",
+                "sponsored_item",
+            )],
             None,
             Uuid::new_v4(),
         )
@@ -243,7 +260,11 @@ async fn journey_circuit_sponsors_adapter_for_members() {
     let result = circuits
         .push_local_item_to_circuit(
             &member_item.local_id.unwrap(),
-            vec![EnhancedIdentifier::contextual("data", "id", "sponsored_item")],
+            vec![EnhancedIdentifier::contextual(
+                "data",
+                "id",
+                "sponsored_item",
+            )],
             None,
             &circuit.circuit_id,
             member, // Member uses circuit's sponsored adapter
@@ -259,14 +280,22 @@ async fn journey_circuit_sponsors_adapter_for_members() {
             println!("  This worked because circuit sponsors the adapter access");
         }
         Err(e) => {
-            println!("✓ Step 4: Push attempt made (adapter error expected): {:?}", e);
+            println!(
+                "✓ Step 4: Push attempt made (adapter error expected): {e:?}"
+            );
             // Even if it fails, we tested the permission flow
         }
     }
 
     // Verify adapter config
     assert!(circuit.adapter_config.is_some());
-    assert!(circuit.adapter_config.as_ref().unwrap().sponsor_adapter_access);
+    assert!(
+        circuit
+            .adapter_config
+            .as_ref()
+            .unwrap()
+            .sponsor_adapter_access
+    );
 
     println!("✅ Journey 3 complete: Adapter sponsorship enables member access!\n");
 }
@@ -344,15 +373,22 @@ async fn journey_item_lifecycle_local_to_tokenized() {
     let local_item = items
         .create_local_item(
             vec![Identifier::new("product", "lifecycle_test")],
-            vec![EnhancedIdentifier::contextual("product", "id", "lifecycle_test")],
+            vec![EnhancedIdentifier::contextual(
+                "product",
+                "id",
+                "lifecycle_test",
+            )],
             None,
             Uuid::new_v4(),
         )
         .expect("Should create local item");
 
     let local_id = local_item.local_id.unwrap();
-    println!("✓ Step 1: Created local item with LID: {}", local_id);
-    assert!(local_item.dfid.starts_with("LID-"), "Should have temporary DFID");
+    println!("✓ Step 1: Created local item with LID: {local_id}");
+    assert!(
+        local_item.dfid.starts_with("LID-"),
+        "Should have temporary DFID"
+    );
 
     // Step 2: Create circuit
     let circuit = circuits
@@ -369,7 +405,7 @@ async fn journey_item_lifecycle_local_to_tokenized() {
 
     // Step 3: Query item by temporary DFID (before tokenization)
     let storage_lock = storage.lock().unwrap();
-    let temp_dfid = format!("LID-{}", local_id);
+    let temp_dfid = format!("LID-{local_id}");
     use defarm_engine::storage::StorageBackend;
     let item_by_dfid = storage_lock.get_item_by_dfid(&temp_dfid);
     assert!(item_by_dfid.is_ok(), "Should query by temporary DFID");
@@ -380,7 +416,11 @@ async fn journey_item_lifecycle_local_to_tokenized() {
     let result = circuits
         .push_local_item_to_circuit(
             &local_id,
-            vec![EnhancedIdentifier::contextual("product", "id", "lifecycle_test")],
+            vec![EnhancedIdentifier::contextual(
+                "product",
+                "id",
+                "lifecycle_test",
+            )],
             None,
             &circuit.circuit_id,
             user,
@@ -389,8 +429,14 @@ async fn journey_item_lifecycle_local_to_tokenized() {
 
     match result {
         Ok(push_result) => {
-            println!("✓ Step 4: Item tokenized! DFID assigned: {}", push_result.dfid);
-            assert!(push_result.dfid.starts_with("DFID-"), "Should have real DFID");
+            println!(
+                "✓ Step 4: Item tokenized! DFID assigned: {}",
+                push_result.dfid
+            );
+            assert!(
+                push_result.dfid.starts_with("DFID-"),
+                "Should have real DFID"
+            );
 
             // Step 5: Verify LID-DFID mapping exists
             let storage_lock = storage.lock().unwrap();
@@ -398,11 +444,15 @@ async fn journey_item_lifecycle_local_to_tokenized() {
             drop(storage_lock);
 
             if let Ok(Some(dfid)) = mapping {
-                println!("✓ Step 5: LID-DFID mapping created: {} → {}", local_id, dfid);
+                println!(
+                    "✓ Step 5: LID-DFID mapping created: {local_id} → {dfid}"
+                );
             }
         }
         Err(e) => {
-            println!("✓ Step 4: Tokenization attempted (adapter error expected): {:?}", e);
+            println!(
+                "✓ Step 4: Tokenization attempted (adapter error expected): {e:?}"
+            );
         }
     }
 

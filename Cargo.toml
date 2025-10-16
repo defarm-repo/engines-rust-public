@@ -62,3 +62,13 @@ soroban-sdk = "21"
 # PostgreSQL database with connection pooling
 tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"] }
 deadpool-postgres = "0.12"
+
+# OpenAPI documentation generation
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-axum = "0.1"
+utoipa-swagger-ui = { version = "8", features = ["axum"] }
+
+[dev-dependencies]
+# Testing utilities
+regex = "1.10"
+walkdir = "2.4"

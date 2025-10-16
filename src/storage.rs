@@ -49,16 +49,16 @@ impl From<serde_json::Error> for StorageError {
 impl std::fmt::Display for StorageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StorageError::IoError(e) => write!(f, "IO error: {}", e),
-            StorageError::SerializationError(e) => write!(f, "Serialization error: {}", e),
-            StorageError::EncryptionError(e) => write!(f, "Encryption error: {}", e),
+            StorageError::IoError(e) => write!(f, "IO error: {e}"),
+            StorageError::SerializationError(e) => write!(f, "Serialization error: {e}"),
+            StorageError::EncryptionError(e) => write!(f, "Encryption error: {e}"),
             StorageError::NotFound => write!(f, "Record not found"),
-            StorageError::AlreadyExists(e) => write!(f, "Already exists: {}", e),
-            StorageError::NotImplemented(e) => write!(f, "Not implemented: {}", e),
-            StorageError::ConnectionError(e) => write!(f, "Connection error: {}", e),
-            StorageError::ConfigurationError(e) => write!(f, "Configuration error: {}", e),
-            StorageError::WriteError(e) => write!(f, "Write error: {}", e),
-            StorageError::ReadError(e) => write!(f, "Read error: {}", e),
+            StorageError::AlreadyExists(e) => write!(f, "Already exists: {e}"),
+            StorageError::NotImplemented(e) => write!(f, "Not implemented: {e}"),
+            StorageError::ConnectionError(e) => write!(f, "Connection error: {e}"),
+            StorageError::ConfigurationError(e) => write!(f, "Configuration error: {e}"),
+            StorageError::WriteError(e) => write!(f, "Write error: {e}"),
+            StorageError::ReadError(e) => write!(f, "Read error: {e}"),
         }
     }
 }
@@ -562,7 +562,7 @@ impl StorageBackend for InMemoryStorage {
         for identifier in &receipt.identifiers {
             self.identifier_index
                 .entry(identifier.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(receipt.id);
         }
         self.receipts.insert(receipt.id, receipt.clone());
@@ -682,7 +682,7 @@ impl StorageBackend for InMemoryStorage {
     ) -> Result<(), StorageError> {
         self.identifier_mappings
             .entry(mapping.identifier.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(mapping.clone());
         Ok(())
     }
@@ -1033,7 +1033,7 @@ impl StorageBackend for InMemoryStorage {
         let items = self
             .pending_items
             .values()
-            .filter(|item| item.user_id.as_ref().map_or(false, |id| id == user_id))
+            .filter(|item| item.user_id.as_ref().is_some_and(|id| id == user_id))
             .cloned()
             .collect();
         Ok(items)
@@ -1049,7 +1049,7 @@ impl StorageBackend for InMemoryStorage {
             .filter(|item| {
                 item.workspace_id
                     .as_ref()
-                    .map_or(false, |id| id == workspace_id)
+                    .is_some_and(|id| id == workspace_id)
             })
             .cloned()
             .collect();
@@ -1324,7 +1324,7 @@ impl StorageBackend for InMemoryStorage {
                 incident
                     .assigned_to
                     .as_ref()
-                    .map_or(false, |a| a == assignee)
+                    .is_some_and(|a| a == assignee)
             })
             .cloned()
             .collect())
@@ -1866,7 +1866,7 @@ impl StorageBackend for InMemoryStorage {
         // Add to user's transaction list
         self.credit_transactions_by_user
             .entry(transaction.user_id.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(transaction.transaction_id.clone());
 
         Ok(())
@@ -1992,7 +1992,7 @@ impl StorageBackend for InMemoryStorage {
             .insert(notification.id.clone(), notification.clone());
         self.notifications_by_user
             .entry(notification.user_id.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(notification.id.clone());
         Ok(())
     }
@@ -2218,7 +2218,7 @@ impl StorageBackend for InMemoryStorage {
         registry: &str,
         value: &str,
     ) -> Result<Option<String>, StorageError> {
-        let key = format!("{}:{}:{}", namespace, registry, value);
+        let key = format!("{namespace}:{registry}:{value}");
         Ok(self.canonical_index.get(&key).cloned())
     }
 
@@ -2266,13 +2266,13 @@ impl StorageBackend for InMemoryStorage {
         // Index by circuit
         self.webhook_deliveries_by_circuit
             .entry(delivery.circuit_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(delivery.id);
 
         // Index by webhook
         self.webhook_deliveries_by_webhook
             .entry(delivery.webhook_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(delivery.id);
 
         Ok(())
@@ -2371,7 +2371,7 @@ impl EncryptedFileStorage {
 
             let ciphertext = cipher
                 .encrypt(nonce, data)
-                .map_err(|e| StorageError::EncryptionError(format!("Encryption failed: {}", e)))?;
+                .map_err(|e| StorageError::EncryptionError(format!("Encryption failed: {e}")))?;
 
             Ok(EncryptedData {
                 data: ciphertext,
@@ -2392,7 +2392,7 @@ impl EncryptedFileStorage {
 
             cipher
                 .decrypt(nonce, encrypted.data.as_ref())
-                .map_err(|e| StorageError::EncryptionError(format!("Decryption failed: {}", e)))
+                .map_err(|e| StorageError::EncryptionError(format!("Decryption failed: {e}")))
         } else {
             Ok(encrypted.data.clone())
         }
@@ -2424,7 +2424,7 @@ impl StorageBackend for EncryptedFileStorage {
     fn get_receipt(&self, id: &Uuid) -> Result<Option<Receipt>, StorageError> {
         let file_path = Path::new(&self.base_path)
             .join("receipts")
-            .join(format!("{}.json", id));
+            .join(format!("{id}.json"));
 
         if !file_path.exists() {
             return Ok(None);

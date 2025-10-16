@@ -47,6 +47,12 @@ pub struct ReceiptState {
     pub engine: Arc<Mutex<ReceiptEngine<InMemoryStorage>>>,
 }
 
+impl Default for ReceiptState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReceiptState {
     pub fn new() -> Self {
         Self {

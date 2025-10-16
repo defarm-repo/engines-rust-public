@@ -137,7 +137,7 @@ impl PostgresPersistence {
                     // Run migrations
                     if let Err(e) = self.run_migrations().await {
                         tracing::error!("❌ Migration failed: {}", e);
-                        return Err(format!("Migration failed: {}", e));
+                        return Err(format!("Migration failed: {e}"));
                     }
 
                     return Ok(());
@@ -160,8 +160,7 @@ impl PostgresPersistence {
 
         *self.connection_state.write().await = ConnectionState::Failed;
         Err(format!(
-            "Failed to connect to PostgreSQL after {} attempts",
-            max_retries
+            "Failed to connect to PostgreSQL after {max_retries} attempts"
         ))
     }
 
@@ -170,7 +169,7 @@ impl PostgresPersistence {
         let config = self
             .database_url
             .parse::<tokio_postgres::Config>()
-            .map_err(|e| format!("Invalid database URL: {}", e))?;
+            .map_err(|e| format!("Invalid database URL: {e}"))?;
 
         let manager_config = ManagerConfig {
             recycling_method: RecyclingMethod::Fast,
@@ -185,19 +184,19 @@ impl PostgresPersistence {
             .recycle_timeout(Some(Duration::from_secs(5)))
             .runtime(Runtime::Tokio1)
             .build()
-            .map_err(|e| format!("Failed to create pool: {}", e))?;
+            .map_err(|e| format!("Failed to create pool: {e}"))?;
 
         // Test the connection
         let client = timeout(Duration::from_secs(5), pool.get())
             .await
             .map_err(|_| "Connection timeout".to_string())?
-            .map_err(|e| format!("Failed to get test connection: {}", e))?;
+            .map_err(|e| format!("Failed to get test connection: {e}"))?;
 
         // Verify connection works
         client
             .execute("SELECT 1", &[])
             .await
-            .map_err(|e| format!("Connection test failed: {}", e))?;
+            .map_err(|e| format!("Connection test failed: {e}"))?;
 
         Ok(pool)
     }
@@ -214,7 +213,7 @@ impl PostgresPersistence {
         let client = timeout(Duration::from_secs(10), pool.get())
             .await
             .map_err(|_| "Migration connection timeout".to_string())?
-            .map_err(|e| format!("Failed to get connection for migration: {}", e))?;
+            .map_err(|e| format!("Failed to get connection for migration: {e}"))?;
 
         // Read migration file
         let migration_sql = include_str!("../migrations/V1__initial_schema.sql");
@@ -232,7 +231,7 @@ impl PostgresPersistence {
                     Ok(())
                 } else {
                     tracing::error!("❌ Migration failed: {}", e);
-                    Err(format!("Migration failed: {}", e))
+                    Err(format!("Migration failed: {e}"))
                 }
             }
             Err(_) => {
@@ -279,7 +278,7 @@ impl PostgresPersistence {
         timeout(Duration::from_secs(5), pool.get())
             .await
             .map_err(|_| "Connection pool timeout".to_string())?
-            .map_err(|e| format!("Failed to get connection: {}", e))
+            .map_err(|e| format!("Failed to get connection: {e}"))
     }
 
     async fn execute_with_retry<F, Fut, T>(&self, operation: &str, mut task: F) -> Result<T, String>
@@ -457,35 +456,35 @@ impl PostgresPersistence {
         let client = self.get_client().await?;
 
         let permissions_json = serde_json::to_value(&circuit.permissions)
-            .map_err(|e| format!("Failed to serialize permissions: {}", e))?;
+            .map_err(|e| format!("Failed to serialize permissions: {e}"))?;
 
         let alias_config_json = circuit
             .alias_config
             .as_ref()
-            .map(|c| serde_json::to_value(c))
+            .map(serde_json::to_value)
             .transpose()
-            .map_err(|e| format!("Failed to serialize alias_config: {}", e))?;
+            .map_err(|e| format!("Failed to serialize alias_config: {e}"))?;
 
         let adapter_config_json = circuit
             .adapter_config
             .as_ref()
-            .map(|c| serde_json::to_value(c))
+            .map(serde_json::to_value)
             .transpose()
-            .map_err(|e| format!("Failed to serialize adapter_config: {}", e))?;
+            .map_err(|e| format!("Failed to serialize adapter_config: {e}"))?;
 
         let public_settings_json = circuit
             .public_settings
             .as_ref()
-            .map(|s| serde_json::to_value(s))
+            .map(serde_json::to_value)
             .transpose()
-            .map_err(|e| format!("Failed to serialize public_settings: {}", e))?;
+            .map_err(|e| format!("Failed to serialize public_settings: {e}"))?;
 
         let post_action_json = circuit
             .post_action_settings
             .as_ref()
-            .map(|s| serde_json::to_value(s))
+            .map(serde_json::to_value)
             .transpose()
-            .map_err(|e| format!("Failed to serialize post_action_settings: {}", e))?;
+            .map_err(|e| format!("Failed to serialize post_action_settings: {e}"))?;
 
         let status_str = match circuit.status {
             CircuitStatus::Active => "Active",
@@ -526,7 +525,7 @@ impl PostgresPersistence {
                 ],
             )
             .await
-            .map_err(|e| format!("Failed to persist circuit: {}", e))?;
+            .map_err(|e| format!("Failed to persist circuit: {e}"))?;
 
         tracing::debug!("✅ Persisted circuit {} to PostgreSQL", circuit.circuit_id);
         Ok(())
@@ -551,7 +550,7 @@ impl PostgresPersistence {
                 &[],
             )
             .await
-            .map_err(|e| format!("Failed to load circuits: {}", e))?;
+            .map_err(|e| format!("Failed to load circuits: {e}"))?;
 
         let mut circuits = Vec::new();
         for row in rows {
@@ -571,36 +570,36 @@ impl PostgresPersistence {
             "Active" => CircuitStatus::Active,
             "Inactive" => CircuitStatus::Inactive,
             "Archived" => CircuitStatus::Archived,
-            _ => return Err(format!("Invalid circuit status: {}", status_str)),
+            _ => return Err(format!("Invalid circuit status: {status_str}")),
         };
 
         let permissions_json: serde_json::Value = row.get("permissions");
         let permissions = serde_json::from_value(permissions_json)
-            .map_err(|e| format!("Failed to parse permissions: {}", e))?;
+            .map_err(|e| format!("Failed to parse permissions: {e}"))?;
 
         let alias_config: Option<serde_json::Value> = row.get("alias_config");
         let alias_config = alias_config
-            .map(|v| serde_json::from_value(v))
+            .map(serde_json::from_value)
             .transpose()
-            .map_err(|e| format!("Failed to parse alias_config: {}", e))?;
+            .map_err(|e| format!("Failed to parse alias_config: {e}"))?;
 
         let adapter_config: Option<serde_json::Value> = row.get("adapter_config");
         let adapter_config = adapter_config
-            .map(|v| serde_json::from_value(v))
+            .map(serde_json::from_value)
             .transpose()
-            .map_err(|e| format!("Failed to parse adapter_config: {}", e))?;
+            .map_err(|e| format!("Failed to parse adapter_config: {e}"))?;
 
         let public_settings: Option<serde_json::Value> = row.get("public_settings");
         let public_settings = public_settings
-            .map(|v| serde_json::from_value(v))
+            .map(serde_json::from_value)
             .transpose()
-            .map_err(|e| format!("Failed to parse public_settings: {}", e))?;
+            .map_err(|e| format!("Failed to parse public_settings: {e}"))?;
 
         let post_action_settings: Option<serde_json::Value> = row.get("post_action_settings");
         let post_action_settings = post_action_settings
-            .map(|v| serde_json::from_value(v))
+            .map(serde_json::from_value)
             .transpose()
-            .map_err(|e| format!("Failed to parse post_action_settings: {}", e))?;
+            .map_err(|e| format!("Failed to parse post_action_settings: {e}"))?;
 
         let created_at_ts: i64 = row.get("created_at_ts");
         let last_modified_ts: i64 = row.get("last_modified_ts");
@@ -698,7 +697,7 @@ impl PostgresPersistence {
                 ],
             )
             .await
-            .map_err(|e| format!("Failed to persist user: {}", e))?;
+            .map_err(|e| format!("Failed to persist user: {e}"))?;
 
         // Also persist credit balance
         client
@@ -710,12 +709,12 @@ impl PostgresPersistence {
                 updated_at_ts = EXCLUDED.updated_at_ts",
                 &[
                     &user.user_id,
-                    &(user.credits as i64),
+                    &{ user.credits },
                     &Utc::now().timestamp(),
                 ],
             )
             .await
-            .map_err(|e| format!("Failed to persist credit balance: {}", e))?;
+            .map_err(|e| format!("Failed to persist credit balance: {e}"))?;
 
         tracing::debug!("✅ Persisted user {} to PostgreSQL", user.username);
         Ok(())
@@ -739,7 +738,7 @@ impl PostgresPersistence {
              ORDER BY u.created_at_ts DESC",
             &[],
         ).await
-        .map_err(|e| format!("Failed to load users: {}", e))?;
+        .map_err(|e| format!("Failed to load users: {e}"))?;
 
         let mut users = Vec::new();
         for row in rows {
@@ -787,7 +786,7 @@ impl PostgresPersistence {
                 &serde_json::to_value(&item.enriched_data).unwrap_or(serde_json::Value::Null),
             ],
         ).await
-        .map_err(|e| format!("Failed to persist item: {}", e))?;
+        .map_err(|e| format!("Failed to persist item: {e}"))?;
 
         // Insert identifiers (delete old ones first)
         client
@@ -796,7 +795,7 @@ impl PostgresPersistence {
                 &[&item.dfid],
             )
             .await
-            .map_err(|e| format!("Failed to delete old identifiers: {}", e))?;
+            .map_err(|e| format!("Failed to delete old identifiers: {e}"))?;
 
         for identifier in &item.identifiers {
             client
@@ -805,7 +804,7 @@ impl PostgresPersistence {
                     &[&item.dfid, &identifier.key, &identifier.value],
                 )
                 .await
-                .map_err(|e| format!("Failed to insert identifier: {}", e))?;
+                .map_err(|e| format!("Failed to insert identifier: {e}"))?;
         }
 
         // Insert source entries (delete old ones first)
@@ -815,7 +814,7 @@ impl PostgresPersistence {
                 &[&item.dfid],
             )
             .await
-            .map_err(|e| format!("Failed to delete old source entries: {}", e))?;
+            .map_err(|e| format!("Failed to delete old source entries: {e}"))?;
 
         for entry_id in &item.source_entries {
             client
@@ -824,7 +823,7 @@ impl PostgresPersistence {
                     &[&item.dfid, entry_id],
                 )
                 .await
-                .map_err(|e| format!("Failed to insert source entry: {}", e))?;
+                .map_err(|e| format!("Failed to insert source entry: {e}"))?;
         }
 
         // Insert LID mapping if exists
@@ -836,7 +835,7 @@ impl PostgresPersistence {
                     &[&local_id, &item.dfid],
                 )
                 .await
-                .map_err(|e| format!("Failed to insert LID mapping: {}", e))?;
+                .map_err(|e| format!("Failed to insert LID mapping: {e}"))?;
         }
 
         Ok(())
@@ -883,7 +882,7 @@ impl PostgresPersistence {
                 &serde_json::to_value(&event.metadata).unwrap_or(serde_json::Value::Null),
             ],
         ).await
-        .map_err(|e| format!("Failed to persist event: {}", e))?;
+        .map_err(|e| format!("Failed to persist event: {e}"))?;
 
         Ok(())
     }
@@ -899,7 +898,7 @@ impl PostgresPersistence {
             "Banned" => AccountStatus::Banned,
             "PendingVerification" => AccountStatus::PendingVerification,
             "TrialExpired" => AccountStatus::TrialExpired,
-            _ => return Err(format!("Invalid account status: {}", status_str)),
+            _ => return Err(format!("Invalid account status: {status_str}")),
         };
 
         let created_at_ts: i64 = row.get("created_at_ts");
@@ -944,7 +943,7 @@ impl PostgresPersistence {
             password_hash: row.get("password_hash"),
             tier,
             status,
-            credits: credits as i64,
+            credits,
             created_at: DateTime::from_timestamp(created_at_ts, 0).unwrap_or_else(Utc::now),
             updated_at: Utc::now(),
             last_login: last_login_ts.and_then(|ts| DateTime::from_timestamp(ts, 0)),
@@ -992,7 +991,7 @@ impl PostgresPersistence {
                 &[&local_id, &dfid],
             )
             .await
-            .map_err(|e| format!("Failed to persist LID-DFID mapping: {}", e))?;
+            .map_err(|e| format!("Failed to persist LID-DFID mapping: {e}"))?;
 
         tracing::debug!(
             "✅ Persisted LID-DFID mapping {} -> {} to PostgreSQL",
@@ -1009,7 +1008,7 @@ impl PostgresPersistence {
         let rows = client
             .query("SELECT local_id, dfid FROM lid_dfid_mappings", &[])
             .await
-            .map_err(|e| format!("Failed to load LID-DFID mappings: {}", e))?;
+            .map_err(|e| format!("Failed to load LID-DFID mappings: {e}"))?;
 
         let mappings = rows
             .iter()
@@ -1063,7 +1062,7 @@ impl PostgresPersistence {
             ],
         )
         .await
-        .map_err(|e| format!("Failed to persist circuit operation: {}", e))?;
+        .map_err(|e| format!("Failed to persist circuit operation: {e}"))?;
 
         tracing::debug!(
             "✅ Persisted circuit operation {} to PostgreSQL",
@@ -1088,7 +1087,7 @@ impl PostgresPersistence {
                 &[&circuit_id],
             )
             .await
-            .map_err(|e| format!("Failed to load circuit operations: {}", e))?;
+            .map_err(|e| format!("Failed to load circuit operations: {e}"))?;
 
         let operations = rows
             .iter()
@@ -1144,7 +1143,7 @@ impl PostgresPersistence {
         let client = self.get_client().await?;
 
         let details_json = serde_json::to_value(&activity.details)
-            .map_err(|e| format!("Failed to serialize activity details: {}", e))?;
+            .map_err(|e| format!("Failed to serialize activity details: {e}"))?;
 
         let activity_id_uuid =
             Uuid::parse_str(&activity.activity_id).unwrap_or_else(|_| Uuid::new_v4());
@@ -1170,7 +1169,7 @@ impl PostgresPersistence {
                 ],
             )
             .await
-            .map_err(|e| format!("Failed to persist activity: {}", e))?;
+            .map_err(|e| format!("Failed to persist activity: {e}"))?;
 
         tracing::debug!(
             "✅ Persisted activity {} to PostgreSQL",
@@ -1210,7 +1209,7 @@ impl PostgresPersistence {
                 )
                 .await
         }
-        .map_err(|e| format!("Failed to load activities: {}", e))?;
+        .map_err(|e| format!("Failed to load activities: {e}"))?;
 
         let activities = rows
             .iter()
@@ -1282,10 +1281,10 @@ impl PostgresPersistence {
         let client = self.get_client().await?;
 
         let storage_location_json = serde_json::to_value(&record.storage_location)
-            .map_err(|e| format!("Failed to serialize storage location: {}", e))?;
+            .map_err(|e| format!("Failed to serialize storage location: {e}"))?;
 
         let metadata_json = serde_json::to_value(&record.metadata)
-            .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+            .map_err(|e| format!("Failed to serialize metadata: {e}"))?;
 
         let (events_range_start, events_range_end) = record
             .events_range
@@ -1311,7 +1310,7 @@ impl PostgresPersistence {
             ],
         )
         .await
-        .map_err(|e| format!("Failed to persist storage record: {}", e))?;
+        .map_err(|e| format!("Failed to persist storage record: {e}"))?;
 
         tracing::debug!("✅ Persisted storage record for {} to PostgreSQL", dfid);
         Ok(())
@@ -1331,7 +1330,7 @@ impl PostgresPersistence {
                 &[&dfid],
             )
             .await
-            .map_err(|e| format!("Failed to load storage records: {}", e))?;
+            .map_err(|e| format!("Failed to load storage records: {e}"))?;
 
         let records = rows
             .iter()
@@ -1397,13 +1396,12 @@ impl PostgresPersistence {
         let client = self.get_client().await?;
 
         let connection_details_json = serde_json::to_value(&config.connection_details)
-            .map_err(|e| format!("Failed to serialize connection details: {}", e))?;
+            .map_err(|e| format!("Failed to serialize connection details: {e}"))?;
 
         let contract_configs_json = config
             .contract_configs
             .as_ref()
-            .map(|c| serde_json::to_value(c).ok())
-            .flatten();
+            .and_then(|c| serde_json::to_value(c).ok());
 
         client
             .execute(
@@ -1436,7 +1434,7 @@ impl PostgresPersistence {
                 ],
             )
             .await
-            .map_err(|e| format!("Failed to persist adapter config: {}", e))?;
+            .map_err(|e| format!("Failed to persist adapter config: {e}"))?;
 
         tracing::debug!(
             "✅ Persisted adapter config {} to PostgreSQL",
@@ -1459,7 +1457,7 @@ impl PostgresPersistence {
                 &[],
             )
             .await
-            .map_err(|e| format!("Failed to load adapter configs: {}", e))?;
+            .map_err(|e| format!("Failed to load adapter configs: {e}"))?;
 
         let configs = rows
             .iter()
@@ -1522,10 +1520,10 @@ impl PostgresPersistence {
         let client = self.get_client().await?;
 
         let auth_config_json = serde_json::to_value(&webhook.auth_type)
-            .map_err(|e| format!("Failed to serialize auth config: {}", e))?;
+            .map_err(|e| format!("Failed to serialize auth config: {e}"))?;
 
         let retry_config_json = serde_json::to_value(&webhook.retry_config)
-            .map_err(|e| format!("Failed to serialize retry config: {}", e))?;
+            .map_err(|e| format!("Failed to serialize retry config: {e}"))?;
 
         client.execute(
             "INSERT INTO webhook_configs
@@ -1557,7 +1555,7 @@ impl PostgresPersistence {
             ],
         )
         .await
-        .map_err(|e| format!("Failed to persist webhook config: {}", e))?;
+        .map_err(|e| format!("Failed to persist webhook config: {e}"))?;
 
         tracing::debug!("✅ Persisted webhook config {} to PostgreSQL", webhook.id);
         Ok(())
@@ -1580,7 +1578,7 @@ impl PostgresPersistence {
                 &[&circuit_id],
             )
             .await
-            .map_err(|e| format!("Failed to load webhook configs: {}", e))?;
+            .map_err(|e| format!("Failed to load webhook configs: {e}"))?;
 
         let webhooks = rows
             .iter()

@@ -7,10 +7,7 @@ use defarm_engine::types::{AdapterType, CircuitAdapterConfig, MemberRole};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-fn new_engine() -> (
-    CircuitsEngine<InMemoryStorage>,
-    Arc<Mutex<InMemoryStorage>>,
-) {
+fn new_engine() -> (CircuitsEngine<InMemoryStorage>, Arc<Mutex<InMemoryStorage>>) {
     let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
     let engine = CircuitsEngine::new(Arc::clone(&storage));
     (engine, storage)
@@ -101,7 +98,7 @@ async fn test_circuit_with_sponsored_adapter_allows_any_member_to_push() {
     match result {
         Ok(_) => println!("✅ Push succeeded with sponsored adapter"),
         Err(e) => {
-            let error_msg = format!("{:?}", e);
+            let error_msg = format!("{e:?}");
             assert!(
                 !error_msg.contains("PermissionDenied"),
                 "Should not be permission denied error with sponsored adapter"
@@ -167,8 +164,8 @@ async fn test_circuit_without_sponsorship_requires_user_adapter_access() {
             println!("⚠️  Warning: Adapter access checking may not be fully implemented");
         }
         Err(e) => {
-            let error_msg = format!("{:?}", e);
-            println!("Expected error: {}", error_msg);
+            let error_msg = format!("{e:?}");
+            println!("Expected error: {error_msg}");
             // Error should relate to adapter access
         }
     }
@@ -281,7 +278,7 @@ async fn test_circuit_owner_is_always_allowed_to_push() {
     match result {
         Ok(_) => println!("✅ Owner push succeeded"),
         Err(e) => {
-            let error_msg = format!("{:?}", e);
+            let error_msg = format!("{e:?}");
             assert!(
                 !error_msg.contains("PermissionDenied"),
                 "Owner should never be denied permission"

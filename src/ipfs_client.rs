@@ -14,11 +14,11 @@ pub enum IpfsError {
 impl std::fmt::Display for IpfsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IpfsError::NetworkError(e) => write!(f, "Network error: {}", e),
-            IpfsError::UploadError(e) => write!(f, "Upload error: {}", e),
-            IpfsError::RetrievalError(e) => write!(f, "Retrieval error: {}", e),
-            IpfsError::SerializationError(e) => write!(f, "Serialization error: {}", e),
-            IpfsError::NotConfigured(e) => write!(f, "Not configured: {}", e),
+            IpfsError::NetworkError(e) => write!(f, "Network error: {e}"),
+            IpfsError::UploadError(e) => write!(f, "Upload error: {e}"),
+            IpfsError::RetrievalError(e) => write!(f, "Retrieval error: {e}"),
+            IpfsError::SerializationError(e) => write!(f, "Serialization error: {e}"),
+            IpfsError::NotConfigured(e) => write!(f, "Not configured: {e}"),
         }
     }
 }
@@ -88,7 +88,7 @@ impl IpfsClient {
                 .timeout(Duration::from_secs(60))
                 .build()
                 .map_err(|e| {
-                    IpfsError::NetworkError(format!("Failed to create HTTP client: {}", e))
+                    IpfsError::NetworkError(format!("Failed to create HTTP client: {e}"))
                 })?,
         })
     }
@@ -107,7 +107,7 @@ impl IpfsClient {
                 .timeout(Duration::from_secs(120))
                 .build()
                 .map_err(|e| {
-                    IpfsError::NetworkError(format!("Failed to create HTTP client: {}", e))
+                    IpfsError::NetworkError(format!("Failed to create HTTP client: {e}"))
                 })?,
         })
     }
@@ -134,7 +134,7 @@ impl IpfsClient {
         };
 
         serde_json::from_str(&data).map_err(|e| {
-            IpfsError::SerializationError(format!("Failed to deserialize JSON: {}", e))
+            IpfsError::SerializationError(format!("Failed to deserialize JSON: {e}"))
         })
     }
 
@@ -142,14 +142,13 @@ impl IpfsClient {
     pub async fn pin(&self, cid: &str) -> Result<(), IpfsError> {
         match &self.client_type {
             IpfsClientType::Kubo { endpoint } => {
-                let url = format!("{}/api/v0/pin/add?arg={}", endpoint, cid);
+                let url = format!("{endpoint}/api/v0/pin/add?arg={cid}");
                 let response = self.http_client.post(&url).send().await?;
 
                 if !response.status().is_success() {
                     let error_text = response.text().await.unwrap_or_default();
                     return Err(IpfsError::UploadError(format!(
-                        "Failed to pin: {}",
-                        error_text
+                        "Failed to pin: {error_text}"
                     )));
                 }
 
@@ -165,7 +164,7 @@ impl IpfsClient {
     pub async fn health_check(&self) -> Result<bool, IpfsError> {
         match &self.client_type {
             IpfsClientType::Kubo { endpoint } => {
-                let url = format!("{}/api/v0/version", endpoint);
+                let url = format!("{endpoint}/api/v0/version");
                 let response = self.http_client.post(&url).send().await?;
                 Ok(response.status().is_success())
             }
@@ -186,7 +185,7 @@ impl IpfsClient {
     pub async fn node_info(&self) -> Result<String, IpfsError> {
         match &self.client_type {
             IpfsClientType::Kubo { endpoint } => {
-                let url = format!("{}/api/v0/version", endpoint);
+                let url = format!("{endpoint}/api/v0/version");
                 let response = self.http_client.post(&url).send().await?;
                 let version: serde_json::Value = response.json().await?;
                 Ok(format!(
@@ -201,7 +200,7 @@ impl IpfsClient {
     // Private helper methods
 
     async fn kubo_upload(&self, json_data: &str, endpoint: &str) -> Result<String, IpfsError> {
-        let url = format!("{}/api/v0/add", endpoint);
+        let url = format!("{endpoint}/api/v0/add");
 
         let form = reqwest::multipart::Form::new().text("file", json_data.to_string());
 
@@ -210,8 +209,7 @@ impl IpfsClient {
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
             return Err(IpfsError::UploadError(format!(
-                "Kubo upload failed: {}",
-                error_text
+                "Kubo upload failed: {error_text}"
             )));
         }
 
@@ -251,8 +249,7 @@ impl IpfsClient {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
             return Err(IpfsError::UploadError(format!(
-                "Pinata upload failed ({}): {}",
-                status, error_text
+                "Pinata upload failed ({status}): {error_text}"
             )));
         }
 
@@ -261,15 +258,14 @@ impl IpfsClient {
     }
 
     async fn kubo_get(&self, cid: &str, endpoint: &str) -> Result<String, IpfsError> {
-        let url = format!("{}/api/v0/cat?arg={}", endpoint, cid);
+        let url = format!("{endpoint}/api/v0/cat?arg={cid}");
 
         let response = self.http_client.post(&url).send().await?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
             return Err(IpfsError::RetrievalError(format!(
-                "Failed to retrieve from Kubo: {}",
-                error_text
+                "Failed to retrieve from Kubo: {error_text}"
             )));
         }
 
@@ -277,7 +273,7 @@ impl IpfsClient {
     }
 
     async fn get_from_gateway(&self, cid: &str, gateway: &str) -> Result<String, IpfsError> {
-        let url = format!("{}/ipfs/{}", gateway, cid);
+        let url = format!("{gateway}/ipfs/{cid}");
 
         let response = self.http_client.get(&url).send().await?;
 

@@ -1,5 +1,5 @@
 use defarm_engine::circuits_engine::{CircuitsEngine, PushStatus};
-use defarm_engine::identifier_types::{CircuitAliasConfig, EnhancedIdentifier, namespaces};
+use defarm_engine::identifier_types::{namespaces, CircuitAliasConfig, EnhancedIdentifier};
 use defarm_engine::storage::{InMemoryStorage, StorageBackend};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -38,13 +38,7 @@ async fn test_canonical_identifier_deduplication() {
     )];
 
     let result1 = engine
-        .push_local_item_to_circuit(
-            &lid1,
-            identifiers1,
-            None,
-            &circuit.circuit_id,
-            "owner1",
-        )
+        .push_local_item_to_circuit(&lid1, identifiers1, None, &circuit.circuit_id, "owner1")
         .await
         .expect("first push succeeds");
 
@@ -64,7 +58,10 @@ async fn test_canonical_identifier_deduplication() {
         .expect("second push succeeds");
 
     assert!(matches!(result2.status, PushStatus::ExistingItemEnriched));
-    assert_eq!(dfid1, result2.dfid, "Same DFID for same canonical identifier");
+    assert_eq!(
+        dfid1, result2.dfid,
+        "Same DFID for same canonical identifier"
+    );
 }
 
 #[tokio::test]
@@ -95,7 +92,13 @@ async fn test_fingerprint_deduplication() {
     ];
 
     let result1 = engine
-        .push_local_item_to_circuit(&lid, identifiers.clone(), None, &circuit.circuit_id, "owner1")
+        .push_local_item_to_circuit(
+            &lid,
+            identifiers.clone(),
+            None,
+            &circuit.circuit_id,
+            "owner1",
+        )
         .await
         .expect("first push succeeds");
 
@@ -148,11 +151,10 @@ async fn test_namespace_validation() {
 
     // Check that it's a validation error about namespace
     if let Err(e) = result {
-        let error_msg = format!("{:?}", e);
+        let error_msg = format!("{e:?}");
         assert!(
             error_msg.contains("Namespace") || error_msg.contains("not allowed"),
-            "Error should mention namespace: {}",
-            error_msg
+            "Error should mention namespace: {error_msg}"
         );
     }
 }
@@ -221,9 +223,7 @@ async fn test_lid_dfid_mapping() {
 
     let lid = Uuid::new_v4();
     let identifiers = vec![EnhancedIdentifier::contextual(
-        "generic",
-        "test_id",
-        "value1",
+        "generic", "test_id", "value1",
     )];
 
     let result = engine
@@ -258,9 +258,7 @@ async fn test_non_owner_cannot_push() {
 
     let lid = Uuid::new_v4();
     let identifiers = vec![EnhancedIdentifier::contextual(
-        "generic",
-        "test_id",
-        "value1",
+        "generic", "test_id", "value1",
     )];
 
     // Try to push as non-owner/non-member
@@ -271,11 +269,10 @@ async fn test_non_owner_cannot_push() {
     assert!(result.is_err(), "Non-member push should fail");
 
     if let Err(e) = result {
-        let error_msg = format!("{:?}", e);
+        let error_msg = format!("{e:?}");
         assert!(
             error_msg.contains("PermissionDenied") || error_msg.contains("permission"),
-            "Error should indicate permission denied: {}",
-            error_msg
+            "Error should indicate permission denied: {error_msg}"
         );
     }
 }

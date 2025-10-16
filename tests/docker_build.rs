@@ -1,16 +1,13 @@
 /// Docker build validation test
 /// Ensures Dockerfile builds successfully and has all required dependencies
 /// Run with: cargo test --test docker_build
-
 use std::process::Command;
 
 #[test]
 #[ignore] // Run explicitly with: cargo test --test docker_build -- --ignored
 fn test_dockerfile_builds_successfully() {
     // Check if Docker is available
-    let docker_check = Command::new("docker")
-        .arg("--version")
-        .output();
+    let docker_check = Command::new("docker").arg("--version").output();
 
     if docker_check.is_err() {
         println!("⚠️  Docker not available - skipping Docker build test");
@@ -23,7 +20,7 @@ fn test_dockerfile_builds_successfully() {
     // Test 1: Build builder stage
     println!("\n🏗️  Building builder stage...");
     let builder_result = Command::new("docker")
-        .args(&[
+        .args([
             "build",
             "--target",
             "builder",
@@ -43,7 +40,7 @@ fn test_dockerfile_builds_successfully() {
     // Test 2: Build full image
     println!("\n🏗️  Building full Docker image...");
     let build_result = Command::new("docker")
-        .args(&["build", "-t", "defarm-api:test", "."])
+        .args(["build", "-t", "defarm-api:test", "."])
         .status()
         .expect("Failed to execute docker build");
 
@@ -56,7 +53,7 @@ fn test_dockerfile_builds_successfully() {
     // Test 3: Verify libsodium in runtime
     println!("\n🔐 Verifying libsodium in runtime container...");
     let libsodium_check = Command::new("docker")
-        .args(&[
+        .args([
             "run",
             "--rm",
             "defarm-api:test",
@@ -77,7 +74,7 @@ fn test_dockerfile_builds_successfully() {
     // Test 4: Verify binary exists
     println!("\n🎯 Verifying binary exists...");
     let binary_check = Command::new("docker")
-        .args(&[
+        .args([
             "run",
             "--rm",
             "defarm-api:test",
@@ -100,7 +97,7 @@ fn test_dockerfile_builds_successfully() {
     // Cleanup
     println!("\n🧹 Cleaning up test images...");
     let _ = Command::new("docker")
-        .args(&["rmi", "defarm-api:test", "defarm-builder:test"])
+        .args(["rmi", "defarm-api:test", "defarm-builder:test"])
         .output();
 
     println!("\n✅ All Docker build tests passed!");
@@ -109,10 +106,7 @@ fn test_dockerfile_builds_successfully() {
 #[test]
 fn test_dockerfile_exists() {
     let dockerfile_exists = std::path::Path::new("Dockerfile").exists();
-    assert!(
-        dockerfile_exists,
-        "Dockerfile not found in project root"
-    );
+    assert!(dockerfile_exists, "Dockerfile not found in project root");
 }
 
 #[test]
@@ -189,7 +183,7 @@ fn test_cargo_lock_has_libsodium_dependency() {
 
 #[cfg(test)]
 mod dockerfile_validation {
-    use super::*;
+    
 
     #[test]
     fn test_no_root_user_in_runtime() {

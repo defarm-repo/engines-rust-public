@@ -74,7 +74,7 @@ async fn get_notifications(
 
     let since = params
         .since
-        .map(|ts| chrono::DateTime::from_timestamp(ts, 0).unwrap_or_else(|| chrono::Utc::now()));
+        .map(|ts| chrono::DateTime::from_timestamp(ts, 0).unwrap_or_else(chrono::Utc::now));
 
     let notifications = notification_engine
         .get_user_notifications(

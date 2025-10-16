@@ -24,11 +24,11 @@ impl IpfsIpfsAdapter {
             std::env::var("PINATA_SECRET_KEY"),
         ) {
             IpfsClient::with_pinata(api_key, secret).map_err(|e| {
-                StorageError::ConnectionError(format!("Failed to configure Pinata: {}", e))
+                StorageError::ConnectionError(format!("Failed to configure Pinata: {e}"))
             })?
         } else {
             IpfsClient::with_endpoint(&ipfs_endpoint).map_err(|e| {
-                StorageError::ConnectionError(format!("Failed to connect to IPFS: {}", e))
+                StorageError::ConnectionError(format!("Failed to connect to IPFS: {e}"))
             })?
         };
 
@@ -65,7 +65,7 @@ impl StorageAdapter for IpfsIpfsAdapter {
         // Upload item to IPFS and get CID
         let cid =
             self.ipfs_client.upload_json(item).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to upload to IPFS: {}", e))
+                StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
             })?;
 
         // Create metadata with CID
@@ -81,7 +81,7 @@ impl StorageAdapter for IpfsIpfsAdapter {
     ) -> Result<AdapterResult<String>, StorageError> {
         // Upload event to IPFS and get CID
         let cid = self.ipfs_client.upload_json(event).await.map_err(|e| {
-            StorageError::WriteError(format!("Failed to upload event to IPFS: {}", e))
+            StorageError::WriteError(format!("Failed to upload event to IPFS: {e}"))
         })?;
 
         // Create metadata with CID
@@ -167,6 +167,6 @@ impl StorageAdapter for IpfsIpfsAdapter {
         self.ipfs_client
             .health_check()
             .await
-            .map_err(|e| StorageError::ConnectionError(format!("IPFS health check failed: {}", e)))
+            .map_err(|e| StorageError::ConnectionError(format!("IPFS health check failed: {e}")))
     }
 }

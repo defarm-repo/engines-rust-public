@@ -10,10 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-fn new_engine() -> (
-    CircuitsEngine<InMemoryStorage>,
-    Arc<Mutex<InMemoryStorage>>,
-) {
+fn new_engine() -> (CircuitsEngine<InMemoryStorage>, Arc<Mutex<InMemoryStorage>>) {
     let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
     let engine = CircuitsEngine::new(Arc::clone(&storage));
     (engine, storage)
@@ -36,7 +33,11 @@ async fn test_push_operation_creates_storage_history_entry() {
 
     // Push item
     let lid = Uuid::new_v4();
-    let identifiers = vec![EnhancedIdentifier::contextual("test", "history_id", "hist001")];
+    let identifiers = vec![EnhancedIdentifier::contextual(
+        "test",
+        "history_id",
+        "hist001",
+    )];
 
     let result = engine
         .push_local_item_to_circuit(&lid, identifiers, None, &circuit.circuit_id, "owner1")
@@ -56,7 +57,10 @@ async fn test_push_operation_creates_storage_history_entry() {
                 if entries.is_empty() {
                     println!("⚠️  Warning: Storage history not yet populated for push operations");
                 } else {
-                    assert!(!entries.is_empty(), "Storage history should exist for pushed item");
+                    assert!(
+                        !entries.is_empty(),
+                        "Storage history should exist for pushed item"
+                    );
                     println!("✅ Storage history created with {} entries", entries.len());
                 }
             }
@@ -64,7 +68,7 @@ async fn test_push_operation_creates_storage_history_entry() {
                 println!("⚠️  No storage history found (may not be implemented yet)");
             }
             Err(e) => {
-                println!("⚠️  Storage history query failed: {:?}", e);
+                println!("⚠️  Storage history query failed: {e:?}");
             }
         }
     }
@@ -135,10 +139,12 @@ fn test_storage_record_contains_stellar_transaction() {
 
     match record.storage_location {
         StorageLocation::Stellar {
-            ref transaction_id,
-            ..
+            ref transaction_id, ..
         } => {
-            assert!(!transaction_id.is_empty(), "Transaction ID should not be empty");
+            assert!(
+                !transaction_id.is_empty(),
+                "Transaction ID should not be empty"
+            );
             assert!(
                 transaction_id.starts_with("tx_"),
                 "Transaction ID should have expected format"
@@ -205,10 +211,7 @@ fn test_storage_location_variants() {
 
     // Verify all variants can be created
     assert!(matches!(ipfs_location, StorageLocation::IPFS { .. }));
-    assert!(matches!(
-        stellar_location,
-        StorageLocation::Stellar { .. }
-    ));
+    assert!(matches!(stellar_location, StorageLocation::Stellar { .. }));
     assert!(matches!(local_location, StorageLocation::Local { .. }));
 }
 

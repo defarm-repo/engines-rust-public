@@ -365,7 +365,7 @@ async fn update_user(
         if old_tier != tier {
             user.tier = tier.clone();
             user.limits = TierLimits::for_tier(&tier);
-            changes.push(format!("tier: {:?} -> {:?}", old_tier, tier));
+            changes.push(format!("tier: {old_tier:?} -> {tier:?}"));
         }
     }
 
@@ -373,7 +373,7 @@ async fn update_user(
         let old_status = user.status.clone();
         if old_status != status {
             user.status = status.clone();
-            changes.push(format!("status: {:?} -> {:?}", old_status, status));
+            changes.push(format!("status: {old_status:?} -> {status:?}"));
         }
     }
 
@@ -381,7 +381,7 @@ async fn update_user(
         let old_credits = user.credits;
         if old_credits != credits {
             user.credits = credits;
-            changes.push(format!("credits: {} -> {}", old_credits, credits));
+            changes.push(format!("credits: {old_credits} -> {credits}"));
         }
     }
 
@@ -389,7 +389,7 @@ async fn update_user(
         let old_admin = user.is_admin;
         if old_admin != is_admin {
             user.is_admin = is_admin;
-            changes.push(format!("is_admin: {} -> {}", old_admin, is_admin));
+            changes.push(format!("is_admin: {old_admin} -> {is_admin}"));
         }
     }
 
@@ -412,7 +412,7 @@ async fn update_user(
                 .collect::<Vec<_>>()
                 .join(", ");
             user.available_adapters = Some(available_adapters);
-            changes.push(format!("adapters: {} -> {}", old_str, new_str));
+            changes.push(format!("adapters: {old_str} -> {new_str}"));
         }
     }
 

@@ -123,7 +123,7 @@ async fn submit_proof(
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "submit_proof_error",
-                &format!("Error submitting proof: {:?}", e),
+                format!("Error submitting proof: {e:?}"),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -147,7 +147,7 @@ async fn verify_proof(
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "verify_proof_error",
-                &format!("Error verifying proof: {:?}", e),
+                format!("Error verifying proof: {e:?}"),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -173,7 +173,7 @@ async fn get_proof(
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "get_proof_error",
-                &format!("Error getting proof: {:?}", e),
+                format!("Error getting proof: {e:?}"),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -236,7 +236,7 @@ async fn list_proofs(
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "list_proofs_error",
-                &format!("Error querying proofs: {:?}", e),
+                format!("Error querying proofs: {e:?}"),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -257,7 +257,7 @@ async fn get_proof_statistics(
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "get_stats_error",
-                &format!("Error getting proof statistics: {:?}", e),
+                format!("Error getting proof statistics: {e:?}"),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
@@ -279,7 +279,7 @@ async fn delete_proof(
             app_state.logging.lock().unwrap().error(
                 "api_zk_proofs",
                 "delete_proof_error",
-                &format!("Error deleting proof: {:?}", e),
+                format!("Error deleting proof: {e:?}"),
             );
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }

@@ -24,7 +24,7 @@ fn create_test_adapter_config(adapter_type: AdapterType, name: &str) -> AdapterC
     AdapterConfig {
         config_id: Uuid::new_v4(),
         name: name.to_string(),
-        description: format!("{:?} adapter configuration", adapter_type),
+        description: format!("{adapter_type:?} adapter configuration"),
         adapter_type,
         connection_details: AdapterConnectionDetails {
             endpoint: "https://api.pinata.cloud".to_string(),
@@ -95,10 +95,7 @@ fn test_admin_creates_adapter_configuration() {
 
 #[test]
 fn test_adapter_config_stores_contract_addresses() {
-    let config = create_test_adapter_config(
-        AdapterType::StellarTestnetIpfs,
-        "Contract Test",
-    );
+    let config = create_test_adapter_config(AdapterType::StellarTestnetIpfs, "Contract Test");
 
     assert!(config.contract_configs.is_some());
 
@@ -117,10 +114,7 @@ fn test_adapter_config_stores_api_credentials() {
 
     assert!(config.connection_details.api_key.is_some());
     assert!(config.connection_details.secret_key.is_some());
-    assert_eq!(
-        config.connection_details.api_key.unwrap(),
-        "test_api_key"
-    );
+    assert_eq!(config.connection_details.api_key.unwrap(), "test_api_key");
     assert_eq!(
         config.connection_details.secret_key.unwrap(),
         "test_secret_key"

@@ -14,11 +14,7 @@ fn create_test_item(dfid: &str) -> Item {
         local_id: Some(Uuid::new_v4()),
         legacy_mode: false,
         identifiers: vec![],
-        enhanced_identifiers: vec![EnhancedIdentifier::contextual(
-            "test",
-            "item_id",
-            dfid,
-        )],
+        enhanced_identifiers: vec![EnhancedIdentifier::contextual("test", "item_id", dfid)],
         aliases: vec![],
         fingerprint: None,
         enriched_data: HashMap::new(),
@@ -37,7 +33,7 @@ async fn test_stellar_testnet_adapter_stores_item() {
     let adapter = match StellarTestnetIpfsAdapter::new() {
         Ok(a) => a,
         Err(e) => {
-            println!("⚠️  Skipping: Stellar testnet adapter not available: {}", e);
+            println!("⚠️  Skipping: Stellar testnet adapter not available: {e}");
             return;
         }
     };
@@ -47,7 +43,7 @@ async fn test_stellar_testnet_adapter_stores_item() {
 
     if result.is_err() {
         let err = result.unwrap_err();
-        println!("⚠️  Test failed (expected if not configured): {:?}", err);
+        println!("⚠️  Test failed (expected if not configured): {err:?}");
         return;
     }
 
@@ -60,21 +56,33 @@ async fn test_stellar_testnet_adapter_stores_item() {
     // For Stellar adapter, the main location is Stellar (with CID in asset_id)
     // and the IPFS location is in event_locations
     match &metadata.item_location {
-        StorageLocation::Stellar { transaction_id, contract_address, asset_id } => {
-            assert!(!transaction_id.is_empty(), "Transaction ID should not be empty");
-            assert!(!contract_address.is_empty(), "Contract address should not be empty");
+        StorageLocation::Stellar {
+            transaction_id,
+            contract_address,
+            asset_id,
+        } => {
+            assert!(
+                !transaction_id.is_empty(),
+                "Transaction ID should not be empty"
+            );
+            assert!(
+                !contract_address.is_empty(),
+                "Contract address should not be empty"
+            );
 
-            println!("✅ Stellar Transaction Hash: {}", transaction_id);
-            println!("✅ Stellar Contract: {}", contract_address);
-            println!("✅ Transaction viewable at: https://stellar.expert/explorer/testnet/tx/{}", transaction_id);
+            println!("✅ Stellar Transaction Hash: {transaction_id}");
+            println!("✅ Stellar Contract: {contract_address}");
+            println!(
+                "✅ Transaction viewable at: https://stellar.expert/explorer/testnet/tx/{transaction_id}"
+            );
 
             if let Some(cid) = asset_id {
-                println!("✅ IPFS CID (stored as asset_id): {}", cid);
-                println!("✅ View on IPFS: https://gateway.pinata.cloud/ipfs/{}", cid);
+                println!("✅ IPFS CID (stored as asset_id): {cid}");
+                println!("✅ View on IPFS: https://gateway.pinata.cloud/ipfs/{cid}");
             }
         }
         other => {
-            panic!("Expected Stellar storage location, got: {:?}", other);
+            panic!("Expected Stellar storage location, got: {other:?}");
         }
     }
 
@@ -87,9 +95,14 @@ async fn test_stellar_testnet_adapter_stores_item() {
         }
     });
 
-    assert!(ipfs_cid.is_some(), "Should have IPFS location in event_locations");
+    assert!(
+        ipfs_cid.is_some(),
+        "Should have IPFS location in event_locations"
+    );
     if let Some(cid) = ipfs_cid {
-        println!("✅ Item also recorded in IPFS event locations with CID: {}", cid);
+        println!(
+            "✅ Item also recorded in IPFS event locations with CID: {cid}"
+        );
     }
 }
 
@@ -107,11 +120,11 @@ async fn test_stellar_adapter_health_check() {
 
     match health {
         Ok(is_healthy) => {
-            println!("Stellar testnet health: {}", is_healthy);
+            println!("Stellar testnet health: {is_healthy}");
             // Don't assert true because testnet might be down
         }
         Err(e) => {
-            println!("Health check error (expected if not configured): {:?}", e);
+            println!("Health check error (expected if not configured): {e:?}");
         }
     }
 }
@@ -130,10 +143,7 @@ async fn test_stellar_adapter_sync_status() {
 
     if status.is_ok() {
         let sync_status = status.unwrap();
-        assert_eq!(
-            sync_status.adapter_type,
-            AdapterType::StellarTestnetIpfs
-        );
+        assert_eq!(sync_status.adapter_type, AdapterType::StellarTestnetIpfs);
 
         println!("Sync status: is_synced={}", sync_status.is_synced);
         println!("Details: {:?}", sync_status.details);
@@ -163,7 +173,7 @@ fn test_stellar_adapter_requires_credentials() {
     // This is expected behavior - adapter can be instantiated but not used
     match result {
         Ok(_) => println!("Adapter created (will fail on operations without credentials)"),
-        Err(e) => println!("Adapter creation failed as expected: {:?}", e),
+        Err(e) => println!("Adapter creation failed as expected: {e:?}"),
     }
 }
 
@@ -211,7 +221,7 @@ async fn test_stellar_ipcm_contract_parameters() {
         if let StorageLocation::IPFS { cid, .. } = &adapter_result.metadata.item_location {
             assert!(!cid.is_empty());
             println!("✅ DFID: {}", item.dfid);
-            println!("✅ CID: {}", cid);
+            println!("✅ CID: {cid}");
         }
 
         // In a complete test, we would verify the contract call with:

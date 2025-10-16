@@ -54,7 +54,7 @@ impl<S: StorageBackend> CreditEngine<S> {
             user_id: user_id.to_string(),
             amount: -cost,
             transaction_type: CreditTransactionType::Consumption,
-            description: format!("Operation: {}", operation_type),
+            description: format!("Operation: {operation_type}"),
             operation_type: Some(operation_type.to_string()),
             operation_id: Some(operation_id.to_string()),
             timestamp: Utc::now(),
@@ -81,7 +81,7 @@ impl<S: StorageBackend> CreditEngine<S> {
 
         let mut user = storage
             .get_user_account(user_id)?
-            .ok_or_else(|| StorageError::NotFound)?;
+            .ok_or(StorageError::NotFound)?;
 
         user.credits += amount;
         user.updated_at = Utc::now();
@@ -158,7 +158,7 @@ impl<S: StorageBackend> CreditEngine<S> {
             self.add_credits(
                 user_id,
                 -original.amount, // Refund the consumed amount (make it positive)
-                &format!("Refund for operation {}: {}", operation_id, reason),
+                &format!("Refund for operation {operation_id}: {reason}"),
             )
             .await?;
             return Ok(true);

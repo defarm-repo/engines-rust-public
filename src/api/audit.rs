@@ -371,7 +371,7 @@ pub async fn query_events(
 
     let event_responses: Vec<AuditEventResponse> = events
         .into_iter()
-        .map(|e| convert_audit_event_to_response(e))
+        .map(convert_audit_event_to_response)
         .collect();
 
     Ok(Json(json!({
@@ -413,7 +413,7 @@ pub async fn get_events_by_user(
 
     let event_responses: Vec<AuditEventResponse> = events
         .into_iter()
-        .map(|e| convert_audit_event_to_response(e))
+        .map(convert_audit_event_to_response)
         .collect();
 
     Ok(Json(json!({
@@ -586,7 +586,7 @@ pub async fn list_security_incidents(
 
     let incident_responses: Vec<SecurityIncidentResponse> = incidents
         .into_iter()
-        .map(|i| convert_security_incident_to_response(i))
+        .map(convert_security_incident_to_response)
         .collect();
 
     Ok(Json(json!({
@@ -727,7 +727,7 @@ pub async fn sync_events(
     let events = request
         .events
         .into_iter()
-        .map(|e| convert_sync_event_to_audit_event(e))
+        .map(convert_sync_event_to_audit_event)
         .collect::<Result<Vec<_>, _>>()?;
 
     engine

@@ -398,6 +398,12 @@ pub struct CircuitState {
     pub engine: Arc<Mutex<CircuitsEngine<InMemoryStorage>>>,
 }
 
+impl Default for CircuitState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CircuitState {
     pub fn new() -> Self {
         let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
@@ -520,7 +526,7 @@ fn parse_member_role(role_str: &str) -> Result<MemberRole, String> {
         "admin" => Ok(MemberRole::Admin),
         "member" => Ok(MemberRole::Member),
         "viewer" => Ok(MemberRole::Viewer),
-        _ => Err(format!("Invalid member role: {}", role_str)),
+        _ => Err(format!("Invalid member role: {role_str}")),
     }
 }
 
@@ -557,7 +563,7 @@ fn parse_permission(permission_str: &str) -> Result<Permission, String> {
         "delete" => Ok(Permission::Delete),
         "certify" => Ok(Permission::Certify),
         "audit" => Ok(Permission::Audit),
-        _ => Err(format!("Invalid permission: {}", permission_str)),
+        _ => Err(format!("Invalid permission: {permission_str}")),
     }
 }
 
@@ -581,7 +587,7 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
                 permissions: member
                     .permissions
                     .into_iter()
-                    .map(|p| format!("{:?}", p))
+                    .map(|p| format!("{p:?}"))
                     .collect(),
                 joined_timestamp: member.joined_timestamp.timestamp(),
             })
@@ -622,7 +628,7 @@ fn custom_role_to_response(role: CustomRole, member_count: usize) -> CustomRoleR
         permissions: role
             .permissions
             .into_iter()
-            .map(|p| format!("{:?}", p))
+            .map(|p| format!("{p:?}"))
             .collect(),
         description: role.description,
         color: role.color,
@@ -1183,9 +1189,7 @@ async fn list_circuits(
         Ok(mut circuits) => {
             // Apply permission-based filtering
             if let Some(user_id) = &params.user_id {
-                circuits = circuits
-                    .into_iter()
-                    .filter(|circuit| {
+                circuits.retain(|circuit| {
                         // Include circuits where user is a member
                         let is_member = circuit.is_member(user_id);
 
@@ -1194,27 +1198,20 @@ async fn list_circuits(
                             && circuit.permissions.allow_public_visibility;
 
                         is_member || is_public
-                    })
-                    .collect();
+                    });
             } else if !params.include_public.unwrap_or(false) {
                 // If no user_id provided and not requesting public, return empty list for security
                 circuits = Vec::new();
             } else {
                 // Only show public circuits
-                circuits = circuits
-                    .into_iter()
-                    .filter(|circuit| circuit.permissions.allow_public_visibility)
-                    .collect();
+                circuits.retain(|circuit| circuit.permissions.allow_public_visibility);
             }
 
             // Apply status filter
             if let Some(status_str) = &params.status {
-                circuits = circuits
-                    .into_iter()
-                    .filter(|circuit| {
+                circuits.retain(|circuit| {
                         format!("{:?}", circuit.status).to_lowercase() == status_str.to_lowercase()
-                    })
-                    .collect();
+                    });
             }
 
             let response: Vec<CircuitResponse> =
@@ -2213,7 +2210,7 @@ async fn batch_push_items(
     // Process each item sequentially using block_in_place
     for item in payload.items.iter() {
         let dfid = item.dfid.clone();
-        let circuit_id_copy = circuit_id.clone();
+        let circuit_id_copy = circuit_id;
         let requester_id_clone = requester_id.clone();
         let engine_arc = state.circuits_engine.clone();
 
@@ -2429,7 +2426,7 @@ async fn get_circuit_adapter_config(
             if let Some(adapter_config) = circuit.adapter_config {
                 // Convert AdapterType enum to hyphenated string format
                 let adapter_type_str = adapter_config.adapter_type.map(|adapter| {
-                    format!("{:?}", adapter)
+                    format!("{adapter:?}")
                         .replace("Ipfs", "-ipfs")
                         .replace("StellarTestnet", "stellar_testnet")
                         .replace("StellarMainnet", "stellar_mainnet")
@@ -2502,7 +2499,7 @@ async fn set_circuit_adapter_config(
         Ok(adapter_config) => {
             // Convert AdapterType enum to hyphenated string format
             let adapter_type_str = adapter_config.adapter_type.map(|adapter| {
-                format!("{:?}", adapter)
+                format!("{adapter:?}")
                     .replace("Ipfs", "-ipfs")
                     .replace("StellarTestnet", "stellar_testnet")
                     .replace("StellarMainnet", "stellar_mainnet")

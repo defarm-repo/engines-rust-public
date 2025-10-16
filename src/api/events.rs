@@ -67,7 +67,7 @@ fn parse_event_type(event_type_str: &str) -> Result<EventType, String> {
         "pulledfromcircuit" => Ok(EventType::PulledFromCircuit),
         "updated" => Ok(EventType::Updated),
         "statuschanged" => Ok(EventType::StatusChanged),
-        _ => Err(format!("Invalid event type: {}", event_type_str)),
+        _ => Err(format!("Invalid event type: {event_type_str}")),
     }
 }
 
@@ -76,7 +76,7 @@ fn parse_event_visibility(visibility_str: &str) -> Result<EventVisibility, Strin
         "public" => Ok(EventVisibility::Public),
         "private" => Ok(EventVisibility::Private),
         "circuitonly" => Ok(EventVisibility::CircuitOnly),
-        _ => Err(format!("Invalid visibility: {}", visibility_str)),
+        _ => Err(format!("Invalid visibility: {visibility_str}")),
     }
 }
 

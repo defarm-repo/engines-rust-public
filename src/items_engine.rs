@@ -22,10 +22,10 @@ pub enum ItemsError {
 impl std::fmt::Display for ItemsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ItemsError::StorageError(e) => write!(f, "Storage error: {}", e),
-            ItemsError::ItemNotFound(dfid) => write!(f, "Item not found: {}", dfid),
-            ItemsError::InvalidOperation(msg) => write!(f, "Invalid operation: {}", msg),
-            ItemsError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            ItemsError::StorageError(e) => write!(f, "Storage error: {e}"),
+            ItemsError::ItemNotFound(dfid) => write!(f, "Item not found: {dfid}"),
+            ItemsError::InvalidOperation(msg) => write!(f, "Invalid operation: {msg}"),
+            ItemsError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
         }
     }
 }
@@ -75,8 +75,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         // Check if item already exists
         if self.storage.get_item_by_dfid(&dfid)?.is_some() {
             return Err(ItemsError::InvalidOperation(format!(
-                "Item with DFID {} already exists",
-                dfid
+                "Item with DFID {dfid} already exists"
             )));
         }
 
@@ -172,7 +171,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
                     // Return the existing item (potentially with new identifiers)
                     return self
                         .get_item(&dfid)?
-                        .ok_or_else(|| ItemsError::ItemNotFound(dfid));
+                        .ok_or(ItemsError::ItemNotFound(dfid));
                 }
             }
         }
@@ -227,7 +226,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
 
         // Create item with local_id and temporary DFID format
         let item = Item {
-            dfid: format!("LID-{}", local_id), // Temporary DFID format
+            dfid: format!("LID-{local_id}"), // Temporary DFID format
             local_id: Some(local_id),
             legacy_mode: false,
             identifiers,
@@ -265,7 +264,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         }
 
         // If no mapping exists, look for item with LID-based temporary DFID
-        let temp_dfid = format!("LID-{}", local_id);
+        let temp_dfid = format!("LID-{local_id}");
         self.storage
             .get_item_by_dfid(&temp_dfid)
             .map_err(ItemsError::from)
@@ -345,11 +344,11 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             )
             .with_context("master_lid", master_lid.to_string())
             .with_context("merge_count", merge_lids.len().to_string())
-            .with_context("strategy", format!("{:?}", strategy));
+            .with_context("strategy", format!("{strategy:?}"));
 
         // Validate master item exists and is local-only
         let mut master_item = self.get_item_by_lid(master_lid)?.ok_or_else(|| {
-            ItemsError::ItemNotFound(format!("Master LID not found: {}", master_lid))
+            ItemsError::ItemNotFound(format!("Master LID not found: {master_lid}"))
         })?;
 
         // Check if master is already pushed to circuit
@@ -364,21 +363,19 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         for lid in &merge_lids {
             let item = self
                 .get_item_by_lid(lid)?
-                .ok_or_else(|| ItemsError::ItemNotFound(format!("Merge LID not found: {}", lid)))?;
+                .ok_or_else(|| ItemsError::ItemNotFound(format!("Merge LID not found: {lid}")))?;
 
             // Check if item is already pushed to circuit
             if !item.dfid.starts_with("LID-") {
                 return Err(ItemsError::InvalidOperation(format!(
-                    "Cannot merge: item {} has already been pushed to a circuit",
-                    lid
+                    "Cannot merge: item {lid} has already been pushed to a circuit"
                 )));
             }
 
             // Check if item is already merged
             if matches!(item.status, ItemStatus::MergedInto(_)) {
                 return Err(ItemsError::InvalidOperation(format!(
-                    "Cannot merge: item {} has already been merged into another item",
-                    lid
+                    "Cannot merge: item {lid} has already been merged into another item"
                 )));
             }
 
@@ -468,7 +465,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
 
                     groups
                         .entry((key_str, value_str))
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(item.clone());
                     break; // Only use first canonical identifier
                 }
@@ -501,7 +498,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
 
         // Get the merged item
         let mut merged_item = self.get_item_by_lid(merged_lid)?.ok_or_else(|| {
-            ItemsError::ItemNotFound(format!("Merged LID not found: {}", merged_lid))
+            ItemsError::ItemNotFound(format!("Merged LID not found: {merged_lid}"))
         })?;
 
         // Check if item is actually merged
@@ -509,8 +506,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             ItemStatus::MergedInto(lid) => lid.clone(),
             _ => {
                 return Err(ItemsError::InvalidOperation(format!(
-                    "Item {} is not in MergedInto status, cannot unmerge",
-                    merged_lid
+                    "Item {merged_lid} is not in MergedInto status, cannot unmerge"
                 )))
             }
         };
@@ -561,7 +557,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             let storage_locations = history_manager
                 .get_all_storage_locations(dfid)
                 .await
-                .map_err(|e| ItemsError::StorageError(e))?;
+                .map_err(ItemsError::StorageError)?;
 
             // TODO: Re-enable logging when logger is made thread-safe (use Arc<Mutex<LoggingEngine>>)
             // self.logger.info("ItemsEngine", "multi_storage_retrieval", "Attempting retrieval from multiple storage locations")
@@ -1013,7 +1009,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
                     return Ok(Some(PendingReason::DataQualityIssue {
                         issue_type: "null_value".to_string(),
                         severity: crate::types::QualitySeverity::Low,
-                        details: format!("Null value for key: {}", key),
+                        details: format!("Null value for key: {key}"),
                     }));
                 }
             }
@@ -1040,7 +1036,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         resolution_action: ResolutionAction,
     ) -> Result<Option<Item>, ItemsError> {
         let pending_item = self.storage.get_pending_item(pending_id)?.ok_or_else(|| {
-            ItemsError::ItemNotFound(format!("Pending item not found: {}", pending_id))
+            ItemsError::ItemNotFound(format!("Pending item not found: {pending_id}"))
         })?;
 
         match resolution_action {

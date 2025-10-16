@@ -20,12 +20,12 @@ pub enum WebhookError {
 impl std::fmt::Display for WebhookError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            WebhookError::StorageError(msg) => write!(f, "Storage error: {}", msg),
-            WebhookError::DeliveryError(msg) => write!(f, "Delivery error: {}", msg),
-            WebhookError::ConfigurationError(msg) => write!(f, "Configuration error: {}", msg),
-            WebhookError::NetworkError(msg) => write!(f, "Network error: {}", msg),
-            WebhookError::AuthenticationError(msg) => write!(f, "Authentication error: {}", msg),
-            WebhookError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            WebhookError::StorageError(msg) => write!(f, "Storage error: {msg}"),
+            WebhookError::DeliveryError(msg) => write!(f, "Delivery error: {msg}"),
+            WebhookError::ConfigurationError(msg) => write!(f, "Configuration error: {msg}"),
+            WebhookError::NetworkError(msg) => write!(f, "Network error: {msg}"),
+            WebhookError::AuthenticationError(msg) => write!(f, "Authentication error: {msg}"),
+            WebhookError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
         }
     }
 }
@@ -63,9 +63,8 @@ impl<S: StorageBackend> WebhookEngine<S> {
             .info(
                 "webhook_engine",
                 "webhook_trigger",
-                &format!(
-                    "Triggering webhooks for circuit {} event {:?}",
-                    circuit_id, trigger_event
+                format!(
+                    "Triggering webhooks for circuit {circuit_id} event {trigger_event:?}"
                 ),
             )
             .with_context("circuit_id", circuit_id.to_string())
@@ -93,9 +92,8 @@ impl<S: StorageBackend> WebhookEngine<S> {
                 self.logger.info(
                     "webhook_engine",
                     "webhook_skip",
-                    &format!(
-                        "Trigger event {:?} not configured for circuit",
-                        trigger_event
+                    format!(
+                        "Trigger event {trigger_event:?} not configured for circuit"
                     ),
                 );
                 return Ok(vec![]);
@@ -128,7 +126,7 @@ impl<S: StorageBackend> WebhookEngine<S> {
             .info(
                 "webhook_engine",
                 "webhooks_triggered",
-                &format!("Created {} webhook deliveries", delivery_ids.len()),
+                format!("Created {} webhook deliveries", delivery_ids.len()),
             )
             .with_context("count", delivery_ids.len().to_string());
 
@@ -145,7 +143,7 @@ impl<S: StorageBackend> WebhookEngine<S> {
     ) -> Result<Uuid, WebhookError> {
         // Serialize payload
         let payload_value = serde_json::to_value(&payload).map_err(|e| {
-            WebhookError::DeliveryError(format!("Failed to serialize payload: {}", e))
+            WebhookError::DeliveryError(format!("Failed to serialize payload: {e}"))
         })?;
 
         // Create delivery record
@@ -177,19 +175,19 @@ impl<S: StorageBackend> WebhookEngine<S> {
                 self.logger.error(
                     "webhook_engine",
                     "enqueue_failed",
-                    &format!("Failed to enqueue webhook delivery: {}", e),
+                    format!("Failed to enqueue webhook delivery: {e}"),
                 );
                 // Update delivery status to failed
                 if let Ok(mut storage) = self.storage.lock() {
                     delivery.status = DeliveryStatus::Failed;
-                    delivery.error_message = Some(format!("Failed to enqueue: {}", e));
+                    delivery.error_message = Some(format!("Failed to enqueue: {e}"));
                     let _ = storage.store_webhook_delivery(&delivery);
                 }
             } else {
                 self.logger.info(
                     "webhook_engine",
                     "delivery_enqueued",
-                    &format!("Webhook delivery enqueued: {}", delivery_id),
+                    format!("Webhook delivery enqueued: {delivery_id}"),
                 );
             }
         } else {
@@ -235,7 +233,7 @@ impl<S: StorageBackend> WebhookEngine<S> {
     /// Validate webhook URL (basic validation to prevent SSRF)
     pub fn validate_webhook_url(url: &str) -> Result<(), WebhookError> {
         let parsed = url::Url::parse(url)
-            .map_err(|e| WebhookError::ValidationError(format!("Invalid URL: {}", e)))?;
+            .map_err(|e| WebhookError::ValidationError(format!("Invalid URL: {e}")))?;
 
         // Only allow HTTP and HTTPS
         if !matches!(parsed.scheme(), "http" | "https") {

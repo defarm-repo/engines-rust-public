@@ -16,11 +16,7 @@ fn create_test_item(dfid: &str) -> Item {
         local_id: Some(Uuid::new_v4()),
         legacy_mode: false,
         identifiers: vec![],
-        enhanced_identifiers: vec![EnhancedIdentifier::contextual(
-            "test",
-            "item_id",
-            "test123",
-        )],
+        enhanced_identifiers: vec![EnhancedIdentifier::contextual("test", "item_id", "test123")],
         aliases: vec![],
         fingerprint: None,
         enriched_data: HashMap::new(),
@@ -61,11 +57,14 @@ async fn test_ipfs_adapter_stores_item_and_generates_cid() {
     match &metadata.item_location {
         StorageLocation::IPFS { cid, pinned } => {
             assert!(!cid.is_empty(), "CID should not be empty");
-            assert!(cid.starts_with("Qm") || cid.starts_with("bafy"), "CID should have valid format");
+            assert!(
+                cid.starts_with("Qm") || cid.starts_with("bafy"),
+                "CID should have valid format"
+            );
             assert!(*pinned, "Item should be pinned");
-            println!("✅ Generated CID: {}", cid);
+            println!("✅ Generated CID: {cid}");
             println!("✅ CID Length: {} characters", cid.len());
-            println!("✅ Item pinned on IPFS: {}", pinned);
+            println!("✅ Item pinned on IPFS: {pinned}");
         }
         _ => panic!("Expected IPFS storage location"),
     }
@@ -121,7 +120,7 @@ async fn test_ipfs_adapter_health_check() {
 
     // If IPFS is running, health should be true
     if let Ok(is_healthy) = health {
-        println!("IPFS health status: {}", is_healthy);
+        println!("IPFS health status: {is_healthy}");
     }
 }
 
@@ -171,12 +170,16 @@ async fn test_storage_backend_stores_adapter_results() {
 
     // Create item
     let dfid = "DFID-ADAPTER-TEST-001".to_string();
-    let _identifiers = vec![EnhancedIdentifier::contextual("test", "id", "adapter001")];
+    let _identifiers = [EnhancedIdentifier::contextual("test", "id", "adapter001")];
     let source_entry = Uuid::new_v4();
 
     use defarm_engine::Identifier;
     let _item = items_engine
-        .create_item(dfid.clone(), vec![Identifier::new("test", "adapter001")], source_entry)
+        .create_item(
+            dfid.clone(),
+            vec![Identifier::new("test", "adapter001")],
+            source_entry,
+        )
         .expect("Item creation should succeed");
 
     // Verify item exists in storage
@@ -201,10 +204,9 @@ fn test_cid_format_validation() {
     for cid in valid_cids {
         assert!(
             cid.starts_with("Qm") || cid.starts_with("bafy"),
-            "CID {} should have valid prefix",
-            cid
+            "CID {cid} should have valid prefix"
         );
-        assert!(cid.len() >= 46, "CID {} should have valid length", cid);
+        assert!(cid.len() >= 46, "CID {cid} should have valid length");
     }
 }
 

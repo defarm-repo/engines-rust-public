@@ -100,9 +100,9 @@ async fn test_blockchain_push(
             TestPushResponse {
                 success: true,
                 adapter_type: "IPFS-IPFS".to_string(),
-                storage_location: format!("IPFS CID"),
+                storage_location: "IPFS CID".to_string(),
                 hash: cid.clone(),
-                message: format!("✅ SUCCESS! Item uploaded to REAL Pinata IPFS. CID: {}. Verify at: https://gateway.pinata.cloud/ipfs/{}", cid, cid),
+                message: format!("✅ SUCCESS! Item uploaded to REAL Pinata IPFS. CID: {cid}. Verify at: https://gateway.pinata.cloud/ipfs/{cid}"),
             }
         }
         "stellar-testnet" => {
@@ -124,9 +124,9 @@ async fn test_blockchain_push(
             TestPushResponse {
                 success: true,
                 adapter_type: "Stellar-Testnet-IPFS".to_string(),
-                storage_location: format!("Stellar Testnet + IPFS"),
+                storage_location: "Stellar Testnet + IPFS".to_string(),
                 hash: tx_hash.clone(),
-                message: format!("✅ SUCCESS! Item uploaded to REAL Stellar Testnet + Pinata IPFS. Transaction: {}", tx_hash),
+                message: format!("✅ SUCCESS! Item uploaded to REAL Stellar Testnet + Pinata IPFS. Transaction: {tx_hash}"),
             }
         }
         "stellar-mainnet" => {
@@ -148,9 +148,9 @@ async fn test_blockchain_push(
             TestPushResponse {
                 success: true,
                 adapter_type: "Stellar-Mainnet-IPFS".to_string(),
-                storage_location: format!("Stellar Mainnet + IPFS"),
+                storage_location: "Stellar Mainnet + IPFS".to_string(),
                 hash: tx_hash.clone(),
-                message: format!("✅ SUCCESS! Item uploaded to REAL Stellar Mainnet + Pinata IPFS. Transaction: {}. ⚠️ THIS USED REAL FUNDS!", tx_hash),
+                message: format!("✅ SUCCESS! Item uploaded to REAL Stellar Mainnet + Pinata IPFS. Transaction: {tx_hash}. ⚠️ THIS USED REAL FUNDS!"),
             }
         }
         _ => {

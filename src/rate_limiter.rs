@@ -214,6 +214,12 @@ pub struct RateLimiter {
     limits: Arc<RwLock<HashMap<Uuid, ApiKeyLimits>>>,
 }
 
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RateLimiter {
     pub fn new() -> Self {
         Self {
@@ -228,7 +234,7 @@ impl RateLimiter {
         config: &RateLimitConfig,
     ) -> Result<RateLimitResult, RateLimitError> {
         let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {}", e))
+            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
         })?;
 
         let key_limits = limits
@@ -246,7 +252,7 @@ impl RateLimiter {
     /// Record a successful request
     pub fn record_request(&self, api_key_id: Uuid) -> Result<(), RateLimitError> {
         let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {}", e))
+            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
         })?;
 
         if let Some(key_limits) = limits.get_mut(&api_key_id) {
@@ -263,7 +269,7 @@ impl RateLimiter {
         config: &RateLimitConfig,
     ) -> Result<RateLimitResult, RateLimitError> {
         let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {}", e))
+            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
         })?;
 
         let key_limits = limits
@@ -276,7 +282,7 @@ impl RateLimiter {
     /// Reset rate limits for a specific API key
     pub fn reset_limits(&self, api_key_id: Uuid) -> Result<(), RateLimitError> {
         let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {}", e))
+            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
         })?;
 
         limits.remove(&api_key_id);
@@ -287,7 +293,7 @@ impl RateLimiter {
     /// Clean up old data (should be called periodically)
     pub fn cleanup(&self) -> Result<(), RateLimitError> {
         let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {}", e))
+            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
         })?;
 
         let cutoff = Utc::now() - Duration::days(1);
@@ -296,7 +302,7 @@ impl RateLimiter {
             key_limits
                 .requests
                 .back()
-                .map_or(false, |r| r.timestamp >= cutoff)
+                .is_some_and(|r| r.timestamp >= cutoff)
         });
 
         Ok(())
@@ -320,7 +326,7 @@ mod tests {
         // First 5 requests should be allowed
         for i in 0..5 {
             let result = limiter.check_rate_limit(api_key_id, &config).unwrap();
-            assert!(result.allowed, "Request {} should be allowed", i);
+            assert!(result.allowed, "Request {i} should be allowed");
             limiter.record_request(api_key_id).unwrap();
         }
 
@@ -340,7 +346,7 @@ mod tests {
         // First 3 requests should be allowed
         for i in 0..3 {
             let result = limiter.check_rate_limit(api_key_id, &config).unwrap();
-            assert!(result.allowed, "Request {} should be allowed", i);
+            assert!(result.allowed, "Request {i} should be allowed");
             limiter.record_request(api_key_id).unwrap();
         }
 

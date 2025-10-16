@@ -206,6 +206,12 @@ pub struct ApiKeyEngine {
     // Note: Logging is optional and can be added via wrapper if needed
 }
 
+impl Default for ApiKeyEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ApiKeyEngine {
     const API_KEY_PREFIX: &'static str = "dfm_";
     const KEY_LENGTH: usize = 32;
@@ -247,7 +253,9 @@ impl ApiKeyEngine {
             .expires_in_days
             .map(|days| now + Duration::days(days));
 
-        let api_key = ApiKey {
+        
+
+        ApiKey {
             id: Uuid::new_v4(),
             name: request.name.clone(),
             key_hash,
@@ -271,9 +279,7 @@ impl ApiKeyEngine {
             expires_at,
             notes: request.notes,
             allowed_ips: request.allowed_ips.unwrap_or_default(),
-        };
-
-        api_key
+        }
     }
 
     /// Validate an API key

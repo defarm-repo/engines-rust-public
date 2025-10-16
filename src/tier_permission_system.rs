@@ -202,7 +202,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
         let storage = self.storage.lock().unwrap();
         let user = storage
             .get_user_account(&check.user_id)?
-            .ok_or_else(|| StorageError::NotFound)?;
+            .ok_or(StorageError::NotFound)?;
 
         let tier_config = self.tier_configs.get(&user.tier).ok_or_else(|| {
             StorageError::NotImplemented("Tier configuration not found".to_string())
@@ -347,7 +347,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
         let mut storage = self.storage.lock().unwrap();
         let mut user = storage
             .get_user_account(user_id)?
-            .ok_or_else(|| StorageError::NotFound)?;
+            .ok_or(StorageError::NotFound)?;
 
         let _old_tier = user.tier.clone();
         user.tier = new_tier.clone();
