@@ -31,12 +31,8 @@ fn create_test_item(dfid: &str) -> Item {
 }
 
 #[tokio::test]
-#[ignore] // Requires Stellar testnet and IPFS connection + funded account
 async fn test_stellar_testnet_adapter_stores_item() {
-    // This test requires:
-    // - STELLAR_TESTNET_SECRET environment variable
-    // - IPFS connection (local or Pinata)
-    // - Funded Stellar testnet account
+    // Uses environment variables for credentials
 
     let adapter = match StellarTestnetIpfsAdapter::new() {
         Ok(a) => a,
@@ -86,7 +82,6 @@ async fn test_stellar_testnet_adapter_stores_item() {
 }
 
 #[tokio::test]
-#[ignore] // Requires Stellar testnet connection
 async fn test_stellar_adapter_health_check() {
     let adapter = match StellarTestnetIpfsAdapter::new() {
         Ok(a) => a,
@@ -110,7 +105,6 @@ async fn test_stellar_adapter_health_check() {
 }
 
 #[tokio::test]
-#[ignore] // Requires Stellar testnet connection
 async fn test_stellar_adapter_sync_status() {
     let adapter = match StellarTestnetIpfsAdapter::new() {
         Ok(a) => a,
@@ -178,7 +172,6 @@ fn test_stellar_contract_location_format() {
 }
 
 #[tokio::test]
-#[ignore] // Requires full setup
 async fn test_stellar_ipcm_contract_parameters() {
     // This test verifies the structure of data sent to IPCM contract
     // In a real scenario, this would:
@@ -232,7 +225,6 @@ fn test_adapter_type_differences() {
 }
 
 #[tokio::test]
-#[ignore] // Requires configuration
 async fn test_stellar_adapter_error_handling() {
     // Test graceful failure when IPFS is unavailable
     // This test would need a way to force IPFS failure

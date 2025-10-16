@@ -33,9 +33,8 @@ fn create_test_item(dfid: &str) -> Item {
 }
 
 #[tokio::test]
-#[ignore] // Requires IPFS connection
 async fn test_ipfs_adapter_stores_item_and_generates_cid() {
-    // This test requires a running IPFS node or Pinata credentials
+    // Uses Pinata credentials from environment variables
     let adapter = match IpfsIpfsAdapter::new() {
         Ok(a) => a,
         Err(_) => {
@@ -74,7 +73,6 @@ async fn test_ipfs_adapter_stores_item_and_generates_cid() {
 }
 
 #[tokio::test]
-#[ignore] // Requires IPFS connection
 async fn test_ipfs_adapter_can_retrieve_stored_item() {
     let adapter = match IpfsIpfsAdapter::new() {
         Ok(a) => a,
@@ -106,7 +104,6 @@ async fn test_ipfs_adapter_can_retrieve_stored_item() {
 }
 
 #[tokio::test]
-#[ignore] // Requires IPFS connection
 async fn test_ipfs_adapter_health_check() {
     let adapter = match IpfsIpfsAdapter::new() {
         Ok(a) => a,
@@ -126,7 +123,6 @@ async fn test_ipfs_adapter_health_check() {
 }
 
 #[tokio::test]
-#[ignore] // Requires IPFS connection
 async fn test_ipfs_adapter_sync_status() {
     let adapter = match IpfsIpfsAdapter::new() {
         Ok(a) => a,
