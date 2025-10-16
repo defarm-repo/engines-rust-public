@@ -243,7 +243,9 @@ impl ApiKeyEngine {
         let (_, key_hash, key_prefix) = self.generate_key();
         let now = Utc::now();
 
-        let expires_at = request.expires_in_days.map(|days| now + Duration::days(days));
+        let expires_at = request
+            .expires_in_days
+            .map(|days| now + Duration::days(days));
 
         let api_key = ApiKey {
             id: Uuid::new_v4(),
@@ -254,11 +256,13 @@ impl ApiKeyEngine {
             organization_type: request.organization_type.clone(),
             organization_id: request.organization_id,
             permissions: request.permissions.unwrap_or_default(),
-            allowed_endpoints: request.allowed_endpoints.unwrap_or_else(|| vec![
-                "receipts".to_string(),
-                "items".to_string(),
-                "events".to_string(),
-            ]),
+            allowed_endpoints: request.allowed_endpoints.unwrap_or_else(|| {
+                vec![
+                    "receipts".to_string(),
+                    "items".to_string(),
+                    "events".to_string(),
+                ]
+            }),
             is_active: true,
             last_used_at: None,
             usage_count: 0,
@@ -273,11 +277,7 @@ impl ApiKeyEngine {
     }
 
     /// Validate an API key
-    pub fn validate_key(
-        &self,
-        key: &str,
-        stored_key: &ApiKey,
-    ) -> Result<(), ApiKeyError> {
+    pub fn validate_key(&self, key: &str, stored_key: &ApiKey) -> Result<(), ApiKeyError> {
         // Validate format
         if !key.starts_with(Self::API_KEY_PREFIX) {
             return Err(ApiKeyError::InvalidFormat);
@@ -286,7 +286,9 @@ impl ApiKeyEngine {
         // Hash and compare
         let key_hash = self.hash_key(key);
         if key_hash != stored_key.key_hash {
-            return Err(ApiKeyError::ValidationFailed("Key hash mismatch".to_string()));
+            return Err(ApiKeyError::ValidationFailed(
+                "Key hash mismatch".to_string(),
+            ));
         }
 
         // Check if active
@@ -319,8 +321,8 @@ impl ApiKeyEngine {
 
     /// Check if endpoint is allowed for this API key
     pub fn check_endpoint_allowed(&self, api_key: &ApiKey, endpoint: &str) -> bool {
-        api_key.allowed_endpoints.is_empty() ||
-        api_key.allowed_endpoints.contains(&endpoint.to_string())
+        api_key.allowed_endpoints.is_empty()
+            || api_key.allowed_endpoints.contains(&endpoint.to_string())
     }
 }
 

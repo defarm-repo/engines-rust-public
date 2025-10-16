@@ -1,17 +1,20 @@
 pub mod base;
 pub mod config;
 pub mod ipfs_ipfs_adapter;
-pub mod stellar_testnet_ipfs_adapter;
 pub mod stellar_mainnet_ipfs_adapter;
+pub mod stellar_testnet_ipfs_adapter;
 
-pub use base::*;
-pub use config::*;
+pub use base::{AdapterResult, StorageAdapter, SyncStatus};
+pub use config::{
+    AdapterConfig, ClientAdapterConfig, EthereumConfig, EthereumNetwork, IPFSConfig, StellarConfig,
+    StellarNetwork,
+};
 pub use ipfs_ipfs_adapter::*;
-pub use stellar_testnet_ipfs_adapter::*;
 pub use stellar_mainnet_ipfs_adapter::*;
+pub use stellar_testnet_ipfs_adapter::*;
 
-use crate::types::*;
 use crate::storage::StorageError;
+use crate::types::*;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -49,19 +52,38 @@ impl StorageAdapter for AdapterInstance {
         }
     }
 
-    async fn store_new_item(&self, item: &Item, is_new_dfid: bool, creator: &str) -> Result<AdapterResult<String>, StorageError> {
+    async fn store_new_item(
+        &self,
+        item: &Item,
+        is_new_dfid: bool,
+        creator: &str,
+    ) -> Result<AdapterResult<String>, StorageError> {
         match self {
-            AdapterInstance::IpfsIpfs(adapter) => adapter.store_new_item(item, is_new_dfid, creator).await,
-            AdapterInstance::StellarTestnetIpfs(adapter) => adapter.store_new_item(item, is_new_dfid, creator).await,
-            AdapterInstance::StellarMainnetIpfs(adapter) => adapter.store_new_item(item, is_new_dfid, creator).await,
+            AdapterInstance::IpfsIpfs(adapter) => {
+                adapter.store_new_item(item, is_new_dfid, creator).await
+            }
+            AdapterInstance::StellarTestnetIpfs(adapter) => {
+                adapter.store_new_item(item, is_new_dfid, creator).await
+            }
+            AdapterInstance::StellarMainnetIpfs(adapter) => {
+                adapter.store_new_item(item, is_new_dfid, creator).await
+            }
         }
     }
 
-    async fn store_event(&self, event: &Event, item_id: &str) -> Result<AdapterResult<String>, StorageError> {
+    async fn store_event(
+        &self,
+        event: &Event,
+        item_id: &str,
+    ) -> Result<AdapterResult<String>, StorageError> {
         match self {
             AdapterInstance::IpfsIpfs(adapter) => adapter.store_event(event, item_id).await,
-            AdapterInstance::StellarTestnetIpfs(adapter) => adapter.store_event(event, item_id).await,
-            AdapterInstance::StellarMainnetIpfs(adapter) => adapter.store_event(event, item_id).await,
+            AdapterInstance::StellarTestnetIpfs(adapter) => {
+                adapter.store_event(event, item_id).await
+            }
+            AdapterInstance::StellarMainnetIpfs(adapter) => {
+                adapter.store_event(event, item_id).await
+            }
         }
     }
 
@@ -73,7 +95,10 @@ impl StorageAdapter for AdapterInstance {
         }
     }
 
-    async fn get_event(&self, event_id: &str) -> Result<Option<AdapterResult<Event>>, StorageError> {
+    async fn get_event(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<AdapterResult<Event>>, StorageError> {
         match self {
             AdapterInstance::IpfsIpfs(adapter) => adapter.get_event(event_id).await,
             AdapterInstance::StellarTestnetIpfs(adapter) => adapter.get_event(event_id).await,
@@ -81,7 +106,10 @@ impl StorageAdapter for AdapterInstance {
         }
     }
 
-    async fn get_item_events(&self, item_id: &str) -> Result<Vec<AdapterResult<Event>>, StorageError> {
+    async fn get_item_events(
+        &self,
+        item_id: &str,
+    ) -> Result<Vec<AdapterResult<Event>>, StorageError> {
         match self {
             AdapterInstance::IpfsIpfs(adapter) => adapter.get_item_events(item_id).await,
             AdapterInstance::StellarTestnetIpfs(adapter) => adapter.get_item_events(item_id).await,

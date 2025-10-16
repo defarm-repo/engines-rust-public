@@ -204,7 +204,10 @@ pub async fn api_key_auth_middleware<S: ApiKeyStorage + 'static>(
                     logger.warn(
                         "api_key_middleware",
                         "ip_not_allowed",
-                        format!("Request from unauthorized IP {} for API key {}", client_ip, stored_key.id),
+                        format!(
+                            "Request from unauthorized IP {} for API key {}",
+                            client_ip, stored_key.id
+                        ),
                     );
                 }
                 error_response(
@@ -222,7 +225,10 @@ pub async fn api_key_auth_middleware<S: ApiKeyStorage + 'static>(
             logger.warn(
                 "api_key_middleware",
                 "endpoint_not_allowed",
-                format!("Endpoint {} not allowed for API key {}", endpoint, stored_key.id),
+                format!(
+                    "Endpoint {} not allowed for API key {}",
+                    endpoint, stored_key.id
+                ),
             );
         }
         return Err(error_response(
@@ -297,7 +303,10 @@ pub async fn api_key_auth_middleware<S: ApiKeyStorage + 'static>(
         logger.info(
             "api_key_middleware",
             "request_authenticated",
-            format!("Request authenticated for API key {} on endpoint {}", stored_key.id, endpoint),
+            format!(
+                "Request authenticated for API key {} on endpoint {}",
+                stored_key.id, endpoint
+            ),
         );
     }
 
@@ -305,19 +314,23 @@ pub async fn api_key_auth_middleware<S: ApiKeyStorage + 'static>(
 }
 
 /// Middleware to require specific permissions
-pub fn require_permission(permission: &'static str) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Response>> + Send>> + Clone {
+pub fn require_permission(
+    permission: &'static str,
+) -> impl Fn(
+    Request,
+    Next,
+)
+    -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Response>> + Send>>
+       + Clone {
     move |request: Request, next: Next| {
         Box::pin(async move {
-            let context = request
-                .extensions()
-                .get::<ApiKeyContext>()
-                .ok_or_else(|| {
-                    error_response(
-                        StatusCode::UNAUTHORIZED,
-                        "not_authenticated",
-                        "Authentication required",
-                    )
-                })?;
+            let context = request.extensions().get::<ApiKeyContext>().ok_or_else(|| {
+                error_response(
+                    StatusCode::UNAUTHORIZED,
+                    "not_authenticated",
+                    "Authentication required",
+                )
+            })?;
 
             if !context.permissions.has_permission(permission) {
                 return Err(error_response(
@@ -335,19 +348,21 @@ pub fn require_permission(permission: &'static str) -> impl Fn(Request, Next) ->
 /// Middleware to require specific organization type
 pub fn require_organization_type(
     allowed_types: &'static [OrganizationType],
-) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Response>> + Send>> + Clone {
+) -> impl Fn(
+    Request,
+    Next,
+)
+    -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Response>> + Send>>
+       + Clone {
     move |request: Request, next: Next| {
         Box::pin(async move {
-            let context = request
-                .extensions()
-                .get::<ApiKeyContext>()
-                .ok_or_else(|| {
-                    error_response(
-                        StatusCode::UNAUTHORIZED,
-                        "not_authenticated",
-                        "Authentication required",
-                    )
-                })?;
+            let context = request.extensions().get::<ApiKeyContext>().ok_or_else(|| {
+                error_response(
+                    StatusCode::UNAUTHORIZED,
+                    "not_authenticated",
+                    "Authentication required",
+                )
+            })?;
 
             if !allowed_types.contains(&context.organization_type) {
                 let allowed_str: Vec<String> =
@@ -372,18 +387,7 @@ mod tests {
     use super::*;
     use crate::api_key_engine::{CreateApiKeyRequest, OrganizationType};
     use crate::api_key_storage::InMemoryApiKeyStorage;
-    use axum::{
-        body::Body,
-        http::{Request as AxumRequest, StatusCode},
-        routing::get,
-        Router,
-    };
-
-    async fn create_test_setup() -> (
-        ApiKeyMiddlewareState<InMemoryApiKeyStorage>,
-        String,
-        Uuid,
-    ) {
+    async fn create_test_setup() -> (ApiKeyMiddlewareState<InMemoryApiKeyStorage>, String, Uuid) {
         let logging = Arc::new(Mutex::new(LoggingEngine::new()));
         let engine = Arc::new(ApiKeyEngine::new());
         let storage = Arc::new(InMemoryApiKeyStorage::new());

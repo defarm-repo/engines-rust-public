@@ -1,22 +1,25 @@
+use crate::auth_middleware::AuthenticatedUser;
 use axum::{
-    extract::{Path, Query, State, Extension},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::Json,
     routing::{delete, get, patch, post, put},
     Router,
 };
-use crate::auth_middleware::AuthenticatedUser;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use uuid::Uuid;
 
-use crate::{CircuitsEngine, InMemoryStorage, MemberRole, Circuit, CircuitOperation};
-use crate::types::{Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitItem, CircuitPermissions, Permission, CustomRole, PublicSettings, CircuitAdapterConfig};
 use crate::api::auth::Claims;
-use crate::identifier_types::{EnhancedIdentifier, CircuitAliasConfig};
+use crate::identifier_types::{CircuitAliasConfig, EnhancedIdentifier};
 use crate::storage::StorageBackend;
+use crate::types::{
+    Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitItem, CircuitPermissions,
+    CustomRole, Permission, PublicSettings,
+};
+use crate::{Circuit, CircuitOperation, CircuitsEngine, InMemoryStorage, ItemsEngine, MemberRole};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitAdapterConfigRequest {
@@ -405,7 +408,7 @@ impl CircuitState {
 }
 
 use super::shared_state::AppState;
-use crate::types::{WebhookConfig, PostActionTrigger, HttpMethod, WebhookAuthType};
+use crate::types::{HttpMethod, PostActionTrigger, WebhookAuthType, WebhookConfig};
 
 // ============================================================================
 // WEBHOOK CONFIGURATION TYPES
@@ -458,8 +461,14 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/deactivate", put(deactivate_circuit))
         .route("/:id/requests", post(request_to_join_circuit))
         .route("/:id/requests/pending", get(get_pending_join_requests))
-        .route("/:id/requests/:requester_id/approve", post(approve_join_request))
-        .route("/:id/requests/:requester_id/reject", post(reject_join_request))
+        .route(
+            "/:id/requests/:requester_id/approve",
+            post(approve_join_request),
+        )
+        .route(
+            "/:id/requests/:requester_id/reject",
+            post(reject_join_request),
+        )
         .route("/:id/roles", post(create_custom_role))
         .route("/:id/roles", get(get_custom_roles))
         .route("/:id/roles/:role_name", put(update_custom_role))
@@ -472,8 +481,14 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/items", get(get_circuit_items))
         .route("/:id/push/batch", post(batch_push_items))
         .route("/:id/pending-items", get(get_circuit_pending_items))
-        .route("/:id/pending-items/:pending_id/approve", post(approve_pending_item))
-        .route("/:id/pending-items/:pending_id/reject", post(reject_pending_item))
+        .route(
+            "/:id/pending-items/:pending_id/approve",
+            post(approve_pending_item),
+        )
+        .route(
+            "/:id/pending-items/:pending_id/reject",
+            post(reject_pending_item),
+        )
         .route("/:id/adapter", get(get_circuit_adapter_config))
         .route("/:id/adapter", put(set_circuit_adapter_config))
         // Webhook configuration routes
@@ -481,9 +496,18 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/post-actions", put(update_post_action_settings))
         .route("/:id/post-actions/webhooks", post(create_webhook))
         .route("/:id/post-actions/webhooks/:webhook_id", get(get_webhook))
-        .route("/:id/post-actions/webhooks/:webhook_id", put(update_webhook))
-        .route("/:id/post-actions/webhooks/:webhook_id", delete(delete_webhook))
-        .route("/:id/post-actions/webhooks/:webhook_id/test", post(test_webhook))
+        .route(
+            "/:id/post-actions/webhooks/:webhook_id",
+            put(update_webhook),
+        )
+        .route(
+            "/:id/post-actions/webhooks/:webhook_id",
+            delete(delete_webhook),
+        )
+        .route(
+            "/:id/post-actions/webhooks/:webhook_id/test",
+            post(test_webhook),
+        )
         .route("/:id/post-actions/deliveries", get(get_webhook_deliveries))
         .route("/list", get(list_circuits))
         .route("/member/:member_id", get(get_circuits_for_member))
@@ -498,6 +522,28 @@ fn parse_member_role(role_str: &str) -> Result<MemberRole, String> {
         "viewer" => Ok(MemberRole::Viewer),
         _ => Err(format!("Invalid member role: {}", role_str)),
     }
+}
+
+fn lock_circuits_engine<'a>(
+    state: &'a Arc<AppState>,
+) -> Result<MutexGuard<'a, CircuitsEngine<InMemoryStorage>>, (StatusCode, Json<Value>)> {
+    state.circuits_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Circuits engine mutex poisoned"})),
+        )
+    })
+}
+
+fn lock_items_engine<'a>(
+    state: &'a Arc<AppState>,
+) -> Result<MutexGuard<'a, ItemsEngine<Arc<Mutex<InMemoryStorage>>>>, (StatusCode, Json<Value>)> {
+    state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })
 }
 
 fn parse_permission(permission_str: &str) -> Result<Permission, String> {
@@ -525,13 +571,15 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
         owner_id: circuit.owner_id,
         created_timestamp: circuit.created_timestamp.timestamp(),
         last_modified: circuit.last_modified.timestamp(),
-        members: circuit.members
+        members: circuit
+            .members
             .into_iter()
             .map(|member| CircuitMemberResponse {
                 member_id: member.member_id,
                 role: format!("{:?}", member.role),
                 custom_role_name: member.custom_role_name,
-                permissions: member.permissions
+                permissions: member
+                    .permissions
                     .into_iter()
                     .map(|p| format!("{:?}", p))
                     .collect(),
@@ -544,7 +592,8 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
             allow_public_visibility: circuit.permissions.allow_public_visibility,
         },
         status: format!("{:?}", circuit.status),
-        pending_requests: circuit.pending_requests
+        pending_requests: circuit
+            .pending_requests
             .into_iter()
             .filter(|req| matches!(req.status, crate::types::JoinRequestStatus::Pending))
             .map(|req| JoinRequestResponse {
@@ -554,7 +603,8 @@ fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
                 status: format!("{:?}", req.status),
             })
             .collect(),
-        custom_roles: circuit.custom_roles
+        custom_roles: circuit
+            .custom_roles
             .into_iter()
             .map(|role| {
                 let member_count = role_counts.get(&role.role_name).copied().unwrap_or(0);
@@ -569,7 +619,8 @@ fn custom_role_to_response(role: CustomRole, member_count: usize) -> CustomRoleR
     CustomRoleResponse {
         role_id: role.role_id.to_string(),
         role_name: role.role_name,
-        permissions: role.permissions
+        permissions: role
+            .permissions
             .into_iter()
             .map(|p| format!("{:?}", p))
             .collect(),
@@ -634,29 +685,56 @@ async fn create_circuit(
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     // Create circuit in in-memory storage (must not hold lock across await)
     let circuit = {
-        let mut engine = state.circuits_engine.lock()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+        let mut engine = lock_circuits_engine(&state)?;
 
         // First create circuit without adapter_config (owner_id from JWT)
-        let circuit = engine.create_circuit(payload.name, payload.description, owner_id.clone(), None, payload.alias_config)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create circuit: {}", e)}))))?;
+        let circuit = engine
+            .create_circuit(
+                payload.name,
+                payload.description,
+                owner_id.clone(),
+                None,
+                payload.alias_config,
+            )
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to create circuit: {}", e)})),
+                )
+            })?;
 
         // Set adapter config if provided
         if let Some(adapter_req) = payload.adapter_config {
-            engine.set_circuit_adapter_config(
-                &circuit.circuit_id,
-                &owner_id,
-                adapter_req.adapter_type,
-                adapter_req.auto_migrate_existing,
-                adapter_req.requires_approval,
-                adapter_req.sponsor_adapter_access,
-            ).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to set adapter config: {}", e)}))))?;
+            engine
+                .set_circuit_adapter_config(
+                    &circuit.circuit_id,
+                    &owner_id,
+                    adapter_req.adapter_type,
+                    adapter_req.auto_migrate_existing,
+                    adapter_req.requires_approval,
+                    adapter_req.sponsor_adapter_access,
+                )
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to set adapter config: {}", e)})),
+                    )
+                })?;
         }
 
         // Get updated circuit
-        engine.get_circuit(&circuit.circuit_id)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
-            .ok_or((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuit not found after creation"}))))?
+        engine
+            .get_circuit(&circuit.circuit_id)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+                )
+            })?
+            .ok_or((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Circuit not found after creation"})),
+            ))?
     };
 
     // Write-through cache: Also persist to PostgreSQL if available
@@ -676,16 +754,25 @@ async fn get_circuit(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
 
     match engine.get_circuit(&circuit_id) {
         Ok(Some(circuit)) => Ok(Json(circuit_to_response(circuit))),
-        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"})))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)})))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+        )),
     }
 }
 
@@ -695,33 +782,76 @@ async fn add_member(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<AddMemberRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
     let role = parse_member_role(&payload.role)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     match engine.add_member_to_circuit(&circuit_id, payload.member_id, role, &requester_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to add member: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to add member: {}", e)})),
+        )),
     }
 }
 
 async fn push_item(
-    State(_state): State<Arc<AppState>>,
-    Path((id, _dfid)): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+    Path((id, dfid)): Path<(String, String)>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(_payload): Json<CircuitOperationRequest>,
 ) -> Result<Json<CircuitOperationResponse>, (StatusCode, Json<Value>)> {
-    let _circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    // Cannot hold MutexGuard across await, so we need to clone the engine or use tokio::sync::Mutex
-    // For now, return unimplemented error
-    // TODO: Refactor to use tokio::sync::Mutex or restructure CircuitsEngine to not require &mut self
-    Err((StatusCode::NOT_IMPLEMENTED, Json(json!({"error": "Push item endpoint temporarily disabled - requires async mutex refactoring"}))))
+    let engine_clone = Arc::clone(&state.circuits_engine);
+
+    let operation = {
+        let mut engine = engine_clone.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Circuits engine mutex poisoned"})),
+            )
+        })?;
+
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                engine
+                    .push_item_to_circuit(&dfid, &circuit_id, &requester_id)
+                    .await
+            })
+        })
+        .map_err(|e| {
+            let status_code = match e {
+                crate::circuits_engine::CircuitsError::PermissionDenied(_) => StatusCode::FORBIDDEN,
+                crate::circuits_engine::CircuitsError::AdapterPermissionDenied(_) => {
+                    StatusCode::FORBIDDEN
+                }
+                crate::circuits_engine::CircuitsError::ValidationError(_) => {
+                    StatusCode::BAD_REQUEST
+                }
+                crate::circuits_engine::CircuitsError::CircuitNotFound
+                | crate::circuits_engine::CircuitsError::NotFound => StatusCode::NOT_FOUND,
+                crate::circuits_engine::CircuitsError::ItemNotFound => StatusCode::NOT_FOUND,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status_code, Json(json!({"error": e.to_string()})))
+        })?
+    };
+
+    Ok(Json(operation_to_response(operation)))
 }
 
 async fn pull_item(
@@ -730,21 +860,30 @@ async fn pull_item(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(_payload): Json<CircuitOperationRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
     let (item, operation) = {
-        let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
-        engine.pull_item_from_circuit(&dfid, &circuit_id, &requester_id)
-            .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to pull item: {}", e)}))))?
+        let mut engine = lock_circuits_engine(&state)?;
+        engine
+            .pull_item_from_circuit(&dfid, &circuit_id, &requester_id)
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to pull item: {}", e)})),
+                )
+            })?
     };
 
     // Fetch all events for this item
     let events = {
-        let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
-        engine.get_events_for_item(&dfid)
+        let engine = lock_circuits_engine(&state)?;
+        engine
+            .get_events_for_item(&dfid)
             .unwrap_or_else(|_| Vec::new())
     };
 
@@ -771,22 +910,37 @@ async fn push_local_item(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<PushLocalItemRequest>,
 ) -> Result<Json<PushLocalItemResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let local_id = Uuid::parse_str(&payload.local_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid local_id format"}))))?;
+    let local_id = Uuid::parse_str(&payload.local_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid local_id format"})),
+        )
+    })?;
 
     // Convert enhanced identifier requests to EnhancedIdentifier
-    let identifiers: Vec<EnhancedIdentifier> = payload.identifiers
+    let identifiers: Vec<EnhancedIdentifier> = payload
+        .identifiers
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|req| {
-            match req.id_type.as_str() {
-                "Canonical" => Some(EnhancedIdentifier::canonical(&req.namespace, &req.key, &req.value)),
-                "Contextual" => Some(EnhancedIdentifier::contextual(&req.namespace, &req.key, &req.value)),
-                _ => None,
-            }
+        .filter_map(|req| match req.id_type.as_str() {
+            "Canonical" => Some(EnhancedIdentifier::canonical(
+                &req.namespace,
+                &req.key,
+                &req.value,
+            )),
+            "Contextual" => Some(EnhancedIdentifier::contextual(
+                &req.namespace,
+                &req.key,
+                &req.value,
+            )),
+            _ => None,
         })
         .collect();
 
@@ -797,26 +951,34 @@ async fn push_local_item(
     // We need to use tokio::task::spawn_blocking or refactor to not hold mutex across await
     // For now, let's try to make the call without holding the lock by using interior mutability
     let result = {
-        let mut engine = engine_clone.lock()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+        let mut engine = engine_clone.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Circuits engine mutex poisoned"})),
+            )
+        })?;
 
         // Make the async call - this will fail with std::sync::Mutex
         // We need to use tokio::task::block_in_place to allow this
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
-                engine.push_local_item_to_circuit(
-                    &local_id,
-                    identifiers,
-                    payload.enriched_data,
-                    &circuit_id,
-                    &requester_id,  // Extracted from JWT token automatically
-                ).await
+                engine
+                    .push_local_item_to_circuit(
+                        &local_id,
+                        identifiers,
+                        payload.enriched_data,
+                        &circuit_id,
+                        &requester_id, // Extracted from JWT token automatically
+                    )
+                    .await
             })
         })
         .map_err(|e| {
             let status_code = match e {
                 crate::circuits_engine::CircuitsError::PermissionDenied(_) => StatusCode::FORBIDDEN,
-                crate::circuits_engine::CircuitsError::ValidationError(_) => StatusCode::BAD_REQUEST,
+                crate::circuits_engine::CircuitsError::ValidationError(_) => {
+                    StatusCode::BAD_REQUEST
+                }
                 crate::circuits_engine::CircuitsError::CircuitNotFound => StatusCode::NOT_FOUND,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
@@ -828,7 +990,10 @@ async fn push_local_item(
     let pg_lock = state.postgres_persistence.read().await;
     if let Some(pg) = &*pg_lock {
         // Persist LID-DFID mapping
-        if let Err(e) = pg.persist_lid_dfid_mapping(&result.local_id, &result.dfid).await {
+        if let Err(e) = pg
+            .persist_lid_dfid_mapping(&result.local_id, &result.dfid)
+            .await
+        {
             tracing::warn!("Failed to persist LID-DFID mapping to PostgreSQL: {}", e);
         }
 
@@ -851,8 +1016,11 @@ async fn push_local_item(
                 if let Err(e) = pg.persist_storage_record(&result.dfid, record).await {
                     tracing::warn!("Failed to persist storage record to PostgreSQL: {}", e);
                 } else {
-                    tracing::debug!("✅ Persisted storage record for {} to PostgreSQL with {} metadata entries",
-                        result.dfid, record.metadata.len());
+                    tracing::debug!(
+                        "✅ Persisted storage record for {} to PostgreSQL with {} metadata entries",
+                        result.dfid,
+                        record.metadata.len()
+                    );
                 }
             }
         }
@@ -883,21 +1051,25 @@ async fn get_circuit_operations(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<CircuitOperationResponse>>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
 
     match engine.get_circuit_operations(&circuit_id) {
         Ok(operations) => {
-            let response: Vec<CircuitOperationResponse> = operations
-                .into_iter()
-                .map(operation_to_response)
-                .collect();
+            let response: Vec<CircuitOperationResponse> =
+                operations.into_iter().map(operation_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get operations: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get operations: {}", e)})),
+        )),
     }
 }
 
@@ -905,21 +1077,25 @@ async fn get_pending_operations(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<CircuitOperationResponse>>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
 
     match engine.get_pending_operations(&circuit_id) {
         Ok(operations) => {
-            let response: Vec<CircuitOperationResponse> = operations
-                .into_iter()
-                .map(operation_to_response)
-                .collect();
+            let response: Vec<CircuitOperationResponse> =
+                operations.into_iter().map(operation_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get pending operations: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get pending operations: {}", e)})),
+        )),
     }
 }
 
@@ -928,15 +1104,21 @@ async fn approve_operation(
     Path(operation_id): Path<String>,
     Json(payload): Json<ApproveOperationRequest>,
 ) -> Result<Json<CircuitOperationResponse>, (StatusCode, Json<Value>)> {
-    let operation_uuid = Uuid::parse_str(&operation_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid operation ID format"}))))?;
+    let operation_uuid = Uuid::parse_str(&operation_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid operation ID format"})),
+        )
+    })?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     match engine.approve_operation(&operation_uuid, &payload.approver_id) {
         Ok(operation) => Ok(Json(operation_to_response(operation))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to approve operation: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to approve operation: {}", e)})),
+        )),
     }
 }
 
@@ -946,11 +1128,14 @@ async fn deactivate_circuit(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(_payload): Json<CircuitOperationRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     match engine.deactivate_circuit(&circuit_id, &requester_id) {
         Ok(circuit) => {
@@ -966,16 +1151,25 @@ async fn deactivate_circuit(
                 let pg_lock = pg.read().await;
                 if let Some(pg_instance) = &*pg_lock {
                     if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
-                        tracing::warn!("Failed to persist deactivated circuit to PostgreSQL: {}", e);
+                        tracing::warn!(
+                            "Failed to persist deactivated circuit to PostgreSQL: {}",
+                            e
+                        );
                     } else {
-                        tracing::info!("Circuit {} deactivation persisted to PostgreSQL", circuit_clone.circuit_id);
+                        tracing::info!(
+                            "Circuit {} deactivation persisted to PostgreSQL",
+                            circuit_clone.circuit_id
+                        );
                     }
                 }
             });
 
             Ok(Json(circuit_to_response(circuit)))
-        },
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to deactivate circuit: {}", e)})))),
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to deactivate circuit: {}", e)})),
+        )),
     }
 }
 
@@ -983,47 +1177,54 @@ async fn list_circuits(
     State(state): State<Arc<AppState>>,
     Query(params): Query<CircuitListQuery>,
 ) -> Result<Json<Vec<CircuitResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
 
     match engine.list_circuits() {
         Ok(mut circuits) => {
             // Apply permission-based filtering
             if let Some(user_id) = &params.user_id {
-                circuits = circuits.into_iter().filter(|circuit| {
-                    // Include circuits where user is a member
-                    let is_member = circuit.is_member(user_id);
+                circuits = circuits
+                    .into_iter()
+                    .filter(|circuit| {
+                        // Include circuits where user is a member
+                        let is_member = circuit.is_member(user_id);
 
-                    // Include public circuits if requested
-                    let is_public = params.include_public.unwrap_or(true) &&
-                                   circuit.permissions.allow_public_visibility;
+                        // Include public circuits if requested
+                        let is_public = params.include_public.unwrap_or(true)
+                            && circuit.permissions.allow_public_visibility;
 
-                    is_member || is_public
-                }).collect();
+                        is_member || is_public
+                    })
+                    .collect();
             } else if !params.include_public.unwrap_or(false) {
                 // If no user_id provided and not requesting public, return empty list for security
                 circuits = Vec::new();
             } else {
                 // Only show public circuits
-                circuits = circuits.into_iter().filter(|circuit| {
-                    circuit.permissions.allow_public_visibility
-                }).collect();
+                circuits = circuits
+                    .into_iter()
+                    .filter(|circuit| circuit.permissions.allow_public_visibility)
+                    .collect();
             }
 
             // Apply status filter
             if let Some(status_str) = &params.status {
-                circuits = circuits.into_iter().filter(|circuit| {
-                    format!("{:?}", circuit.status).to_lowercase() == status_str.to_lowercase()
-                }).collect();
+                circuits = circuits
+                    .into_iter()
+                    .filter(|circuit| {
+                        format!("{:?}", circuit.status).to_lowercase() == status_str.to_lowercase()
+                    })
+                    .collect();
             }
 
-            let response: Vec<CircuitResponse> = circuits
-                .into_iter()
-                .map(circuit_to_response)
-                .collect();
+            let response: Vec<CircuitResponse> =
+                circuits.into_iter().map(circuit_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to list circuits: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to list circuits: {}", e)})),
+        )),
     }
 }
 
@@ -1031,18 +1232,18 @@ async fn get_circuits_for_member(
     State(state): State<Arc<AppState>>,
     Path(member_id): Path<String>,
 ) -> Result<Json<Vec<CircuitResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
 
     match engine.get_circuits_for_member(&member_id) {
         Ok(circuits) => {
-            let response: Vec<CircuitResponse> = circuits
-                .into_iter()
-                .map(circuit_to_response)
-                .collect();
+            let response: Vec<CircuitResponse> =
+                circuits.into_iter().map(circuit_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuits for member: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get circuits for member: {}", e)})),
+        )),
     }
 }
 
@@ -1052,11 +1253,14 @@ async fn request_to_join_circuit(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<JoinCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     match engine.request_to_join_circuit(&circuit_id, &requester_id, payload.message.clone()) {
         Ok(circuit) => {
@@ -1074,35 +1278,47 @@ async fn request_to_join_circuit(
                     &circuit_name,
                     message_ref,
                 ) {
-                    let _ = state.notification_tx.send(crate::api::notifications::NotificationMessage {
-                        msg_type: "notification".to_string(),
-                        notification: notification.clone(),
-                    });
+                    let _ = state.notification_tx.send(
+                        crate::api::notifications::NotificationMessage {
+                            msg_type: "notification".to_string(),
+                            notification: notification.clone(),
+                        },
+                    );
                 }
 
                 // Notify admins with ManageMembers permission
                 for member in &circuit.members {
-                    if member.member_id != circuit.owner_id &&
-                       member.permissions.contains(&crate::types::Permission::ManageMembers) {
-                        if let Ok(notification) = notification_engine.create_join_request_notification(
-                            &member.member_id,
-                            &requester_id_clone,
-                            &circuit_id.to_string(),
-                            &circuit_name,
-                            message_ref,
-                        ) {
-                            let _ = state.notification_tx.send(crate::api::notifications::NotificationMessage {
-                                msg_type: "notification".to_string(),
-                                notification: notification.clone(),
-                            });
+                    if member.member_id != circuit.owner_id
+                        && member
+                            .permissions
+                            .contains(&crate::types::Permission::ManageMembers)
+                    {
+                        if let Ok(notification) = notification_engine
+                            .create_join_request_notification(
+                                &member.member_id,
+                                &requester_id_clone,
+                                &circuit_id.to_string(),
+                                &circuit_name,
+                                message_ref,
+                            )
+                        {
+                            let _ = state.notification_tx.send(
+                                crate::api::notifications::NotificationMessage {
+                                    msg_type: "notification".to_string(),
+                                    notification: notification.clone(),
+                                },
+                            );
                         }
                     }
                 }
             }
 
             Ok(Json(circuit_to_response(circuit)))
-        },
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to submit join request: {}", e)})))),
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to submit join request: {}", e)})),
+        )),
     }
 }
 
@@ -1110,11 +1326,14 @@ async fn get_pending_join_requests(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<JoinRequestResponse>>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
 
     match engine.get_pending_join_requests(&circuit_id) {
         Ok(requests) => {
@@ -1129,7 +1348,10 @@ async fn get_pending_join_requests(
                 .collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get pending requests: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get pending requests: {}", e)})),
+        )),
     }
 }
 
@@ -1138,14 +1360,17 @@ async fn approve_join_request(
     Path((id, requester_id)): Path<(String, String)>,
     Json(payload): Json<ApproveJoinRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
     let role = parse_member_role(&payload.role)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     match engine.approve_join_request(&circuit_id, &requester_id, &payload.admin_id, role) {
         Ok(circuit) => {
@@ -1161,9 +1386,15 @@ async fn approve_join_request(
                 let pg_lock = pg.read().await;
                 if let Some(pg_instance) = &*pg_lock {
                     if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
-                        tracing::warn!("Failed to persist join request approval to PostgreSQL: {}", e);
+                        tracing::warn!(
+                            "Failed to persist join request approval to PostgreSQL: {}",
+                            e
+                        );
                     } else {
-                        tracing::info!("Circuit {} join approval persisted to PostgreSQL", circuit_clone.circuit_id);
+                        tracing::info!(
+                            "Circuit {} join approval persisted to PostgreSQL",
+                            circuit_clone.circuit_id
+                        );
                     }
                 }
             });
@@ -1178,15 +1409,20 @@ async fn approve_join_request(
                     &payload.role,
                 ) {
                     // Broadcast via WebSocket
-                    let _ = state.notification_tx.send(crate::api::notifications::NotificationMessage {
-                        msg_type: "notification".to_string(),
-                        notification: notification.clone(),
-                    });
+                    let _ = state.notification_tx.send(
+                        crate::api::notifications::NotificationMessage {
+                            msg_type: "notification".to_string(),
+                            notification: notification.clone(),
+                        },
+                    );
                 }
             }
             Ok(Json(circuit_to_response(circuit)))
-        },
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to approve join request: {}", e)})))),
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to approve join request: {}", e)})),
+        )),
     }
 }
 
@@ -1195,11 +1431,14 @@ async fn reject_join_request(
     Path((id, requester_id)): Path<(String, String)>,
     Json(payload): Json<RejectJoinRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     match engine.reject_join_request(&circuit_id, &requester_id, &payload.admin_id) {
         Ok(circuit) => {
@@ -1215,9 +1454,15 @@ async fn reject_join_request(
                 let pg_lock = pg.read().await;
                 if let Some(pg_instance) = &*pg_lock {
                     if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
-                        tracing::warn!("Failed to persist join request rejection to PostgreSQL: {}", e);
+                        tracing::warn!(
+                            "Failed to persist join request rejection to PostgreSQL: {}",
+                            e
+                        );
                     } else {
-                        tracing::info!("Circuit {} join rejection persisted to PostgreSQL", circuit_clone.circuit_id);
+                        tracing::info!(
+                            "Circuit {} join rejection persisted to PostgreSQL",
+                            circuit_clone.circuit_id
+                        );
                     }
                 }
             });
@@ -1231,15 +1476,20 @@ async fn reject_join_request(
                     &payload.admin_id,
                 ) {
                     // Broadcast via WebSocket
-                    let _ = state.notification_tx.send(crate::api::notifications::NotificationMessage {
-                        msg_type: "notification".to_string(),
-                        notification: notification.clone(),
-                    });
+                    let _ = state.notification_tx.send(
+                        crate::api::notifications::NotificationMessage {
+                            msg_type: "notification".to_string(),
+                            notification: notification.clone(),
+                        },
+                    );
                 }
             }
             Ok(Json(circuit_to_response(circuit)))
-        },
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to reject join request: {}", e)})))),
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to reject join request: {}", e)})),
+        )),
     }
 }
 
@@ -1249,29 +1499,55 @@ async fn update_circuit(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<UpdateCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     // Get current circuit to preserve existing values
-    let current_circuit = engine.get_circuit(&circuit_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+    let current_circuit = engine
+        .get_circuit(&circuit_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Circuit not found"})),
+            )
+        })?;
 
     // Convert permissions if provided, preserving existing values for unspecified fields
     let permissions = if let Some(update_perms) = payload.permissions {
         Some(CircuitPermissions {
-            require_approval_for_push: update_perms.require_approval_for_push.unwrap_or(current_circuit.permissions.require_approval_for_push),
-            require_approval_for_pull: update_perms.require_approval_for_pull.unwrap_or(current_circuit.permissions.require_approval_for_pull),
-            allow_public_visibility: update_perms.allow_public_visibility.unwrap_or(current_circuit.permissions.allow_public_visibility),
+            require_approval_for_push: update_perms
+                .require_approval_for_push
+                .unwrap_or(current_circuit.permissions.require_approval_for_push),
+            require_approval_for_pull: update_perms
+                .require_approval_for_pull
+                .unwrap_or(current_circuit.permissions.require_approval_for_pull),
+            allow_public_visibility: update_perms
+                .allow_public_visibility
+                .unwrap_or(current_circuit.permissions.allow_public_visibility),
         })
     } else {
         None
     };
 
-    match engine.update_circuit(&circuit_id, payload.name, payload.description, permissions, &requester_id) {
+    match engine.update_circuit(
+        &circuit_id,
+        payload.name,
+        payload.description,
+        permissions,
+        &requester_id,
+    ) {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -1287,14 +1563,20 @@ async fn update_circuit(
                     if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
                         tracing::warn!("Failed to persist circuit update to PostgreSQL: {}", e);
                     } else {
-                        tracing::info!("Circuit {} update persisted to PostgreSQL", circuit_clone.circuit_id);
+                        tracing::info!(
+                            "Circuit {} update persisted to PostgreSQL",
+                            circuit_clone.circuit_id
+                        );
                     }
                 }
             });
 
             Ok(Json(circuit_to_response(circuit)))
-        },
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to update circuit: {}", e)})))),
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to update circuit: {}", e)})),
+        )),
     }
 }
 
@@ -1304,32 +1586,60 @@ async fn create_custom_role(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<CreateCustomRoleRequest>,
 ) -> Result<Json<CustomRoleResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
     // Parse permissions
-    let permissions: Result<Vec<Permission>, String> = payload.permissions
+    let permissions: Result<Vec<Permission>, String> = payload
+        .permissions
         .into_iter()
         .map(|p| parse_permission(&p))
         .collect();
 
-    let permissions = permissions
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
+    let permissions =
+        permissions.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
-    match engine.create_custom_role(&circuit_id, payload.role_name, permissions, payload.description, payload.color, &requester_id) {
+    match engine.create_custom_role(
+        &circuit_id,
+        payload.role_name,
+        permissions,
+        payload.description,
+        payload.color,
+        &requester_id,
+    ) {
         Ok(custom_role) => {
-            let role_counts = engine.get_circuit(&circuit_id)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
-                .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?
+            let role_counts = engine
+                .get_circuit(&circuit_id)
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+                    )
+                })?
+                .ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({"error": "Circuit not found"})),
+                    )
+                })?
                 .get_member_count_by_role();
 
-            let member_count = role_counts.get(&custom_role.role_name).copied().unwrap_or(0);
+            let member_count = role_counts
+                .get(&custom_role.role_name)
+                .copied()
+                .unwrap_or(0);
             Ok(Json(custom_role_to_response(custom_role, member_count)))
-        },
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to create custom role: {}", e)})))),
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to create custom role: {}", e)})),
+        )),
     }
 }
 
@@ -1337,17 +1647,31 @@ async fn get_custom_roles(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<CustomRoleResponse>>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
 
     match engine.get_custom_roles(&circuit_id) {
         Ok(roles) => {
-            let circuit = engine.get_circuit(&circuit_id)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
-                .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+            let circuit = engine
+                .get_circuit(&circuit_id)
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+                    )
+                })?
+                .ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({"error": "Circuit not found"})),
+                    )
+                })?;
 
             let role_counts = circuit.get_member_count_by_role();
 
@@ -1360,8 +1684,11 @@ async fn get_custom_roles(
                 .collect();
 
             Ok(Json(response))
-        },
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get custom roles: {}", e)})))),
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get custom roles: {}", e)})),
+        )),
     }
 }
 
@@ -1371,8 +1698,12 @@ async fn update_custom_role(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<UpdateCustomRoleRequest>,
 ) -> Result<Json<CustomRoleResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
     // Parse permissions if provided
     let permissions = if let Some(perm_strings) = payload.permissions {
@@ -1385,8 +1716,7 @@ async fn update_custom_role(
         None
     };
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     match engine.update_custom_role(
         &circuit_id,
@@ -1397,14 +1727,28 @@ async fn update_custom_role(
         &requester_id,
     ) {
         Ok(updated_role) => {
-            let role_counts = engine.get_circuit(&circuit_id)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)}))))?
-                .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?
+            let role_counts = engine
+                .get_circuit(&circuit_id)
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+                    )
+                })?
+                .ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({"error": "Circuit not found"})),
+                    )
+                })?
                 .get_member_count_by_role();
 
-            let member_count = role_counts.get(&updated_role.role_name).copied().unwrap_or(0);
+            let member_count = role_counts
+                .get(&updated_role.role_name)
+                .copied()
+                .unwrap_or(0);
             Ok(Json(custom_role_to_response(updated_role, member_count)))
-        },
+        }
         Err(e) => {
             let status = match e.to_string().as_str() {
                 s if s.contains("Permission denied") => StatusCode::FORBIDDEN,
@@ -1412,7 +1756,10 @@ async fn update_custom_role(
                 s if s.contains("Cannot update") => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            Err((status, Json(json!({"error": format!("Failed to update custom role: {}", e)}))))
+            Err((
+                status,
+                Json(json!({"error": format!("Failed to update custom role: {}", e)})),
+            ))
         }
     }
 }
@@ -1422,11 +1769,14 @@ async fn delete_custom_role(
     Path((id, role_name)): Path<(String, String)>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     match engine.remove_custom_role(&circuit_id, &role_name, &claims.user_id) {
         Ok(_) => Ok(Json(json!({
@@ -1440,7 +1790,10 @@ async fn delete_custom_role(
                 s if s.contains("Cannot delete") || s.contains("in use") => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            Err((status, Json(json!({"error": format!("Failed to delete custom role: {}", e)}))))
+            Err((
+                status,
+                Json(json!({"error": format!("Failed to delete custom role: {}", e)})),
+            ))
         }
     }
 }
@@ -1451,18 +1804,24 @@ async fn assign_member_role(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<AssignRoleRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     // If a custom role is specified, assign it
     let role_name = payload.custom_role_name.unwrap_or(payload.role);
 
     match engine.assign_member_custom_role(&circuit_id, &user_id, &role_name, &requester_id) {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to assign role: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to assign role: {}", e)})),
+        )),
     }
 }
 
@@ -1472,75 +1831,101 @@ async fn update_public_settings(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<UpdatePublicSettingsRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({
-            "error": "validation_error",
-            "message": "Invalid circuit ID format",
-            "details": {
-                "field": "circuit_id",
-                "issue": "Must be a valid UUID"
-            }
-        }))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "validation_error",
+                "message": "Invalid circuit ID format",
+                "details": {
+                    "field": "circuit_id",
+                    "issue": "Must be a valid UUID"
+                }
+            })),
+        )
+    })?;
 
     // Validate and parse access mode
     let access_mode = match payload.public_settings.access_mode.to_lowercase().as_str() {
         "public" => crate::types::PublicAccessMode::Public,
         "protected" => crate::types::PublicAccessMode::Protected,
         "scheduled" => crate::types::PublicAccessMode::Scheduled,
-        _ => return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
-            "error": "validation_error",
-            "message": "Invalid access mode",
-            "details": {
-                "field": "access_mode",
-                "provided_value": payload.public_settings.access_mode,
-                "allowed_values": ["public", "protected", "scheduled"],
-                "issue": "access_mode must be one of: public, protected, scheduled"
-            }
-        })))),
+        _ => {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({
+                    "error": "validation_error",
+                    "message": "Invalid access mode",
+                    "details": {
+                        "field": "access_mode",
+                        "provided_value": payload.public_settings.access_mode,
+                        "allowed_values": ["public", "protected", "scheduled"],
+                        "issue": "access_mode must be one of: public, protected, scheduled"
+                    }
+                })),
+            ))
+        }
     };
 
     // Validate scheduled date if access mode is scheduled
-    if matches!(access_mode, crate::types::PublicAccessMode::Scheduled) && payload.public_settings.scheduled_date.is_none() {
-        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
-            "error": "validation_error",
-            "message": "Scheduled date is required when access_mode is 'scheduled'",
-            "details": {
-                "field": "scheduled_date",
-                "required": true,
-                "issue": "scheduled_date must be provided when access_mode is 'scheduled'"
-            }
-        }))));
+    if matches!(access_mode, crate::types::PublicAccessMode::Scheduled)
+        && payload.public_settings.scheduled_date.is_none()
+    {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": "validation_error",
+                "message": "Scheduled date is required when access_mode is 'scheduled'",
+                "details": {
+                    "field": "scheduled_date",
+                    "required": true,
+                    "issue": "scheduled_date must be provided when access_mode is 'scheduled'"
+                }
+            })),
+        ));
     }
 
     // Parse and validate scheduled date if provided
     let scheduled_date = if let Some(date_str) = payload.public_settings.scheduled_date {
-        Some(chrono::DateTime::parse_from_rfc3339(&date_str)
-            .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
-                "error": "validation_error",
-                "message": "Invalid scheduled date format",
-                "details": {
-                    "field": "scheduled_date",
-                    "provided_value": date_str,
-                    "expected_format": "RFC3339 (e.g., '2025-01-01T00:00:00Z')",
-                    "issue": format!("Failed to parse date: {}", e)
-                }
-            }))))?
-            .with_timezone(&chrono::Utc))
+        Some(
+            chrono::DateTime::parse_from_rfc3339(&date_str)
+                .map_err(|e| {
+                    (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Json(json!({
+                            "error": "validation_error",
+                            "message": "Invalid scheduled date format",
+                            "details": {
+                                "field": "scheduled_date",
+                                "provided_value": date_str,
+                                "expected_format": "RFC3339 (e.g., '2025-01-01T00:00:00Z')",
+                                "issue": format!("Failed to parse date: {}", e)
+                            }
+                        })),
+                    )
+                })?
+                .with_timezone(&chrono::Utc),
+        )
     } else {
         None
     };
 
     // Validate password if access mode is protected
-    if matches!(access_mode, crate::types::PublicAccessMode::Protected) && payload.public_settings.access_password.is_none() {
-        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
-            "error": "validation_error",
-            "message": "Password is required when access_mode is 'protected'",
-            "details": {
-                "field": "access_password",
-                "required": true,
-                "issue": "access_password must be provided when access_mode is 'protected'"
-            }
-        }))));
+    if matches!(access_mode, crate::types::PublicAccessMode::Protected)
+        && payload.public_settings.access_password.is_none()
+    {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": "validation_error",
+                "message": "Password is required when access_mode is 'protected'",
+                "details": {
+                    "field": "access_password",
+                    "required": true,
+                    "issue": "access_password must be provided when access_mode is 'protected'"
+                }
+            })),
+        ));
     }
 
     // Parse and validate export permissions
@@ -1549,16 +1934,21 @@ async fn update_public_settings(
             "admin" => Some(crate::types::ExportPermissionLevel::Admin),
             "members" => Some(crate::types::ExportPermissionLevel::Members),
             "public" => Some(crate::types::ExportPermissionLevel::Public),
-            _ => return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
-                "error": "validation_error",
-                "message": "Invalid export permission level",
-                "details": {
-                    "field": "export_permissions",
-                    "provided_value": export_str,
-                    "allowed_values": ["admin", "members", "public"],
-                    "issue": "export_permissions must be one of: admin, members, public"
-                }
-            })))),
+            _ => {
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(json!({
+                        "error": "validation_error",
+                        "message": "Invalid export permission level",
+                        "details": {
+                            "field": "export_permissions",
+                            "provided_value": export_str,
+                            "allowed_values": ["admin", "members", "public"],
+                            "issue": "export_permissions must be one of: admin, members, public"
+                        }
+                    })),
+                ))
+            }
         }
     } else {
         None
@@ -1576,16 +1966,24 @@ async fn update_public_settings(
         tagline: payload.public_settings.tagline,
         footer_text: payload.public_settings.footer_text,
         published_items: payload.public_settings.published_items.unwrap_or_default(),
-        auto_approve_members: payload.public_settings.auto_approve_members.unwrap_or(false),
-        auto_publish_pushed_items: payload.public_settings.auto_publish_pushed_items.unwrap_or(false),
-        show_encrypted_events: payload.public_settings.show_encrypted_events.unwrap_or(false),
+        auto_approve_members: payload
+            .public_settings
+            .auto_approve_members
+            .unwrap_or(false),
+        auto_publish_pushed_items: payload
+            .public_settings
+            .auto_publish_pushed_items
+            .unwrap_or(false),
+        show_encrypted_events: payload
+            .public_settings
+            .show_encrypted_events
+            .unwrap_or(false),
         required_event_types: payload.public_settings.required_event_types,
         data_quality_rules: payload.public_settings.data_quality_rules,
         export_permissions,
     };
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
     match engine.update_public_settings(&circuit_id, public_settings, &requester_id) {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
@@ -1600,9 +1998,15 @@ async fn update_public_settings(
                 let pg_lock = pg.read().await;
                 if let Some(pg_instance) = &*pg_lock {
                     if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
-                        tracing::warn!("Failed to persist public settings update to PostgreSQL: {}", e);
+                        tracing::warn!(
+                            "Failed to persist public settings update to PostgreSQL: {}",
+                            e
+                        );
                     } else {
-                        tracing::info!("Circuit {} public settings persisted to PostgreSQL", circuit_clone.circuit_id);
+                        tracing::info!(
+                            "Circuit {} public settings persisted to PostgreSQL",
+                            circuit_clone.circuit_id
+                        );
                     }
                 }
             });
@@ -1611,11 +2015,14 @@ async fn update_public_settings(
                 "success": true,
                 "data": circuit_to_response(circuit)
             })))
-        },
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({
-            "error": "update_failed",
-            "message": format!("Failed to update public settings: {}", e)
-        })))),
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "update_failed",
+                "message": format!("Failed to update public settings: {}", e)
+            })),
+        )),
     }
 }
 
@@ -1623,11 +2030,14 @@ async fn get_public_circuit(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
     match engine.get_public_circuit_info(&circuit_id) {
         Ok(Some(public_info)) => Ok(Json(json!({
             "success": true,
@@ -1649,8 +2059,14 @@ async fn get_public_circuit(
                 "recent_activity": []
             }
         }))),
-        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit is not publicly accessible"})))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get public circuit info: {}", e)})))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit is not publicly accessible"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get public circuit info: {}", e)})),
+        )),
     }
 }
 
@@ -1660,18 +2076,29 @@ async fn join_public_circuit(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<JoinPublicCircuitRequest>,
 ) -> Result<Json<PublicJoinResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
-    match engine.join_public_circuit(&circuit_id, &requester_id, payload.access_password, payload.message) {
+    let mut engine = lock_circuits_engine(&state)?;
+    match engine.join_public_circuit(
+        &circuit_id,
+        &requester_id,
+        payload.access_password,
+        payload.message,
+    ) {
         Ok((requires_approval, message)) => Ok(Json(PublicJoinResponse {
             success: true,
             message,
             requires_approval,
         })),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to join circuit: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to join circuit: {}", e)})),
+        )),
     }
 }
 
@@ -1679,21 +2106,25 @@ async fn get_circuit_activities(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<ActivityResponse>>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
 
     match engine.get_activities_for_circuit(&circuit_id) {
         Ok(activities) => {
-            let response: Vec<ActivityResponse> = activities
-                .into_iter()
-                .map(activity_to_response)
-                .collect();
+            let response: Vec<ActivityResponse> =
+                activities.into_iter().map(activity_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get activities: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get activities: {}", e)})),
+        )),
     }
 }
 
@@ -1702,14 +2133,21 @@ async fn get_circuit_items(
     Path(id): Path<String>,
     Query(query): Query<CircuitItemsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
     let items = {
-        let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
-        engine.get_circuit_items(&circuit_id)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit items: {}", e)}))))?
+        let engine = lock_circuits_engine(&state)?;
+        engine.get_circuit_items(&circuit_id).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to get circuit items: {}", e)})),
+            )
+        })?
     };
 
     if query.include_events {
@@ -1722,9 +2160,9 @@ async fn get_circuit_items(
 
             // Fetch events for this DFID
             let events = {
-                let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
-                engine.get_events_for_item(&dfid)
+                let engine = lock_circuits_engine(&state)?;
+                engine
+                    .get_events_for_item(&dfid)
                     .unwrap_or_else(|_| Vec::new())
             };
 
@@ -1734,16 +2172,24 @@ async fn get_circuit_items(
             });
         }
 
-        Ok(Json(serde_json::to_value(items_with_events)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to serialize response: {}", e)}))))?))
+        Ok(Json(serde_json::to_value(items_with_events).map_err(
+            |e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to serialize response: {}", e)})),
+                )
+            },
+        )?))
     } else {
         // Return items without events (original behavior)
-        let response: Vec<CircuitItemResponse> = items
-            .into_iter()
-            .map(circuit_item_to_response)
-            .collect();
-        Ok(Json(serde_json::to_value(response)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to serialize response: {}", e)}))))?))
+        let response: Vec<CircuitItemResponse> =
+            items.into_iter().map(circuit_item_to_response).collect();
+        Ok(Json(serde_json::to_value(response).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to serialize response: {}", e)})),
+            )
+        })?))
     }
 }
 
@@ -1753,33 +2199,45 @@ async fn batch_push_items(
     AuthenticatedUser(requester_id): AuthenticatedUser,
     Json(payload): Json<BatchPushRequest>,
 ) -> Result<Json<BatchPushResult>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
     let mut results = Vec::new();
     let mut success_count = 0;
     let mut failed_count = 0;
 
-    // Process each item sequentially using spawn_blocking
+    // Process each item sequentially using block_in_place
     for item in payload.items.iter() {
         let dfid = item.dfid.clone();
         let circuit_id_copy = circuit_id.clone();
         let requester_id_clone = requester_id.clone();
         let engine_arc = state.circuits_engine.clone();
 
-        // Use spawn_blocking to run the async code with blocking mutex
-        let result = tokio::task::spawn_blocking(move || {
-            // Create a new runtime for this blocking task
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create runtime: {}", e)}))))?;
-            rt.block_on(async {
-                let mut engine = engine_arc.lock()
-                    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Engine mutex poisoned"}))))?;
-                engine.push_item_to_circuit(&dfid, &circuit_id_copy, &requester_id_clone).await
-                    .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Push failed: {}", e)}))))
-            })
-        }).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Task error: {}", e)}))))?;
+        let result = tokio::task::block_in_place(|| {
+            let mut engine = engine_arc.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Engine mutex poisoned"})),
+                )
+            })?;
+
+            tokio::runtime::Handle::current()
+                .block_on(async {
+                    engine
+                        .push_item_to_circuit(&dfid, &circuit_id_copy, &requester_id_clone)
+                        .await
+                })
+                .map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": format!("Push failed: {}", e)})),
+                    )
+                })
+        });
 
         match result {
             Ok(_) => {
@@ -1812,15 +2270,24 @@ async fn get_circuit_pending_items(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let circuits_engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let circuits_engine = lock_circuits_engine(&state)?;
 
     // Get pending operations for this circuit
-    let pending_operations = circuits_engine.get_pending_operations(&circuit_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get pending operations: {}", e)}))))?;
+    let pending_operations = circuits_engine
+        .get_pending_operations(&circuit_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to get pending operations: {}", e)})),
+            )
+        })?;
 
     drop(circuits_engine); // Release lock before fetching items
 
@@ -1829,20 +2296,20 @@ async fn get_circuit_pending_items(
     for operation in pending_operations {
         // Try to fetch the item to build preview
         let item_preview = {
-            let items_engine = state.items_engine.lock()
-                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+            let items_engine = lock_items_engine(&state)?;
             match items_engine.get_item(&operation.dfid) {
-                Ok(Some(item)) => {
-                    Some(PendingItemPreview {
-                        identifiers: item.identifiers.into_iter().map(|identifier| {
-                            IdentifierResponse {
-                                key: identifier.key,
-                                value: identifier.value
-                            }
-                        }).collect(),
-                        enriched_data: serde_json::to_value(item.enriched_data).unwrap_or(serde_json::json!({})),
-                    })
-                }
+                Ok(Some(item)) => Some(PendingItemPreview {
+                    identifiers: item
+                        .identifiers
+                        .into_iter()
+                        .map(|identifier| IdentifierResponse {
+                            key: identifier.key,
+                            value: identifier.value,
+                        })
+                        .collect(),
+                    enriched_data: serde_json::to_value(item.enriched_data)
+                        .unwrap_or(serde_json::json!({})),
+                }),
                 _ => None,
             }
         };
@@ -1868,17 +2335,30 @@ async fn approve_pending_item(
     Path((circuit_id, pending_id)): Path<(String, String)>,
     Json(payload): Json<ApproveItemRequest>,
 ) -> Result<Json<ApproveItemResponse>, (StatusCode, Json<Value>)> {
-    let _circuit_id = Uuid::parse_str(&circuit_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let _circuit_id = Uuid::parse_str(&circuit_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let operation_id = Uuid::parse_str(&pending_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid pending ID format"}))))?;
+    let operation_id = Uuid::parse_str(&pending_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid pending ID format"})),
+        )
+    })?;
 
-    let mut circuits_engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut circuits_engine = lock_circuits_engine(&state)?;
 
-    let approved_operation = circuits_engine.approve_operation(&operation_id, &payload.admin_id)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to approve operation: {}", e)}))))?;
+    let approved_operation = circuits_engine
+        .approve_operation(&operation_id, &payload.admin_id)
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Failed to approve operation: {}", e)})),
+            )
+        })?;
 
     Ok(Json(ApproveItemResponse {
         success: true,
@@ -1900,17 +2380,30 @@ async fn reject_pending_item(
     Path((circuit_id, pending_id)): Path<(String, String)>,
     Json(payload): Json<RejectItemRequest>,
 ) -> Result<Json<RejectItemResponse>, (StatusCode, Json<Value>)> {
-    let _circuit_id = Uuid::parse_str(&circuit_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let _circuit_id = Uuid::parse_str(&circuit_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let operation_id = Uuid::parse_str(&pending_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid pending ID format"}))))?;
+    let operation_id = Uuid::parse_str(&pending_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid pending ID format"})),
+        )
+    })?;
 
-    let mut circuits_engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut circuits_engine = lock_circuits_engine(&state)?;
 
-    circuits_engine.reject_operation(&operation_id, &payload.admin_id, payload.reason.clone())
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to reject operation: {}", e)}))))?;
+    circuits_engine
+        .reject_operation(&operation_id, &payload.admin_id, payload.reason.clone())
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Failed to reject operation: {}", e)})),
+            )
+        })?;
 
     Ok(Json(RejectItemResponse {
         success: true,
@@ -1922,11 +2415,14 @@ async fn get_circuit_adapter_config(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<GetAdapterConfigResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
-    let engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let engine = lock_circuits_engine(&state)?;
 
     match engine.get_circuit(&circuit_id) {
         Ok(Some(circuit)) => {
@@ -1951,11 +2447,20 @@ async fn get_circuit_adapter_config(
                     configured_at: adapter_config.configured_at.to_rfc3339(),
                 }))
             } else {
-                Err((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit adapter configuration not found"}))))
+                Err((
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Circuit adapter configuration not found"})),
+                ))
             }
         }
-        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"})))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get circuit: {}", e)})))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+        )),
     }
 }
 
@@ -1965,19 +2470,26 @@ async fn set_circuit_adapter_config(
     Extension(claims): Extension<Claims>,
     Json(payload): Json<SetAdapterConfigRequest>,
 ) -> Result<Json<GetAdapterConfigResponse>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID format"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
 
     // Parse adapter_type string to AdapterType enum
     let adapter_type = if let Some(adapter_str) = payload.adapter_type {
-        Some(AdapterType::from_string(&adapter_str)
-            .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid adapter type: {}", e)}))))?)
+        Some(AdapterType::from_string(&adapter_str).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid adapter type: {}", e)})),
+            )
+        })?)
     } else {
         None
     };
 
-    let mut engine = state.circuits_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Circuits engine mutex poisoned"}))))?;
+    let mut engine = lock_circuits_engine(&state)?;
 
     match engine.set_circuit_adapter_config(
         &circuit_id,
@@ -2010,7 +2522,9 @@ async fn set_circuit_adapter_config(
         }
         Err(e) => {
             let status = match e.to_string().as_str() {
-                s if s.contains("Permission denied") || s.contains("does not have access") => StatusCode::FORBIDDEN,
+                s if s.contains("Permission denied") || s.contains("does not have access") => {
+                    StatusCode::FORBIDDEN
+                }
                 s if s.contains("not found") => StatusCode::NOT_FOUND,
                 s if s.contains("Invalid") => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
@@ -2029,18 +2543,38 @@ async fn get_post_action_settings(
     Path(id): Path<String>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID"})),
+        )
+    })?;
 
-    let storage = state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-    let circuit = storage.get_circuit(&circuit_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+    let storage = state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
+    let circuit = storage
+        .get_circuit(&circuit_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        ))?;
 
     // Only owner and admins can view post-action settings
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error": "Permission denied"}))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Permission denied"})),
+        ));
     }
 
     Ok(Json(json!({
@@ -2055,22 +2589,44 @@ async fn update_post_action_settings(
     Extension(claims): Extension<Claims>,
     Json(request): Json<UpdatePostActionSettingsRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID"})),
+        )
+    })?;
 
-    let mut storage = state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-    let mut circuit = storage.get_circuit(&circuit_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+    let mut storage = state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
+    let mut circuit = storage
+        .get_circuit(&circuit_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        ))?;
 
     // Only owner and admins can modify settings
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error": "Permission denied"}))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Permission denied"})),
+        ));
     }
 
     // Parse trigger events
-    let trigger_events: Vec<PostActionTrigger> = request.trigger_events.iter()
+    let trigger_events: Vec<PostActionTrigger> = request
+        .trigger_events
+        .iter()
         .filter_map(|s| match s.as_str() {
             "item_pushed" => Some(PostActionTrigger::ItemPushed),
             "item_approved" => Some(PostActionTrigger::ItemApproved),
@@ -2088,8 +2644,12 @@ async fn update_post_action_settings(
     settings.include_item_metadata = request.include_item_metadata;
 
     circuit.post_action_settings = Some(settings.clone());
-    storage.store_circuit(&circuit)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    storage.store_circuit(&circuit).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(Json(json!({
         "success": true,
@@ -2104,24 +2664,48 @@ async fn create_webhook(
     Extension(claims): Extension<Claims>,
     Json(request): Json<CreateWebhookRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID"})),
+        )
+    })?;
 
     // Validate webhook URL
-    use crate::webhook_engine::WebhookEngine;
     use crate::storage::InMemoryStorage;
-    WebhookEngine::<InMemoryStorage>::validate_webhook_url(&request.url)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))))?;
+    use crate::webhook_engine::WebhookEngine;
+    WebhookEngine::<InMemoryStorage>::validate_webhook_url(&request.url).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
-    let mut storage = state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-    let mut circuit = storage.get_circuit(&circuit_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+    let mut storage = state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
+    let mut circuit = storage
+        .get_circuit(&circuit_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        ))?;
 
     // Only owner and admins can create webhooks
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error": "Permission denied"}))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Permission denied"})),
+        ));
     }
 
     // Create webhook config
@@ -2158,8 +2742,12 @@ async fn create_webhook(
     settings.webhooks.push(webhook.clone());
     circuit.post_action_settings = Some(settings);
 
-    storage.store_circuit(&circuit)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    storage.store_circuit(&circuit).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(Json(json!({
         "success": true,
@@ -2173,28 +2761,59 @@ async fn get_webhook(
     Path((circuit_id, webhook_id)): Path<(String, String)>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_uuid = Uuid::parse_str(&circuit_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID"}))))?;
+    let circuit_uuid = Uuid::parse_str(&circuit_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID"})),
+        )
+    })?;
 
-    let webhook_uuid = Uuid::parse_str(&webhook_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid webhook ID"}))))?;
+    let webhook_uuid = Uuid::parse_str(&webhook_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid webhook ID"})),
+        )
+    })?;
 
-    let storage = state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-    let circuit = storage.get_circuit(&circuit_uuid)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+    let storage = state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
+    let circuit = storage
+        .get_circuit(&circuit_uuid)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error": "Permission denied"}))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Permission denied"})),
+        ));
     }
 
-    let settings = circuit.post_action_settings
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Post-action settings not configured"}))))?;
+    let settings = circuit.post_action_settings.ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Post-action settings not configured"})),
+    ))?;
 
-    let webhook = settings.webhooks.iter()
+    let webhook = settings
+        .webhooks
+        .iter()
         .find(|w| w.id == webhook_uuid)
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Webhook not found"}))))?;
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Webhook not found"})),
+        ))?;
 
     Ok(Json(json!({
         "success": true,
@@ -2208,38 +2827,73 @@ async fn update_webhook(
     Extension(claims): Extension<Claims>,
     Json(request): Json<UpdateWebhookRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_uuid = Uuid::parse_str(&circuit_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID"}))))?;
+    let circuit_uuid = Uuid::parse_str(&circuit_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID"})),
+        )
+    })?;
 
-    let webhook_uuid = Uuid::parse_str(&webhook_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid webhook ID"}))))?;
+    let webhook_uuid = Uuid::parse_str(&webhook_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid webhook ID"})),
+        )
+    })?;
 
-    let mut storage = state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-    let mut circuit = storage.get_circuit(&circuit_uuid)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+    let mut storage = state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
+    let mut circuit = storage
+        .get_circuit(&circuit_uuid)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error": "Permission denied"}))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Permission denied"})),
+        ));
     }
 
-    let mut settings = circuit.post_action_settings
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Post-action settings not configured"}))))?;
+    let mut settings = circuit.post_action_settings.ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Post-action settings not configured"})),
+    ))?;
 
-    let webhook = settings.webhooks.iter_mut()
+    let webhook = settings
+        .webhooks
+        .iter_mut()
         .find(|w| w.id == webhook_uuid)
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Webhook not found"}))))?;
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Webhook not found"})),
+        ))?;
 
     // Update webhook fields
     if let Some(name) = request.name {
         webhook.name = name;
     }
     if let Some(url) = request.url {
-        use crate::webhook_engine::WebhookEngine;
         use crate::storage::InMemoryStorage;
-        WebhookEngine::<InMemoryStorage>::validate_webhook_url(&url)
-            .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))))?;
+        use crate::webhook_engine::WebhookEngine;
+        WebhookEngine::<InMemoryStorage>::validate_webhook_url(&url).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
         webhook.url = url;
     }
     if let Some(enabled) = request.enabled {
@@ -2249,8 +2903,12 @@ async fn update_webhook(
     webhook.updated_at = Utc::now();
     circuit.post_action_settings = Some(settings);
 
-    storage.store_circuit(&circuit)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    storage.store_circuit(&circuit).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(Json(json!({
         "success": true,
@@ -2263,30 +2921,60 @@ async fn delete_webhook(
     Path((circuit_id, webhook_id)): Path<(String, String)>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_uuid = Uuid::parse_str(&circuit_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID"}))))?;
+    let circuit_uuid = Uuid::parse_str(&circuit_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID"})),
+        )
+    })?;
 
-    let webhook_uuid = Uuid::parse_str(&webhook_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid webhook ID"}))))?;
+    let webhook_uuid = Uuid::parse_str(&webhook_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid webhook ID"})),
+        )
+    })?;
 
-    let mut storage = state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-    let mut circuit = storage.get_circuit(&circuit_uuid)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+    let mut storage = state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
+    let mut circuit = storage
+        .get_circuit(&circuit_uuid)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error": "Permission denied"}))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Permission denied"})),
+        ));
     }
 
-    let mut settings = circuit.post_action_settings
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Post-action settings not configured"}))))?;
+    let mut settings = circuit.post_action_settings.ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Post-action settings not configured"})),
+    ))?;
 
     settings.webhooks.retain(|w| w.id != webhook_uuid);
     circuit.post_action_settings = Some(settings);
 
-    storage.store_circuit(&circuit)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    storage.store_circuit(&circuit).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(Json(json!({
         "success": true,
@@ -2299,28 +2987,59 @@ async fn test_webhook(
     Path((circuit_id, webhook_id)): Path<(String, String)>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_uuid = Uuid::parse_str(&circuit_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID"}))))?;
+    let circuit_uuid = Uuid::parse_str(&circuit_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID"})),
+        )
+    })?;
 
-    let webhook_uuid = Uuid::parse_str(&webhook_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid webhook ID"}))))?;
+    let webhook_uuid = Uuid::parse_str(&webhook_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid webhook ID"})),
+        )
+    })?;
 
-    let storage = state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-    let circuit = storage.get_circuit(&circuit_uuid)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+    let storage = state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
+    let circuit = storage
+        .get_circuit(&circuit_uuid)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error": "Permission denied"}))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Permission denied"})),
+        ));
     }
 
-    let settings = circuit.post_action_settings
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Post-action settings not configured"}))))?;
+    let settings = circuit.post_action_settings.ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Post-action settings not configured"})),
+    ))?;
 
-    let webhook = settings.webhooks.iter()
+    let webhook = settings
+        .webhooks
+        .iter()
         .find(|w| w.id == webhook_uuid)
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Webhook not found"}))))?;
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Webhook not found"})),
+        ))?;
 
     // Create test payload
     let _test_payload = json!({
@@ -2350,24 +3069,49 @@ async fn get_webhook_deliveries(
     Extension(claims): Extension<Claims>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let circuit_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid circuit ID"}))))?;
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID"})),
+        )
+    })?;
 
-    let storage = state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-    let circuit = storage.get_circuit(&circuit_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Circuit not found"}))))?;
+    let storage = state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
+    let circuit = storage
+        .get_circuit(&circuit_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error": "Permission denied"}))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Permission denied"})),
+        ));
     }
 
-    let limit = params.get("limit")
-        .and_then(|s| s.parse::<usize>().ok());
+    let limit = params.get("limit").and_then(|s| s.parse::<usize>().ok());
 
-    let deliveries = storage.get_webhook_deliveries_by_circuit(&circuit_id, limit)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let deliveries = storage
+        .get_webhook_deliveries_by_circuit(&circuit_id, limit)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     Ok(Json(json!({
         "success": true,

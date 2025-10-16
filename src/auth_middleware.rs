@@ -1,14 +1,14 @@
 use axum::{
-    extract::{Request, State, FromRequestParts},
-    http::{StatusCode, request::Parts},
+    async_trait,
+    extract::{FromRequestParts, Request, State},
+    http::{request::Parts, StatusCode},
     middleware::Next,
     response::Response,
     Json,
-    async_trait,
 };
+use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde_json::json;
 use std::sync::Arc;
-use jsonwebtoken::{decode, DecodingKey, Validation};
 
 use crate::api::auth::Claims;
 use crate::api::shared_state::AppState;
@@ -49,13 +49,12 @@ pub async fn jwt_auth_middleware(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     // Extract JWT token from Authorization header
-    let token = extract_jwt_token(&request)
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing authentication token"})),
-            )
-        })?;
+    let token = extract_jwt_token(&request).ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Missing authentication token"})),
+        )
+    })?;
 
     // Verify and decode token using jwt_secret from AppState
     let claims = decode::<Claims>(
@@ -80,11 +79,7 @@ pub async fn jwt_auth_middleware(
 
 /// Extract JWT token from Authorization header (Bearer token)
 fn extract_jwt_token(request: &Request) -> Option<String> {
-    let auth_header = request
-        .headers()
-        .get("Authorization")?
-        .to_str()
-        .ok()?;
+    let auth_header = request.headers().get("Authorization")?.to_str().ok()?;
 
     // Support "Bearer <token>" format
     if auth_header.starts_with("Bearer ") {

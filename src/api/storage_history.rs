@@ -10,11 +10,11 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::adapters::StorageLocation;
-use crate::types::{ItemStorageHistory, AdapterType};
-use crate::api::shared_state::AppState;
+use crate::adapters::base::StorageLocation;
 use crate::api::adapters::create_adapter_instance;
+use crate::api::shared_state::AppState;
 use crate::storage::StorageBackend;
+use crate::types::{AdapterType, ItemStorageHistory};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StorageHistoryResponse {
@@ -56,16 +56,21 @@ impl From<ItemStorageHistory> for StorageHistoryResponse {
     fn from(history: ItemStorageHistory) -> Self {
         Self {
             dfid: history.dfid,
-            storage_records: history.storage_records.into_iter().map(|record| {
-                StorageRecordResponse {
+            storage_records: history
+                .storage_records
+                .into_iter()
+                .map(|record| StorageRecordResponse {
                     storage_location: record.storage_location,
                     stored_at: record.stored_at.to_rfc3339(),
-                    circuit_id: record.triggered_by_id.as_ref().and_then(|id| id.parse().ok()),
+                    circuit_id: record
+                        .triggered_by_id
+                        .as_ref()
+                        .and_then(|id| id.parse().ok()),
                     user_id: record.triggered_by_id.unwrap_or_default(),
                     operation_type: record.triggered_by,
                     is_primary: record.is_active,
-                }
-            }).collect(),
+                })
+                .collect(),
             current_primary: history.current_primary,
             created_at: history.created_at.to_rfc3339(),
             updated_at: history.updated_at.to_rfc3339(),
@@ -77,7 +82,11 @@ async fn get_item_storage_history(
     Path(dfid): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, StatusCode> {
-    match app_state.storage_history_manager.get_item_storage_history(&dfid).await {
+    match app_state
+        .storage_history_manager
+        .get_item_storage_history(&dfid)
+        .await
+    {
         Ok(Some(history)) => {
             let response = StorageHistoryResponse::from(history);
             Ok(Json(json!({
@@ -85,20 +94,16 @@ async fn get_item_storage_history(
                 "data": response
             })))
         }
-        Ok(None) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": "Item not found",
-                "dfid": dfid
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": format!("Failed to get storage history: {}", e),
-                "dfid": dfid
-            })))
-        }
+        Ok(None) => Ok(Json(json!({
+            "success": false,
+            "error": "Item not found",
+            "dfid": dfid
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": format!("Failed to get storage history: {}", e),
+            "dfid": dfid
+        }))),
     }
 }
 
@@ -106,22 +111,22 @@ async fn get_all_storage_locations(
     Query(params): Query<StorageLocationQuery>,
     State(app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, StatusCode> {
-    match app_state.storage_history_manager.get_all_storage_locations(&params.dfid).await {
-        Ok(locations) => {
-            Ok(Json(json!({
-                "success": true,
-                "dfid": params.dfid,
-                "locations": locations,
-                "count": locations.len()
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": format!("Failed to get storage locations: {}", e),
-                "dfid": params.dfid
-            })))
-        }
+    match app_state
+        .storage_history_manager
+        .get_all_storage_locations(&params.dfid)
+        .await
+    {
+        Ok(locations) => Ok(Json(json!({
+            "success": true,
+            "dfid": params.dfid,
+            "locations": locations,
+            "count": locations.len()
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": format!("Failed to get storage locations: {}", e),
+            "dfid": params.dfid
+        }))),
     }
 }
 
@@ -141,30 +146,30 @@ async fn migrate_item_storage(
         }
     };
 
-    match app_state.storage_history_manager.migrate_to_circuit_adapter(
-        &dfid,
-        &adapter_instance,
-        request.circuit_id,
-        &request.user_id,
-    ).await {
-        Ok(()) => {
-            Ok(Json(json!({
-                "success": true,
-                "message": "Item migration initiated successfully",
-                "dfid": dfid,
-                "target_adapter": request.target_adapter_type,
-                "circuit_id": request.circuit_id,
-                "user_id": request.user_id
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": format!("Failed to migrate item: {}", e),
-                "dfid": dfid,
-                "target_adapter": request.target_adapter_type
-            })))
-        }
+    match app_state
+        .storage_history_manager
+        .migrate_to_circuit_adapter(
+            &dfid,
+            &adapter_instance,
+            request.circuit_id,
+            &request.user_id,
+        )
+        .await
+    {
+        Ok(()) => Ok(Json(json!({
+            "success": true,
+            "message": "Item migration initiated successfully",
+            "dfid": dfid,
+            "target_adapter": request.target_adapter_type,
+            "circuit_id": request.circuit_id,
+            "user_id": request.user_id
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": format!("Failed to migrate item: {}", e),
+            "dfid": dfid,
+            "target_adapter": request.target_adapter_type
+        }))),
     }
 }
 
@@ -173,22 +178,22 @@ async fn set_primary_storage(
     State(app_state): State<Arc<AppState>>,
     Json(request): Json<SetPrimaryStorageRequest>,
 ) -> Result<Json<Value>, StatusCode> {
-    match app_state.storage_history_manager.set_primary_storage(&dfid, request.storage_location.clone()).await {
-        Ok(()) => {
-            Ok(Json(json!({
-                "success": true,
-                "message": "Primary storage updated successfully",
-                "dfid": dfid,
-                "primary_storage": request.storage_location
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "error": format!("Failed to set primary storage: {}", e),
-                "dfid": dfid
-            })))
-        }
+    match app_state
+        .storage_history_manager
+        .set_primary_storage(&dfid, request.storage_location.clone())
+        .await
+    {
+        Ok(()) => Ok(Json(json!({
+            "success": true,
+            "message": "Primary storage updated successfully",
+            "dfid": dfid,
+            "primary_storage": request.storage_location
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": format!("Failed to set primary storage: {}", e),
+            "dfid": dfid
+        }))),
     }
 }
 
@@ -210,7 +215,8 @@ async fn get_storage_statistics(
 
     let mut total_items_tracked = 0;
     let mut total_storage_locations = 0;
-    let mut adapter_distribution: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut adapter_distribution: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
     let mut migration_count = 0;
 
     // Iterate through each item and get its storage history
@@ -224,7 +230,9 @@ async fn get_storage_statistics(
                 *adapter_distribution.entry(adapter_name).or_insert(0) += 1;
 
                 // Count migrations (records triggered by circuit operations or explicit migrations)
-                if record.triggered_by.contains("migration") || record.triggered_by.contains("circuit") {
+                if record.triggered_by.contains("migration")
+                    || record.triggered_by.contains("circuit")
+                {
                     migration_count += 1;
                 }
             }

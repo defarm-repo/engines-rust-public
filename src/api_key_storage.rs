@@ -124,19 +124,13 @@ impl InMemoryApiKeyStorage {
         }
     }
 
-    fn calculate_usage_stats(
-        &self,
-        logs: &[ApiKeyUsageLog],
-    ) -> ApiKeyUsageStats {
+    fn calculate_usage_stats(&self, logs: &[ApiKeyUsageLog]) -> ApiKeyUsageStats {
         let total_requests = logs.len() as u64;
         let successful_requests = logs.iter().filter(|l| l.response_status < 400).count() as u64;
         let failed_requests = total_requests - successful_requests;
 
         let avg_response_time_ms = if !logs.is_empty() {
-            logs.iter()
-                .filter_map(|l| l.response_time_ms)
-                .sum::<u64>() as f64
-                / logs.len() as f64
+            logs.iter().filter_map(|l| l.response_time_ms).sum::<u64>() as f64 / logs.len() as f64
         } else {
             0.0
         };
@@ -279,9 +273,7 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
             ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {}", e))
         })?;
 
-        let api_key = keys
-            .remove(&id)
-            .ok_or(ApiKeyStorageError::NotFound(id))?;
+        let api_key = keys.remove(&id).ok_or(ApiKeyStorageError::NotFound(id))?;
 
         // Clean up indexes
         let mut hash_index = self.hash_index.write().map_err(|e| {
@@ -306,9 +298,7 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
             ApiKeyStorageError::LockError(format!("Failed to acquire write lock: {}", e))
         })?;
 
-        let api_key = keys
-            .get_mut(&id)
-            .ok_or(ApiKeyStorageError::NotFound(id))?;
+        let api_key = keys.get_mut(&id).ok_or(ApiKeyStorageError::NotFound(id))?;
 
         api_key.usage_count += 1;
         api_key.last_used_at = Some(Utc::now());
@@ -374,8 +364,9 @@ impl ApiKeyStorage for InMemoryApiKeyStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api_key_engine::{CreateApiKeyRequest, OrganizationType, ApiKeyEngine, ApiKeyPermissions};
-    use crate::logging::LoggingEngine;
+    use crate::api_key_engine::{
+        ApiKeyEngine, ApiKeyPermissions, CreateApiKeyRequest, OrganizationType,
+    };
 
     fn create_test_api_key(created_by: Uuid) -> ApiKey {
         let engine = ApiKeyEngine::new();

@@ -5,16 +5,19 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use chrono::{DateTime, Utc};
 
-use crate::adapters::{AdapterInstance, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter, StorageAdapter};
-use crate::types::{AdapterType, StorageBackendType, UserTier};
-use crate::api::shared_state::AppState;
+use crate::adapters::{
+    AdapterInstance, IpfsIpfsAdapter, StellarMainnetIpfsAdapter, StellarTestnetIpfsAdapter,
+    StorageAdapter,
+};
 use crate::api::auth::Claims;
+use crate::api::shared_state::AppState;
 use crate::storage::{StorageBackend, StorageError};
+use crate::types::{AdapterType, StorageBackendType, UserTier};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdapterInfo {
@@ -54,33 +57,38 @@ async fn list_available_adapters(
     let storage = app_state.shared_storage.lock().unwrap();
     let user = storage
         .get_user_account(&claims.user_id)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to get user: {}", e)}))
-        ))?
-        .ok_or_else(|| (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "User not found"}))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to get user: {}", e)})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "User not found"})),
+            )
+        })?;
 
     // Get available adapters based on user's custom config or tier defaults
-    let available_adapters = get_client_available_adapters(
-        user.available_adapters.clone(),
-        &user.tier
-    );
+    let available_adapters =
+        get_client_available_adapters(user.available_adapters.clone(), &user.tier);
 
-    let adapter_infos: Vec<AdapterInfo> = available_adapters.into_iter().map(|adapter_type| {
-        let (item_storage, event_storage) = adapter_type.storage_locations();
-        AdapterInfo {
-            name: adapter_type.to_string(),
-            description: adapter_type.description().to_string(),
-            item_storage,
-            event_storage,
-            requires_blockchain: adapter_type.requires_blockchain(),
-            available: true,
-            adapter_type,
-        }
-    }).collect();
+    let adapter_infos: Vec<AdapterInfo> = available_adapters
+        .into_iter()
+        .map(|adapter_type| {
+            let (item_storage, event_storage) = adapter_type.storage_locations();
+            AdapterInfo {
+                name: adapter_type.to_string(),
+                description: adapter_type.description().to_string(),
+                item_storage,
+                event_storage,
+                requires_blockchain: adapter_type.requires_blockchain(),
+                available: true,
+                adapter_type,
+            }
+        })
+        .collect();
 
     Ok(Json(json!({
         "success": true,
@@ -101,20 +109,22 @@ async fn select_adapter(
     let storage = app_state.shared_storage.lock().unwrap();
     let user = storage
         .get_user_account(&claims.user_id)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to get user: {}", e)}))
-        ))?
-        .ok_or_else(|| (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "User not found"}))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to get user: {}", e)})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "User not found"})),
+            )
+        })?;
 
     // Validate that the user has access to this adapter
-    let available_adapters = get_client_available_adapters(
-        user.available_adapters.clone(),
-        &user.tier
-    );
+    let available_adapters =
+        get_client_available_adapters(user.available_adapters.clone(), &user.tier);
 
     if !available_adapters.contains(&request.adapter_type) {
         return Ok(Json(json!({
@@ -161,20 +171,16 @@ async fn get_adapter_status(
     };
 
     match adapter_instance.sync_status().await {
-        Ok(status) => {
-            Ok(Json(json!({
-                "success": true,
-                "adapter_type": adapter_type,
-                "status": status
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "adapter_type": adapter_type,
-                "error": format!("Failed to get status: {}", e)
-            })))
-        }
+        Ok(status) => Ok(Json(json!({
+            "success": true,
+            "adapter_type": adapter_type,
+            "status": status
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "adapter_type": adapter_type,
+            "error": format!("Failed to get status: {}", e)
+        }))),
     }
 }
 
@@ -199,23 +205,19 @@ async fn health_check_adapter(
     };
 
     match adapter_instance.health_check().await {
-        Ok(healthy) => {
-            Ok(Json(json!({
-                "success": true,
-                "adapter_type": adapter_type,
-                "healthy": healthy,
-                "checked_at": Utc::now()
-            })))
-        }
-        Err(e) => {
-            Ok(Json(json!({
-                "success": false,
-                "adapter_type": adapter_type,
-                "healthy": false,
-                "error": format!("Health check failed: {}", e),
-                "checked_at": Utc::now()
-            })))
-        }
+        Ok(healthy) => Ok(Json(json!({
+            "success": true,
+            "adapter_type": adapter_type,
+            "healthy": healthy,
+            "checked_at": Utc::now()
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "adapter_type": adapter_type,
+            "healthy": false,
+            "error": format!("Health check failed: {}", e),
+            "checked_at": Utc::now()
+        }))),
     }
 }
 
@@ -273,7 +275,7 @@ async fn get_adapter_templates() -> Result<Json<Value>, StatusCode> {
 
 fn get_client_available_adapters(
     user_adapters: Option<Vec<AdapterType>>,
-    tier: &UserTier
+    tier: &UserTier,
 ) -> Vec<AdapterType> {
     // If user has custom adapters configured, use those
     if let Some(adapters) = user_adapters {
@@ -287,21 +289,22 @@ fn get_client_available_adapters(
             AdapterType::StellarTestnetIpfs,
             AdapterType::StellarMainnetIpfs,
         ],
-        UserTier::Professional => vec![
-            AdapterType::IpfsIpfs,
-            AdapterType::StellarTestnetIpfs,
-        ],
-        UserTier::Basic => vec![
-            AdapterType::IpfsIpfs,
-        ],
+        UserTier::Professional => vec![AdapterType::IpfsIpfs, AdapterType::StellarTestnetIpfs],
+        UserTier::Basic => vec![AdapterType::IpfsIpfs],
     }
 }
 
-pub fn create_adapter_instance(adapter_type: &AdapterType) -> Result<AdapterInstance, StorageError> {
+pub fn create_adapter_instance(
+    adapter_type: &AdapterType,
+) -> Result<AdapterInstance, StorageError> {
     match adapter_type {
         AdapterType::IpfsIpfs => Ok(AdapterInstance::IpfsIpfs(IpfsIpfsAdapter::new()?)),
-        AdapterType::StellarTestnetIpfs => Ok(AdapterInstance::StellarTestnetIpfs(StellarTestnetIpfsAdapter::new()?)),
-        AdapterType::StellarMainnetIpfs => Ok(AdapterInstance::StellarMainnetIpfs(StellarMainnetIpfsAdapter::new()?)),
+        AdapterType::StellarTestnetIpfs => Ok(AdapterInstance::StellarTestnetIpfs(
+            StellarTestnetIpfsAdapter::new()?,
+        )),
+        AdapterType::StellarMainnetIpfs => Ok(AdapterInstance::StellarMainnetIpfs(
+            StellarMainnetIpfsAdapter::new()?,
+        )),
         AdapterType::Custom(_) => Ok(AdapterInstance::IpfsIpfs(IpfsIpfsAdapter::new()?)), // Fallback to IpfsIpfs
         _ => Ok(AdapterInstance::IpfsIpfs(IpfsIpfsAdapter::new()?)), // Fallback to IpfsIpfs
     }

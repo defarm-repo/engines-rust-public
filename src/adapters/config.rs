@@ -1,6 +1,6 @@
+use crate::types::AdapterType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::types::AdapterType;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdapterConfig {

@@ -1,3 +1,5 @@
+use super::shared_state::AppState;
+use crate::api::circuits::{activity_to_response, ActivityResponse};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -7,8 +9,6 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
-use crate::api::circuits::{ActivityResponse, activity_to_response};
-use super::shared_state::AppState;
 
 pub fn activity_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
@@ -24,13 +24,14 @@ async fn get_all_activities(
 
     match engine.get_all_activities() {
         Ok(activities) => {
-            let response: Vec<ActivityResponse> = activities
-                .into_iter()
-                .map(activity_to_response)
-                .collect();
+            let response: Vec<ActivityResponse> =
+                activities.into_iter().map(activity_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get activities: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get activities: {}", e)})),
+        )),
     }
 }
 
@@ -42,12 +43,13 @@ async fn get_user_activities(
 
     match engine.get_activities_for_user(&user_id) {
         Ok(activities) => {
-            let response: Vec<ActivityResponse> = activities
-                .into_iter()
-                .map(activity_to_response)
-                .collect();
+            let response: Vec<ActivityResponse> =
+                activities.into_iter().map(activity_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get user activities: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get user activities: {}", e)})),
+        )),
     }
 }

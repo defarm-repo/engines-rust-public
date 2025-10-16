@@ -1,7 +1,7 @@
 use crate::logging::LoggingEngine;
+use crate::postgres_persistence::PostgresPersistence;
 use crate::storage::StorageBackend;
 use crate::types::{Event, EventType, EventVisibility};
-use crate::postgres_persistence::PostgresPersistence;
 use chrono::{DateTime, Utc};
 use serde_json;
 use std::collections::HashMap;
@@ -58,28 +58,53 @@ impl<S: StorageBackend> EventsEngine<S> {
         source: String,
         visibility: EventVisibility,
     ) -> Result<Event, EventsError> {
-        let mut event = Event::new(dfid.clone(), event_type.clone(), source.clone(), visibility.clone());
+        let mut event = Event::new(
+            dfid.clone(),
+            event_type.clone(),
+            source.clone(),
+            visibility.clone(),
+        );
 
-        self.logger.borrow_mut().info("events_engine", "event_creation_started", &format!("Creating event for DFID: {}", dfid))
+        self.logger
+            .borrow_mut()
+            .info(
+                "events_engine",
+                "event_creation_started",
+                &format!("Creating event for DFID: {}", dfid),
+            )
             .with_context("dfid", dfid.clone())
             .with_context("event_type", format!("{:?}", event_type))
             .with_context("source", source.clone());
 
         if matches!(visibility, EventVisibility::Private) {
             event.encrypt();
-            self.logger.borrow_mut().info("events_engine", "event_encrypted", &format!("Event encrypted for DFID: {}", dfid))
+            self.logger
+                .borrow_mut()
+                .info(
+                    "events_engine",
+                    "event_encrypted",
+                    &format!("Event encrypted for DFID: {}", dfid),
+                )
                 .with_context("event_id", event.event_id.to_string());
         }
 
         // Store in in-memory storage first
-        let mut storage = self.storage.lock()
-        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
+        let mut storage = self
+            .storage
+            .lock()
+            .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .store_event(&event)
             .map_err(|e| EventsError::StorageError(e.to_string()))?;
         drop(storage); // Release lock before async operation
 
-        self.logger.borrow_mut().info("events_engine", "event_created", "Event created successfully")
+        self.logger
+            .borrow_mut()
+            .info(
+                "events_engine",
+                "event_created",
+                "Event created successfully",
+            )
             .with_context("event_id", event.event_id.to_string())
             .with_context("dfid", dfid.clone());
 
@@ -106,8 +131,10 @@ impl<S: StorageBackend> EventsEngine<S> {
         event_id: &Uuid,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<Event, EventsError> {
-        let mut storage = self.storage.lock()
-        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
+        let mut storage = self
+            .storage
+            .lock()
+            .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         let mut event = storage
             .get_event(event_id)
             .map_err(|e| EventsError::StorageError(e.to_string()))?
@@ -115,7 +142,9 @@ impl<S: StorageBackend> EventsEngine<S> {
 
         for (key, value) in metadata {
             event.add_metadata(key.clone(), value.clone());
-            self.logger.borrow_mut().info("events_engine", "metadata_added", "Metadata added to event")
+            self.logger
+                .borrow_mut()
+                .info("events_engine", "metadata_added", "Metadata added to event")
                 .with_context("event_id", event_id.to_string())
                 .with_context("metadata_key", key);
         }
@@ -128,24 +157,33 @@ impl<S: StorageBackend> EventsEngine<S> {
     }
 
     pub fn get_events_for_item(&self, dfid: &str) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock()
-        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_events_by_dfid(dfid)
             .map_err(|e| EventsError::StorageError(e.to_string()))
     }
 
     pub fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock()
-        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_events_by_type(event_type)
             .map_err(|e| EventsError::StorageError(e.to_string()))
     }
 
-    pub fn get_events_by_visibility(&self, visibility: EventVisibility) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock()
-        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
+    pub fn get_events_by_visibility(
+        &self,
+        visibility: EventVisibility,
+    ) -> Result<Vec<Event>, EventsError> {
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_events_by_visibility(visibility)
             .map_err(|e| EventsError::StorageError(e.to_string()))
@@ -156,8 +194,10 @@ impl<S: StorageBackend> EventsEngine<S> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock()
-        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_events_in_time_range(start, end)
             .map_err(|e| EventsError::StorageError(e.to_string()))
@@ -172,16 +212,20 @@ impl<S: StorageBackend> EventsEngine<S> {
     }
 
     pub fn list_all_events(&self) -> Result<Vec<Event>, EventsError> {
-        let storage = self.storage.lock()
-        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .list_events()
             .map_err(|e| EventsError::StorageError(e.to_string()))
     }
 
     pub fn get_event(&self, event_id: &Uuid) -> Result<Option<Event>, EventsError> {
-        let storage = self.storage.lock()
-        .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| EventsError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_event(event_id)
             .map_err(|e| EventsError::StorageError(e.to_string()))
@@ -193,7 +237,12 @@ impl<S: StorageBackend> EventsEngine<S> {
         source: String,
         identifiers: Vec<String>,
     ) -> Result<Event, EventsError> {
-        let event = self.create_event(dfid.clone(), EventType::Created, source, EventVisibility::Public)?;
+        let event = self.create_event(
+            dfid.clone(),
+            EventType::Created,
+            source,
+            EventVisibility::Public,
+        )?;
 
         let identifiers_json: Vec<serde_json::Value> = identifiers
             .into_iter()
@@ -202,10 +251,13 @@ impl<S: StorageBackend> EventsEngine<S> {
 
         self.add_event_metadata(
             &event.event_id,
-            [("identifiers".to_string(), serde_json::Value::Array(identifiers_json))]
-                .iter()
-                .cloned()
-                .collect(),
+            [(
+                "identifiers".to_string(),
+                serde_json::Value::Array(identifiers_json),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         )
     }
 
@@ -215,7 +267,12 @@ impl<S: StorageBackend> EventsEngine<S> {
         source: String,
         data_keys: Vec<String>,
     ) -> Result<Event, EventsError> {
-        let event = self.create_event(dfid.clone(), EventType::Enriched, source, EventVisibility::Public)?;
+        let event = self.create_event(
+            dfid.clone(),
+            EventType::Enriched,
+            source,
+            EventVisibility::Public,
+        )?;
 
         let keys_json: Vec<serde_json::Value> = data_keys
             .into_iter()
@@ -224,10 +281,13 @@ impl<S: StorageBackend> EventsEngine<S> {
 
         self.add_event_metadata(
             &event.event_id,
-            [("enriched_keys".to_string(), serde_json::Value::Array(keys_json))]
-                .iter()
-                .cloned()
-                .collect(),
+            [(
+                "enriched_keys".to_string(),
+                serde_json::Value::Array(keys_json),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         )
     }
 
@@ -237,14 +297,22 @@ impl<S: StorageBackend> EventsEngine<S> {
         secondary_dfid: String,
         source: String,
     ) -> Result<Event, EventsError> {
-        let event = self.create_event(primary_dfid.clone(), EventType::Merged, source, EventVisibility::Public)?;
+        let event = self.create_event(
+            primary_dfid.clone(),
+            EventType::Merged,
+            source,
+            EventVisibility::Public,
+        )?;
 
         self.add_event_metadata(
             &event.event_id,
-            [("merged_from".to_string(), serde_json::Value::String(secondary_dfid))]
-                .iter()
-                .cloned()
-                .collect(),
+            [(
+                "merged_from".to_string(),
+                serde_json::Value::String(secondary_dfid),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
         )
     }
 
@@ -259,15 +327,29 @@ impl<S: StorageBackend> EventsEngine<S> {
         let event_type = match operation.as_str() {
             "push" => EventType::PushedToCircuit,
             "pull" => EventType::PulledFromCircuit,
-            _ => return Err(EventsError::ValidationError("Invalid operation type".to_string())),
+            _ => {
+                return Err(EventsError::ValidationError(
+                    "Invalid operation type".to_string(),
+                ))
+            }
         };
 
-        let event = self.create_event(dfid.clone(), event_type, requester_id.clone(), visibility)?;
+        let event =
+            self.create_event(dfid.clone(), event_type, requester_id.clone(), visibility)?;
 
         let metadata = [
-            ("circuit_id".to_string(), serde_json::Value::String(circuit_id)),
-            ("requester_id".to_string(), serde_json::Value::String(requester_id)),
-            ("operation".to_string(), serde_json::Value::String(operation)),
+            (
+                "circuit_id".to_string(),
+                serde_json::Value::String(circuit_id),
+            ),
+            (
+                "requester_id".to_string(),
+                serde_json::Value::String(requester_id),
+            ),
+            (
+                "operation".to_string(),
+                serde_json::Value::String(operation),
+            ),
         ]
         .iter()
         .cloned()
@@ -281,7 +363,12 @@ impl<S: StorageBackend> EventsEngine<S> {
     }
 
     pub fn get_logs_by_event_type(&self, event_type: &str) -> Vec<crate::logging::LogEntry> {
-        self.logger.borrow().get_logs_by_event_type(event_type).into_iter().cloned().collect()
+        self.logger
+            .borrow()
+            .get_logs_by_event_type(event_type)
+            .into_iter()
+            .cloned()
+            .collect()
     }
 }
 
@@ -333,23 +420,31 @@ mod tests {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         let mut events_engine = EventsEngine::new(storage);
 
-        let event = events_engine.create_event(
-            "DFID-123".to_string(),
-            EventType::Created,
-            "test_source".to_string(),
-            EventVisibility::Public,
-        ).unwrap();
+        let event = events_engine
+            .create_event(
+                "DFID-123".to_string(),
+                EventType::Created,
+                "test_source".to_string(),
+                EventVisibility::Public,
+            )
+            .unwrap();
 
-        let metadata = [("key1".to_string(), serde_json::Value::String("value1".to_string()))]
-            .iter()
-            .cloned()
-            .collect();
+        let metadata = [(
+            "key1".to_string(),
+            serde_json::Value::String("value1".to_string()),
+        )]
+        .iter()
+        .cloned()
+        .collect();
 
         let result = events_engine.add_event_metadata(&event.event_id, metadata);
         assert!(result.is_ok());
 
         let updated_event = result.unwrap();
-        assert_eq!(updated_event.metadata.get("key1").unwrap(), &serde_json::Value::String("value1".to_string()));
+        assert_eq!(
+            updated_event.metadata.get("key1").unwrap(),
+            &serde_json::Value::String("value1".to_string())
+        );
     }
 
     #[test]
@@ -357,19 +452,23 @@ mod tests {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         let mut events_engine = EventsEngine::new(storage);
 
-        events_engine.create_event(
-            "DFID-123".to_string(),
-            EventType::Created,
-            "source1".to_string(),
-            EventVisibility::Public,
-        ).unwrap();
+        events_engine
+            .create_event(
+                "DFID-123".to_string(),
+                EventType::Created,
+                "source1".to_string(),
+                EventVisibility::Public,
+            )
+            .unwrap();
 
-        events_engine.create_event(
-            "DFID-123".to_string(),
-            EventType::Enriched,
-            "source2".to_string(),
-            EventVisibility::Public,
-        ).unwrap();
+        events_engine
+            .create_event(
+                "DFID-123".to_string(),
+                EventType::Enriched,
+                "source2".to_string(),
+                EventVisibility::Public,
+            )
+            .unwrap();
 
         let events = events_engine.get_events_for_item("DFID-123").unwrap();
         assert_eq!(events.len(), 2);

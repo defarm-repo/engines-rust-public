@@ -58,19 +58,34 @@ impl LoggingEngine {
         self.logs.push(entry);
     }
 
-    pub fn info(&mut self, engine: impl Into<String>, event_type: impl Into<String>, message: impl Into<String>) -> LogEntry {
+    pub fn info(
+        &mut self,
+        engine: impl Into<String>,
+        event_type: impl Into<String>,
+        message: impl Into<String>,
+    ) -> LogEntry {
         let entry = LogEntry::new(LogLevel::Info, engine, event_type, message);
         self.logs.push(entry.clone());
         entry
     }
 
-    pub fn warn(&mut self, engine: impl Into<String>, event_type: impl Into<String>, message: impl Into<String>) -> LogEntry {
+    pub fn warn(
+        &mut self,
+        engine: impl Into<String>,
+        event_type: impl Into<String>,
+        message: impl Into<String>,
+    ) -> LogEntry {
         let entry = LogEntry::new(LogLevel::Warn, engine, event_type, message);
         self.logs.push(entry.clone());
         entry
     }
 
-    pub fn error(&mut self, engine: impl Into<String>, event_type: impl Into<String>, message: impl Into<String>) -> LogEntry {
+    pub fn error(
+        &mut self,
+        engine: impl Into<String>,
+        event_type: impl Into<String>,
+        message: impl Into<String>,
+    ) -> LogEntry {
         let entry = LogEntry::new(LogLevel::Error, engine, event_type, message);
         self.logs.push(entry.clone());
         entry
@@ -81,15 +96,24 @@ impl LoggingEngine {
     }
 
     pub fn get_logs_by_engine(&self, engine: &str) -> Vec<&LogEntry> {
-        self.logs.iter().filter(|log| log.engine == engine).collect()
+        self.logs
+            .iter()
+            .filter(|log| log.engine == engine)
+            .collect()
     }
 
     pub fn get_logs_by_level(&self, level: &LogLevel) -> Vec<&LogEntry> {
-        self.logs.iter().filter(|log| std::mem::discriminant(&log.level) == std::mem::discriminant(level)).collect()
+        self.logs
+            .iter()
+            .filter(|log| std::mem::discriminant(&log.level) == std::mem::discriminant(level))
+            .collect()
     }
 
     pub fn get_logs_by_event_type(&self, event_type: &str) -> Vec<&LogEntry> {
-        self.logs.iter().filter(|log| log.event_type == event_type).collect()
+        self.logs
+            .iter()
+            .filter(|log| log.event_type == event_type)
+            .collect()
     }
 
     pub fn clear_logs(&mut self) {

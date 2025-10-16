@@ -1,20 +1,17 @@
 // Simple test endpoint to verify REAL blockchain integration
-use axum::{
-    extract::{State, Path},
-    http::StatusCode,
-    response::Json,
-    routing::post,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, response::Json, routing::post, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::adapters::{
+    base::StorageLocation, IpfsIpfsAdapter, StellarMainnetIpfsAdapter, StellarTestnetIpfsAdapter,
+    StorageAdapter,
+};
 use crate::api::shared_state::AppState;
-use crate::adapters::{StorageAdapter, IpfsIpfsAdapter, StellarTestnetIpfsAdapter, StellarMainnetIpfsAdapter};
-use crate::types::{Item, ItemStatus};
 use crate::storage::StorageBackend;
+use crate::types::{Item, ItemStatus};
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
@@ -41,7 +38,10 @@ async fn test_blockchain_push(
     let mut enriched_data = HashMap::new();
     enriched_data.insert("test".to_string(), serde_json::json!(true));
     enriched_data.insert("data".to_string(), serde_json::json!(payload.test_data));
-    enriched_data.insert("timestamp".to_string(), serde_json::json!(chrono::Utc::now().to_rfc3339()));
+    enriched_data.insert(
+        "timestamp".to_string(),
+        serde_json::json!(chrono::Utc::now().to_rfc3339()),
+    );
 
     let test_item = Item {
         dfid: dfid.clone(),
@@ -61,23 +61,39 @@ async fn test_blockchain_push(
 
     // Store in database first
     {
-        let mut storage = state.shared_storage.lock()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
-        storage.store_item(&test_item)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to store item: {}", e)}))))?;
+        let mut storage = state.shared_storage.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Storage mutex poisoned"})),
+            )
+        })?;
+        storage.store_item(&test_item).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to store item: {}", e)})),
+            )
+        })?;
     }
 
     // Test the adapter based on type
     let result = match payload.adapter_type.as_str() {
         "ipfs" => {
-            let adapter = IpfsIpfsAdapter::new()
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create IPFS adapter: {}", e)}))))?;
+            let adapter = IpfsIpfsAdapter::new().map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to create IPFS adapter: {}", e)})),
+                )
+            })?;
 
-            let upload_result = adapter.store_item(&test_item).await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("IPFS upload failed: {}", e)}))))?;
+            let upload_result = adapter.store_item(&test_item).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("IPFS upload failed: {}", e)})),
+                )
+            })?;
 
             let cid = match &upload_result.metadata.item_location {
-                crate::adapters::StorageLocation::IPFS { cid, .. } => cid.clone(),
+                StorageLocation::IPFS { cid, .. } => cid.clone(),
                 _ => "unknown".to_string(),
             };
 
@@ -88,16 +104,20 @@ async fn test_blockchain_push(
                 hash: cid.clone(),
                 message: format!("✅ SUCCESS! Item uploaded to REAL Pinata IPFS. CID: {}. Verify at: https://gateway.pinata.cloud/ipfs/{}", cid, cid),
             }
-        },
+        }
         "stellar-testnet" => {
             let adapter = StellarTestnetIpfsAdapter::new()
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create Stellar Testnet adapter: {}", e)}))))?;
 
-            let upload_result = adapter.store_item(&test_item).await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Stellar Testnet upload failed: {}", e)}))))?;
+            let upload_result = adapter.store_item(&test_item).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Stellar Testnet upload failed: {}", e)})),
+                )
+            })?;
 
             let tx_hash = match &upload_result.metadata.item_location {
-                crate::adapters::StorageLocation::Stellar { transaction_id, .. } => transaction_id.clone(),
+                StorageLocation::Stellar { transaction_id, .. } => transaction_id.clone(),
                 _ => "unknown".to_string(),
             };
 
@@ -108,16 +128,20 @@ async fn test_blockchain_push(
                 hash: tx_hash.clone(),
                 message: format!("✅ SUCCESS! Item uploaded to REAL Stellar Testnet + Pinata IPFS. Transaction: {}", tx_hash),
             }
-        },
+        }
         "stellar-mainnet" => {
             let adapter = StellarMainnetIpfsAdapter::new()
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create Stellar Mainnet adapter: {}", e)}))))?;
 
-            let upload_result = adapter.store_item(&test_item).await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Stellar Mainnet upload failed: {}", e)}))))?;
+            let upload_result = adapter.store_item(&test_item).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Stellar Mainnet upload failed: {}", e)})),
+                )
+            })?;
 
             let tx_hash = match &upload_result.metadata.item_location {
-                crate::adapters::StorageLocation::Stellar { transaction_id, .. } => transaction_id.clone(),
+                StorageLocation::Stellar { transaction_id, .. } => transaction_id.clone(),
                 _ => "unknown".to_string(),
             };
 
@@ -128,9 +152,14 @@ async fn test_blockchain_push(
                 hash: tx_hash.clone(),
                 message: format!("✅ SUCCESS! Item uploaded to REAL Stellar Mainnet + Pinata IPFS. Transaction: {}. ⚠️ THIS USED REAL FUNDS!", tx_hash),
             }
-        },
+        }
         _ => {
-            return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid adapter_type. Use: ipfs, stellar-testnet, or stellar-mainnet"}))));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    json!({"error": "Invalid adapter_type. Use: ipfs, stellar-testnet, or stellar-mainnet"}),
+                ),
+            ));
         }
     };
 

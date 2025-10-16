@@ -1,22 +1,25 @@
 use axum::{
-    extract::{Path, Query, State, WebSocketUpgrade, ws::{WebSocket, Message}, Extension},
+    extract::{
+        ws::{Message, WebSocket},
+        Extension, Path, Query, State, WebSocketUpgrade,
+    },
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, patch, delete},
+    routing::{delete, get, patch},
     Json, Router,
 };
+use futures::{sink::SinkExt, stream::StreamExt};
+use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::time::interval;
-use futures::{sink::SinkExt, stream::StreamExt};
-use jsonwebtoken::{decode, DecodingKey, Validation};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
-use crate::api::shared_state::AppState;
 use crate::api::auth::Claims;
+use crate::api::shared_state::AppState;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct NotificationMessage {
@@ -52,11 +55,13 @@ pub fn notifications_rest_routes() -> Router<Arc<AppState>> {
 
 // WebSocket route (NOT protected by middleware - verifies token manually from query param)
 pub fn notifications_ws_route(notification_tx: NotificationSender) -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/ws", get({
+    Router::new().route(
+        "/ws",
+        get({
             let tx = notification_tx.clone();
             move |ws, state, query| websocket_handler(ws, state, query, tx.clone())
-        }))
+        }),
+    )
 }
 
 // GET /api/notifications - Get user's notifications
@@ -67,10 +72,9 @@ async fn get_notifications(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let notification_engine = state.notification_engine.lock().unwrap();
 
-    let since = params.since.map(|ts| {
-        chrono::DateTime::from_timestamp(ts, 0)
-            .unwrap_or_else(|| chrono::Utc::now())
-    });
+    let since = params
+        .since
+        .map(|ts| chrono::DateTime::from_timestamp(ts, 0).unwrap_or_else(|| chrono::Utc::now()));
 
     let notifications = notification_engine
         .get_user_notifications(
@@ -199,7 +203,10 @@ async fn websocket_handler(
         &Validation::default(),
     ) {
         Ok(token_data) => {
-            info!("WebSocket token verified for user: {}", token_data.claims.user_id);
+            info!(
+                "WebSocket token verified for user: {}",
+                token_data.claims.user_id
+            );
             token_data.claims
         }
         Err(e) => {
@@ -208,11 +215,15 @@ async fn websocket_handler(
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(json!({"error": "Invalid authentication token"})),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
-    info!("WebSocket connection established for user: {}", claims.user_id);
+    info!(
+        "WebSocket connection established for user: {}",
+        claims.user_id
+    );
     ws.on_upgrade(move |socket| handle_socket(socket, state, claims.user_id, notification_tx))
 }
 
@@ -353,10 +364,15 @@ async fn handle_client_message(request: Value, state: &Arc<AppState>, user_id: &
     if let Some(action) = request.get("action").and_then(|v| v.as_str()) {
         match action {
             "mark_read" => {
-                if let Some(notification_id) = request.get("notification_id").and_then(|v| v.as_str()) {
+                if let Some(notification_id) =
+                    request.get("notification_id").and_then(|v| v.as_str())
+                {
                     if let Ok(notification_engine) = state.notification_engine.lock() {
                         match notification_engine.mark_as_read(notification_id, user_id) {
-                            Ok(_) => info!("Marked notification {} as read for user {}", notification_id, user_id),
+                            Ok(_) => info!(
+                                "Marked notification {} as read for user {}",
+                                notification_id, user_id
+                            ),
                             Err(e) => warn!("Failed to mark notification as read: {}", e),
                         }
                     }
@@ -365,7 +381,10 @@ async fn handle_client_message(request: Value, state: &Arc<AppState>, user_id: &
             "mark_all_read" => {
                 if let Ok(notification_engine) = state.notification_engine.lock() {
                     match notification_engine.mark_all_as_read(user_id) {
-                        Ok(count) => info!("Marked {} notifications as read for user {}", count, user_id),
+                        Ok(count) => info!(
+                            "Marked {} notifications as read for user {}",
+                            count, user_id
+                        ),
                         Err(e) => warn!("Failed to mark all as read: {}", e),
                     }
                 }

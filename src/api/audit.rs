@@ -13,10 +13,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    StorageBackend, AuditEventType, AuditOutcome, AuditSeverity,
-    AuditEventMetadata, ComplianceInfo, IncidentCategory, ComplianceReportType,
-    ComplianceScope, ExportFormat, AuditQuery, AuditSortBy, SortOrder,
-    api::shared_state::AppState
+    api::shared_state::AppState, AuditEventMetadata, AuditEventType, AuditOutcome, AuditQuery,
+    AuditSeverity, AuditSortBy, ComplianceInfo, ComplianceReportType, ComplianceScope,
+    ExportFormat, IncidentCategory, SortOrder, StorageBackend,
 };
 
 // ============================================================================
@@ -30,7 +29,7 @@ pub struct LogEventRequest {
     pub action: String,
     pub resource: String,
     pub resource_id: Option<String>,
-    pub outcome: String, // "success", "failure", "warning", "blocked"
+    pub outcome: String,  // "success", "failure", "warning", "blocked"
     pub severity: String, // "low", "medium", "high", "critical"
     pub details: Option<HashMap<String, serde_json::Value>>,
     pub metadata: Option<AuditEventMetadataRequest>,
@@ -257,7 +256,6 @@ pub struct MetricsQueryParams {
 // STATE MANAGEMENT
 // ============================================================================
 
-
 // ============================================================================
 // API HANDLERS
 // ============================================================================
@@ -275,17 +273,19 @@ pub async fn log_event(
     let metadata = request.metadata.map(|m| convert_metadata(&m));
     let compliance = request.compliance.map(|c| convert_compliance(&c));
 
-    let event_id = engine.log_event(
-        request.user_id,
-        event_type,
-        request.action,
-        request.resource,
-        outcome,
-        severity,
-        request.details,
-        metadata,
-        compliance,
-    ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let event_id = engine
+        .log_event(
+            request.user_id,
+            event_type,
+            request.action,
+            request.resource,
+            outcome,
+            severity,
+            request.details,
+            metadata,
+            compliance,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
@@ -305,15 +305,17 @@ pub async fn log_security_event(
     let severity = parse_severity(&request.severity)?;
     let metadata = request.metadata.map(|m| convert_metadata(&m));
 
-    let (event_id, incident_id) = engine.log_security_event(
-        request.user_id,
-        request.action,
-        request.resource,
-        outcome,
-        severity,
-        request.details,
-        metadata,
-    ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let (event_id, incident_id) = engine
+        .log_security_event(
+            request.user_id,
+            request.action,
+            request.resource,
+            outcome,
+            severity,
+            request.details,
+            metadata,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
@@ -334,16 +336,18 @@ pub async fn log_data_access(
     let metadata = request.metadata.map(|m| convert_metadata(&m));
     let compliance = request.compliance_flags.map(|c| convert_compliance(&c));
 
-    let event_id = engine.log_data_access(
-        request.user_id,
-        request.action,
-        request.resource,
-        request.resource_id,
-        outcome,
-        request.data_classification,
-        compliance,
-        metadata,
-    ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let event_id = engine
+        .log_data_access(
+            request.user_id,
+            request.action,
+            request.resource,
+            request.resource_id,
+            outcome,
+            request.data_classification,
+            compliance,
+            metadata,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
@@ -361,10 +365,12 @@ pub async fn query_events(
     let engine = &state.audit_engine;
 
     let query = convert_audit_query(request)?;
-    let events = engine.query_events(&query)
+    let events = engine
+        .query_events(&query)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let event_responses: Vec<AuditEventResponse> = events.into_iter()
+    let event_responses: Vec<AuditEventResponse> = events
+        .into_iter()
         .map(|e| convert_audit_event_to_response(e))
         .collect();
 
@@ -381,18 +387,23 @@ pub async fn get_events_by_user(
 ) -> Result<Json<Value>, StatusCode> {
     let engine = &state.audit_engine;
 
-    let mut events = engine.get_user_events(&user_id)
+    let mut events = engine
+        .get_user_events(&user_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Apply additional filters
     if let Some(event_type) = params.event_type {
         let parsed_type = parse_event_type(&event_type)?;
-        events.retain(|e| std::mem::discriminant(&e.event_type) == std::mem::discriminant(&parsed_type));
+        events.retain(|e| {
+            std::mem::discriminant(&e.event_type) == std::mem::discriminant(&parsed_type)
+        });
     }
 
     if let Some(severity) = params.severity {
         let parsed_severity = parse_severity(&severity)?;
-        events.retain(|e| std::mem::discriminant(&e.severity) == std::mem::discriminant(&parsed_severity));
+        events.retain(|e| {
+            std::mem::discriminant(&e.severity) == std::mem::discriminant(&parsed_severity)
+        });
     }
 
     // Apply pagination
@@ -400,7 +411,8 @@ pub async fn get_events_by_user(
     let limit = params.limit.unwrap_or(100) as usize;
     events = events.into_iter().skip(offset).take(limit).collect();
 
-    let event_responses: Vec<AuditEventResponse> = events.into_iter()
+    let event_responses: Vec<AuditEventResponse> = events
+        .into_iter()
         .map(|e| convert_audit_event_to_response(e))
         .collect();
 
@@ -416,12 +428,14 @@ pub async fn get_event_by_id(
 ) -> Result<Json<Value>, StatusCode> {
     let engine = &state.audit_engine;
 
-    let event_uuid = Uuid::parse_str(&event_id)
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let event_uuid = Uuid::parse_str(&event_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     // Get event through storage since AuditEngine doesn't have a direct get method
     let storage = engine.get_storage();
-    let event = storage.lock().unwrap().get_audit_event(&event_uuid)
+    let event = storage
+        .lock()
+        .unwrap()
+        .get_audit_event(&event_uuid)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     match event {
@@ -432,7 +446,7 @@ pub async fn get_event_by_id(
                 "data": response
             })))
         }
-        None => Err(StatusCode::NOT_FOUND)
+        None => Err(StatusCode::NOT_FOUND),
     }
 }
 
@@ -446,21 +460,24 @@ pub async fn create_security_incident(
     let severity = parse_severity(&request.severity)?;
     let category = parse_incident_category(&request.category)?;
 
-    let related_events: Result<Vec<Uuid>, _> = request.related_event_ids
+    let related_events: Result<Vec<Uuid>, _> = request
+        .related_event_ids
         .iter()
         .map(|id| Uuid::parse_str(id))
         .collect();
     let related_events = related_events.map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let incident_id = engine.create_security_incident(
-        request.title,
-        request.description,
-        severity,
-        category,
-        request.affected_users,
-        request.affected_resources,
-        related_events,
-    ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let incident_id = engine
+        .create_security_incident(
+            request.title,
+            request.description,
+            severity,
+            category,
+            request.affected_users,
+            request.affected_resources,
+            related_events,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
@@ -476,11 +493,13 @@ pub async fn get_security_incident(
 ) -> Result<Json<Value>, StatusCode> {
     let engine = &state.audit_engine;
 
-    let incident_uuid = Uuid::parse_str(&incident_id)
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let incident_uuid = Uuid::parse_str(&incident_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let storage = engine.get_storage();
-    let incident = storage.lock().unwrap().get_security_incident(&incident_uuid)
+    let incident = storage
+        .lock()
+        .unwrap()
+        .get_security_incident(&incident_uuid)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     match incident {
@@ -491,7 +510,7 @@ pub async fn get_security_incident(
                 "data": response
             })))
         }
-        None => Err(StatusCode::NOT_FOUND)
+        None => Err(StatusCode::NOT_FOUND),
     }
 }
 
@@ -502,10 +521,10 @@ pub async fn assign_incident(
 ) -> Result<Json<Value>, StatusCode> {
     let engine = &state.audit_engine;
 
-    let incident_uuid = Uuid::parse_str(&incident_id)
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let incident_uuid = Uuid::parse_str(&incident_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    engine.assign_incident(&incident_uuid, request.assignee)
+    engine
+        .assign_incident(&incident_uuid, request.assignee)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
@@ -520,10 +539,10 @@ pub async fn resolve_incident(
 ) -> Result<Json<Value>, StatusCode> {
     let engine = &state.audit_engine;
 
-    let incident_uuid = Uuid::parse_str(&incident_id)
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let incident_uuid = Uuid::parse_str(&incident_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    engine.resolve_incident(&incident_uuid)
+    engine
+        .resolve_incident(&incident_uuid)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
@@ -541,11 +560,17 @@ pub async fn list_security_incidents(
     let mut incidents = if let Some(severity) = params.severity {
         let parsed_severity = parse_severity(&severity)?;
         let storage = engine.get_storage();
-        storage.lock().unwrap().get_incidents_by_severity(parsed_severity)
+        storage
+            .lock()
+            .unwrap()
+            .get_incidents_by_severity(parsed_severity)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
         let storage = engine.get_storage();
-        storage.lock().unwrap().list_security_incidents()
+        storage
+            .lock()
+            .unwrap()
+            .list_security_incidents()
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     };
 
@@ -559,7 +584,8 @@ pub async fn list_security_incidents(
     let limit = params.limit.unwrap_or(100) as usize;
     incidents = incidents.into_iter().skip(offset).take(limit).collect();
 
-    let incident_responses: Vec<SecurityIncidentResponse> = incidents.into_iter()
+    let incident_responses: Vec<SecurityIncidentResponse> = incidents
+        .into_iter()
         .map(|i| convert_security_incident_to_response(i))
         .collect();
 
@@ -576,7 +602,8 @@ pub async fn get_dashboard_metrics(
 ) -> Result<Json<Value>, StatusCode> {
     let engine = &state.audit_engine;
 
-    let metrics = engine.get_dashboard_metrics()
+    let metrics = engine
+        .get_dashboard_metrics()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
@@ -610,26 +637,23 @@ pub async fn create_compliance_report(
     let engine = &state.audit_engine;
 
     let report_type = parse_compliance_report_type(&request.report_type)?;
-    let export_format = request.export_format
+    let export_format = request
+        .export_format
         .as_ref()
         .map(|f| parse_export_format(f))
         .transpose()?
         .unwrap_or(ExportFormat::Json);
 
-    let period_start = DateTime::from_timestamp(request.period_start, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    let period_end = DateTime::from_timestamp(request.period_end, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let period_start =
+        DateTime::from_timestamp(request.period_start, 0).ok_or(StatusCode::BAD_REQUEST)?;
+    let period_end =
+        DateTime::from_timestamp(request.period_end, 0).ok_or(StatusCode::BAD_REQUEST)?;
 
     let scope = convert_compliance_scope(request.scope)?;
 
-    let report_id = engine.create_compliance_report(
-        report_type,
-        period_start,
-        period_end,
-        scope,
-        export_format,
-    ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let report_id = engine
+        .create_compliance_report(report_type, period_start, period_end, scope, export_format)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
@@ -645,21 +669,29 @@ pub async fn list_compliance_reports(
 ) -> Result<Json<Value>, StatusCode> {
     let engine = &state.audit_engine;
 
-    let reports = engine.get_compliance_reports()
+    let reports = engine
+        .get_compliance_reports()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Apply filters
     let mut filtered_reports = reports;
     if let Some(report_type) = params.report_type {
         let storage = engine.get_storage();
-        filtered_reports = storage.lock().unwrap().get_reports_by_type(&report_type)
+        filtered_reports = storage
+            .lock()
+            .unwrap()
+            .get_reports_by_type(&report_type)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     // Apply pagination
     let offset = params.offset.unwrap_or(0) as usize;
     let limit = params.limit.unwrap_or(100) as usize;
-    filtered_reports = filtered_reports.into_iter().skip(offset).take(limit).collect();
+    filtered_reports = filtered_reports
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect();
 
     Ok(Json(json!({
         "success": true,
@@ -675,7 +707,8 @@ pub async fn export_events_json(
     let engine = &state.audit_engine;
 
     let query = convert_audit_query(request)?;
-    let events = engine.query_events(&query)
+    let events = engine
+        .query_events(&query)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
@@ -691,11 +724,14 @@ pub async fn sync_events(
 ) -> Result<Json<Value>, StatusCode> {
     let engine = &state.audit_engine;
 
-    let events = request.events.into_iter()
+    let events = request
+        .events
+        .into_iter()
         .map(|e| convert_sync_event_to_audit_event(e))
         .collect::<Result<Vec<_>, _>>()?;
 
-    engine.sync_events(events)
+    engine
+        .sync_events(events)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
@@ -793,25 +829,34 @@ fn convert_compliance(compliance: &ComplianceInfoRequest) -> ComplianceInfo {
 
 fn convert_audit_query(request: AuditQueryRequest) -> Result<AuditQuery, StatusCode> {
     let event_types = if let Some(types) = request.event_types {
-        Some(types.iter()
-            .map(|t| parse_event_type(t))
-            .collect::<Result<Vec<_>, _>>()?)
+        Some(
+            types
+                .iter()
+                .map(|t| parse_event_type(t))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
     } else {
         None
     };
 
     let outcomes = if let Some(outcomes) = request.outcomes {
-        Some(outcomes.iter()
-            .map(|o| parse_outcome(o))
-            .collect::<Result<Vec<_>, _>>()?)
+        Some(
+            outcomes
+                .iter()
+                .map(|o| parse_outcome(o))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
     } else {
         None
     };
 
     let severities = if let Some(severities) = request.severities {
-        Some(severities.iter()
-            .map(|s| parse_severity(s))
-            .collect::<Result<Vec<_>, _>>()?)
+        Some(
+            severities
+                .iter()
+                .map(|s| parse_severity(s))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
     } else {
         None
     };
@@ -837,11 +882,13 @@ fn convert_audit_query(request: AuditQueryRequest) -> Result<AuditQuery, StatusC
         None
     };
 
-    let start_date = request.start_date
+    let start_date = request
+        .start_date
         .map(|ts| DateTime::from_timestamp(ts, 0).ok_or(StatusCode::BAD_REQUEST))
         .transpose()?;
 
-    let end_date = request.end_date
+    let end_date = request
+        .end_date
         .map(|ts| DateTime::from_timestamp(ts, 0).ok_or(StatusCode::BAD_REQUEST))
         .transpose()?;
 
@@ -864,8 +911,12 @@ fn convert_audit_query(request: AuditQueryRequest) -> Result<AuditQuery, StatusC
     })
 }
 
-fn convert_compliance_scope(request: ComplianceScopeRequest) -> Result<ComplianceScope, StatusCode> {
-    let event_types = request.event_types.iter()
+fn convert_compliance_scope(
+    request: ComplianceScopeRequest,
+) -> Result<ComplianceScope, StatusCode> {
+    let event_types = request
+        .event_types
+        .iter()
         .map(|t| parse_event_type(t))
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -906,17 +957,25 @@ fn convert_audit_event_to_response(event: crate::types::AuditEvent) -> AuditEven
     }
 }
 
-fn convert_security_incident_to_response(incident: crate::types::SecurityIncident) -> SecurityIncidentResponse {
+fn convert_security_incident_to_response(
+    incident: crate::types::SecurityIncident,
+) -> SecurityIncidentResponse {
     SecurityIncidentResponse {
         incident_id: incident.incident_id.to_string(),
         title: incident.title,
         description: incident.description,
         severity: format!("{:?}", incident.severity).to_lowercase(),
-        category: format!("{:?}", incident.category).to_lowercase().replace("_", "-"),
+        category: format!("{:?}", incident.category)
+            .to_lowercase()
+            .replace("_", "-"),
         status: format!("{:?}", incident.status).to_lowercase(),
         affected_users: incident.affected_users,
         affected_resources: incident.affected_resources,
-        related_event_ids: incident.related_event_ids.iter().map(|id| id.to_string()).collect(),
+        related_event_ids: incident
+            .related_event_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect(),
         confidential: incident.confidential,
         created_at: incident.created_at.timestamp(),
         updated_at: incident.updated_at.timestamp(),
@@ -924,22 +983,25 @@ fn convert_security_incident_to_response(incident: crate::types::SecurityInciden
     }
 }
 
-fn convert_sync_event_to_audit_event(sync_event: AuditEventSyncRequest) -> Result<crate::types::AuditEvent, StatusCode> {
-    let event_id = Uuid::parse_str(&sync_event.event_id)
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+fn convert_sync_event_to_audit_event(
+    sync_event: AuditEventSyncRequest,
+) -> Result<crate::types::AuditEvent, StatusCode> {
+    let event_id = Uuid::parse_str(&sync_event.event_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let timestamp = DateTime::from_timestamp(sync_event.timestamp, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let timestamp =
+        DateTime::from_timestamp(sync_event.timestamp, 0).ok_or(StatusCode::BAD_REQUEST)?;
 
     let event_type = parse_event_type(&sync_event.event_type)?;
     let outcome = parse_outcome(&sync_event.outcome)?;
     let severity = parse_severity(&sync_event.severity)?;
 
-    let metadata = sync_event.metadata
+    let metadata = sync_event
+        .metadata
         .map(|m| convert_metadata(&m))
         .unwrap_or_default();
 
-    let compliance = sync_event.compliance
+    let compliance = sync_event
+        .compliance
         .map(|c| convert_compliance(&c))
         .unwrap_or_default();
 
@@ -966,20 +1028,21 @@ fn convert_sync_event_to_audit_event(sync_event: AuditEventSyncRequest) -> Resul
 
 #[derive(Debug, serde::Deserialize)]
 pub struct CompliancePeriodRequest {
-    pub start_date: i64,  // Unix timestamp
-    pub end_date: i64,    // Unix timestamp
+    pub start_date: i64, // Unix timestamp
+    pub end_date: i64,   // Unix timestamp
 }
 
 async fn generate_gdpr_report(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CompliancePeriodRequest>,
 ) -> Result<Json<ComplianceReportResponse>, StatusCode> {
-    let start_date = DateTime::from_timestamp(request.start_date, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    let end_date = DateTime::from_timestamp(request.end_date, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let start_date =
+        DateTime::from_timestamp(request.start_date, 0).ok_or(StatusCode::BAD_REQUEST)?;
+    let end_date = DateTime::from_timestamp(request.end_date, 0).ok_or(StatusCode::BAD_REQUEST)?;
 
-    let report = state.audit_engine.generate_gdpr_compliance_report(start_date, end_date)
+    let report = state
+        .audit_engine
+        .generate_gdpr_compliance_report(start_date, end_date)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ComplianceReportResponse {
@@ -1000,12 +1063,13 @@ async fn generate_food_safety_report(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CompliancePeriodRequest>,
 ) -> Result<Json<ComplianceReportResponse>, StatusCode> {
-    let start_date = DateTime::from_timestamp(request.start_date, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    let end_date = DateTime::from_timestamp(request.end_date, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let start_date =
+        DateTime::from_timestamp(request.start_date, 0).ok_or(StatusCode::BAD_REQUEST)?;
+    let end_date = DateTime::from_timestamp(request.end_date, 0).ok_or(StatusCode::BAD_REQUEST)?;
 
-    let report = state.audit_engine.generate_food_safety_report(start_date, end_date)
+    let report = state
+        .audit_engine
+        .generate_food_safety_report(start_date, end_date)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ComplianceReportResponse {
@@ -1026,12 +1090,13 @@ async fn get_compliance_events(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CompliancePeriodRequest>,
 ) -> Result<Json<Vec<AuditEventResponse>>, StatusCode> {
-    let start_date = DateTime::from_timestamp(request.start_date, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    let end_date = DateTime::from_timestamp(request.end_date, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let start_date =
+        DateTime::from_timestamp(request.start_date, 0).ok_or(StatusCode::BAD_REQUEST)?;
+    let end_date = DateTime::from_timestamp(request.end_date, 0).ok_or(StatusCode::BAD_REQUEST)?;
 
-    let events = state.audit_engine.get_compliance_events_for_period(start_date, end_date)
+    let events = state
+        .audit_engine
+        .get_compliance_events_for_period(start_date, end_date)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let response: Vec<AuditEventResponse> = events
@@ -1046,12 +1111,13 @@ async fn get_compliance_incidents(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CompliancePeriodRequest>,
 ) -> Result<Json<Vec<SecurityIncidentResponse>>, StatusCode> {
-    let start_date = DateTime::from_timestamp(request.start_date, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    let end_date = DateTime::from_timestamp(request.end_date, 0)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let start_date =
+        DateTime::from_timestamp(request.start_date, 0).ok_or(StatusCode::BAD_REQUEST)?;
+    let end_date = DateTime::from_timestamp(request.end_date, 0).ok_or(StatusCode::BAD_REQUEST)?;
 
-    let incidents = state.audit_engine.get_security_incidents_for_compliance(start_date, end_date)
+    let incidents = state
+        .audit_engine
+        .get_security_incidents_for_compliance(start_date, end_date)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let response: Vec<SecurityIncidentResponse> = incidents
@@ -1072,33 +1138,36 @@ pub fn audit_routes(app_state: Arc<AppState>) -> Router {
         .route("/audit/events", post(log_event))
         .route("/audit/events/security", post(log_security_event))
         .route("/audit/events/data-access", post(log_data_access))
-
         // Event querying
         .route("/audit/events/query", post(query_events))
         .route("/audit/events/:event_id", get(get_event_by_id))
         .route("/audit/events/user/:user_id", get(get_events_by_user))
-
         // Security incidents
         .route("/audit/incidents", post(create_security_incident))
         .route("/audit/incidents", get(list_security_incidents))
         .route("/audit/incidents/:incident_id", get(get_security_incident))
         .route("/audit/incidents/:incident_id/assign", put(assign_incident))
-        .route("/audit/incidents/:incident_id/resolve", put(resolve_incident))
-
+        .route(
+            "/audit/incidents/:incident_id/resolve",
+            put(resolve_incident),
+        )
         // Compliance reports
         .route("/audit/compliance/reports", post(create_compliance_report))
         .route("/audit/compliance/reports", get(list_compliance_reports))
         .route("/audit/compliance/reports/gdpr", post(generate_gdpr_report))
-        .route("/audit/compliance/reports/food-safety", post(generate_food_safety_report))
+        .route(
+            "/audit/compliance/reports/food-safety",
+            post(generate_food_safety_report),
+        )
         .route("/audit/compliance/events", post(get_compliance_events))
-        .route("/audit/compliance/incidents", post(get_compliance_incidents))
-
+        .route(
+            "/audit/compliance/incidents",
+            post(get_compliance_incidents),
+        )
         // Dashboard and metrics
         .route("/audit/dashboard/metrics", get(get_dashboard_metrics))
-
         // Data export
         .route("/audit/export/json", post(export_events_json))
-
         // Event synchronization
         .route("/audit/events/sync", post(sync_events))
         .with_state(app_state)

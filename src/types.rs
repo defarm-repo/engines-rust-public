@@ -1,3 +1,4 @@
+use crate::adapters::base::StorageLocation;
 use crate::identifier_types::{CircuitAliasConfig, EnhancedIdentifier, ExternalAlias};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -41,7 +42,7 @@ pub struct DataLakeEntry {
     pub error_message: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ProcessingStatus {
     Pending,
     Processing,
@@ -2094,7 +2095,7 @@ impl ComplianceReport {
 // Re-export ZK proof types from the engine module
 pub use crate::zk_proof_engine::{
     AgriculturalContext, CircuitInput, CircuitTemplate, CircuitType, ProofStatus,
-    VerificationResult, ZkProof, ZkProofError,
+    VerificationResult as ZkVerificationResult, ZkProof, ZkProofError,
 };
 
 // ============================================================================
@@ -2204,7 +2205,7 @@ pub enum StorageBackendType {
 pub struct ItemStorageHistory {
     pub dfid: String,
     pub storage_records: Vec<StorageRecord>,
-    pub current_primary: Option<crate::adapters::StorageLocation>,
+    pub current_primary: Option<StorageLocation>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -2212,7 +2213,7 @@ pub struct ItemStorageHistory {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageRecord {
     pub adapter_type: AdapterType,
-    pub storage_location: crate::adapters::StorageLocation,
+    pub storage_location: StorageLocation,
     pub stored_at: DateTime<Utc>,
     pub triggered_by: String, // "item_creation", "circuit_push", "migration"
     pub triggered_by_id: Option<String>, // circuit_id, user_id, etc.

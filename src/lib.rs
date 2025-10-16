@@ -38,8 +38,6 @@ pub mod webhook_delivery_worker;
 pub mod webhook_engine;
 
 #[cfg(test)]
-mod circuit_tokenization_tests;
-#[cfg(test)]
 mod test_safe_json_numbers;
 
 pub use api_key_engine::*;
@@ -59,6 +57,9 @@ pub use receipt_engine::*;
 pub use storage::*;
 pub use storage_history_manager::*;
 pub use types::*;
-pub use verification_engine::*;
+pub use verification_engine::{VerificationEngine, VerificationError, VerificationResult};
 pub use webhook_engine::*;
-pub use zk_proof_engine::*;
+pub use zk_proof_engine::{
+    AgriculturalContext, CircuitInput, CircuitTemplate, CircuitType, ProofStatus,
+    VerificationResult as ZkVerificationResult, ZkProof, ZkProofEngine, ZkProofError,
+};

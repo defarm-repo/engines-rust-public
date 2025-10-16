@@ -2,15 +2,15 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::Json,
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Router,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
-use chrono::Utc;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateWorkspaceRequest {
@@ -183,7 +183,9 @@ fn workspace_to_response(workspace: Workspace) -> WorkspaceResponse {
             max_members: workspace.settings.max_members,
             allow_public_circuits: workspace.settings.allow_public_circuits,
         },
-        members: workspace.members.clone()
+        members: workspace
+            .members
+            .clone()
             .into_iter()
             .map(|member| WorkspaceMemberResponse {
                 user_id: member.user_id,
@@ -194,9 +196,9 @@ fn workspace_to_response(workspace: Workspace) -> WorkspaceResponse {
             .collect(),
         stats: WorkspaceStatsResponse {
             total_members: workspace.members.len() as u32,
-            total_circuits: 0, // Would be calculated from circuits engine
-            total_items: 0,    // Would be calculated from items engine
-            total_events: 0,   // Would be calculated from events engine
+            total_circuits: 0,    // Would be calculated from circuits engine
+            total_items: 0,       // Would be calculated from items engine
+            total_events: 0,      // Would be calculated from events engine
             storage_used_mb: 0.0, // Would be calculated from storage
         },
     }
@@ -264,14 +266,21 @@ async fn get_workspace(
     State(state): State<Arc<WorkspaceState>>,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<Value>)> {
-    let workspace_uuid = Uuid::parse_str(&workspace_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid workspace ID format"}))))?;
+    let workspace_uuid = Uuid::parse_str(&workspace_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid workspace ID format"})),
+        )
+    })?;
 
     let workspaces = state.workspaces.lock().unwrap();
 
     match workspaces.get(&workspace_uuid) {
         Some(workspace) => Ok(Json(workspace_to_response(workspace.clone()))),
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Workspace not found"})),
+        )),
     }
 }
 
@@ -280,8 +289,12 @@ async fn update_workspace(
     Path(workspace_id): Path<String>,
     Json(payload): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<Value>)> {
-    let workspace_uuid = Uuid::parse_str(&workspace_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid workspace ID format"}))))?;
+    let workspace_uuid = Uuid::parse_str(&workspace_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid workspace ID format"})),
+        )
+    })?;
 
     let mut workspaces = state.workspaces.lock().unwrap();
 
@@ -317,7 +330,10 @@ async fn update_workspace(
 
             Ok(Json(workspace_to_response(workspace.clone())))
         }
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Workspace not found"})),
+        )),
     }
 }
 
@@ -325,14 +341,21 @@ async fn delete_workspace(
     State(state): State<Arc<WorkspaceState>>,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let workspace_uuid = Uuid::parse_str(&workspace_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid workspace ID format"}))))?;
+    let workspace_uuid = Uuid::parse_str(&workspace_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid workspace ID format"})),
+        )
+    })?;
 
     let mut workspaces = state.workspaces.lock().unwrap();
 
     match workspaces.remove(&workspace_uuid) {
         Some(_) => Ok(Json(json!({"message": "Workspace deleted successfully"}))),
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Workspace not found"})),
+        )),
     }
 }
 
@@ -354,26 +377,43 @@ async fn add_member(
     Path(workspace_id): Path<String>,
     Json(payload): Json<AddMemberRequest>,
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<Value>)> {
-    let workspace_uuid = Uuid::parse_str(&workspace_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid workspace ID format"}))))?;
+    let workspace_uuid = Uuid::parse_str(&workspace_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid workspace ID format"})),
+        )
+    })?;
 
     let mut workspaces = state.workspaces.lock().unwrap();
 
     match workspaces.get_mut(&workspace_uuid) {
         Some(workspace) => {
             // Check if user is already a member
-            if workspace.members.iter().any(|m| m.user_id == payload.user_id) {
-                return Err((StatusCode::CONFLICT, Json(json!({"error": "User is already a member"}))));
+            if workspace
+                .members
+                .iter()
+                .any(|m| m.user_id == payload.user_id)
+            {
+                return Err((
+                    StatusCode::CONFLICT,
+                    Json(json!({"error": "User is already a member"})),
+                ));
             }
 
             // Check max members limit
             if workspace.members.len() >= workspace.settings.max_members as usize {
-                return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Workspace has reached maximum member limit"}))));
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Workspace has reached maximum member limit"})),
+                ));
             }
 
             // Validate role
             if !["Owner", "Admin", "Member", "Viewer"].contains(&payload.role.as_str()) {
-                return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid role"}))));
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid role"})),
+                ));
             }
 
             let new_member = WorkspaceMember {
@@ -388,7 +428,10 @@ async fn add_member(
 
             Ok(Json(workspace_to_response(workspace.clone())))
         }
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Workspace not found"})),
+        )),
     }
 }
 
@@ -396,14 +439,19 @@ async fn list_members(
     State(state): State<Arc<WorkspaceState>>,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<Vec<WorkspaceMemberResponse>>, (StatusCode, Json<Value>)> {
-    let workspace_uuid = Uuid::parse_str(&workspace_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid workspace ID format"}))))?;
+    let workspace_uuid = Uuid::parse_str(&workspace_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid workspace ID format"})),
+        )
+    })?;
 
     let workspaces = state.workspaces.lock().unwrap();
 
     match workspaces.get(&workspace_uuid) {
         Some(workspace) => {
-            let response: Vec<WorkspaceMemberResponse> = workspace.members
+            let response: Vec<WorkspaceMemberResponse> = workspace
+                .members
                 .iter()
                 .map(|member| WorkspaceMemberResponse {
                     user_id: member.user_id.clone(),
@@ -415,7 +463,10 @@ async fn list_members(
 
             Ok(Json(response))
         }
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Workspace not found"})),
+        )),
     }
 }
 
@@ -424,8 +475,12 @@ async fn update_member(
     Path((workspace_id, user_id)): Path<(String, String)>,
     Json(payload): Json<UpdateMemberRequest>,
 ) -> Result<Json<WorkspaceMemberResponse>, (StatusCode, Json<Value>)> {
-    let workspace_uuid = Uuid::parse_str(&workspace_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid workspace ID format"}))))?;
+    let workspace_uuid = Uuid::parse_str(&workspace_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid workspace ID format"})),
+        )
+    })?;
 
     let mut workspaces = state.workspaces.lock().unwrap();
 
@@ -433,7 +488,10 @@ async fn update_member(
         Some(workspace) => {
             // Validate role
             if !["Owner", "Admin", "Member", "Viewer"].contains(&payload.role.as_str()) {
-                return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid role"}))));
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid role"})),
+                ));
             }
 
             if let Some(member) = workspace.members.iter_mut().find(|m| m.user_id == user_id) {
@@ -447,10 +505,16 @@ async fn update_member(
                     last_active: member.last_active.map(|t| t.timestamp()),
                 }))
             } else {
-                Err((StatusCode::NOT_FOUND, Json(json!({"error": "Member not found"}))))
+                Err((
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Member not found"})),
+                ))
             }
         }
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Workspace not found"})),
+        )),
     }
 }
 
@@ -458,8 +522,12 @@ async fn remove_member(
     State(state): State<Arc<WorkspaceState>>,
     Path((workspace_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let workspace_uuid = Uuid::parse_str(&workspace_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid workspace ID format"}))))?;
+    let workspace_uuid = Uuid::parse_str(&workspace_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid workspace ID format"})),
+        )
+    })?;
 
     let mut workspaces = state.workspaces.lock().unwrap();
 
@@ -472,10 +540,16 @@ async fn remove_member(
                 workspace.updated_at = Utc::now();
                 Ok(Json(json!({"message": "Member removed successfully"})))
             } else {
-                Err((StatusCode::NOT_FOUND, Json(json!({"error": "Member not found"}))))
+                Err((
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Member not found"})),
+                ))
             }
         }
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Workspace not found"})),
+        )),
     }
 }
 
@@ -483,8 +557,12 @@ async fn get_workspace_stats(
     State(state): State<Arc<WorkspaceState>>,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<WorkspaceStatsResponse>, (StatusCode, Json<Value>)> {
-    let workspace_uuid = Uuid::parse_str(&workspace_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid workspace ID format"}))))?;
+    let workspace_uuid = Uuid::parse_str(&workspace_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid workspace ID format"})),
+        )
+    })?;
 
     let workspaces = state.workspaces.lock().unwrap();
 
@@ -492,13 +570,16 @@ async fn get_workspace_stats(
         Some(workspace) => {
             Ok(Json(WorkspaceStatsResponse {
                 total_members: workspace.members.len() as u32,
-                total_circuits: 0, // Would integrate with CircuitsEngine
-                total_items: 0,    // Would integrate with ItemsEngine
-                total_events: 0,   // Would integrate with EventsEngine
+                total_circuits: 0,    // Would integrate with CircuitsEngine
+                total_items: 0,       // Would integrate with ItemsEngine
+                total_events: 0,      // Would integrate with EventsEngine
                 storage_used_mb: 0.0, // Would calculate from storage
             }))
         }
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Workspace not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Workspace not found"})),
+        )),
     }
 }
 

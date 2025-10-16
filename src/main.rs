@@ -1,6 +1,6 @@
 use defarm_engine::{
-    Identifier, ReceiptEngine, InMemoryStorage, EventsEngine, CircuitsEngine,
-    EventType, MemberRole, Item, StorageBackend
+    CircuitsEngine, EventType, EventsEngine, Identifier, InMemoryStorage, Item, MemberRole,
+    ReceiptEngine, StorageBackend,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -72,18 +72,22 @@ async fn main() {
     println!("   Creating events for item: {}", demo_dfid);
 
     // Create item lifecycle events
-    let created_event = events_engine.create_item_created_event(
-        demo_dfid.clone(),
-        "demo_source".to_string(),
-        vec!["user_12345".to_string(), "tx_abc123".to_string()]
-    ).unwrap();
+    let created_event = events_engine
+        .create_item_created_event(
+            demo_dfid.clone(),
+            "demo_source".to_string(),
+            vec!["user_12345".to_string(), "tx_abc123".to_string()],
+        )
+        .unwrap();
     println!("   Created event: {}", created_event.event_id);
 
-    let enriched_event = events_engine.create_item_enriched_event(
-        demo_dfid.clone(),
-        "enrichment_source".to_string(),
-        vec!["payment_method".to_string(), "amount".to_string()]
-    ).unwrap();
+    let enriched_event = events_engine
+        .create_item_enriched_event(
+            demo_dfid.clone(),
+            "enrichment_source".to_string(),
+            vec!["payment_method".to_string(), "amount".to_string()],
+        )
+        .unwrap();
     println!("   Enriched event: {}", enriched_event.event_id);
 
     // Query events for the item
@@ -94,65 +98,83 @@ async fn main() {
     println!("\n5. Circuits Engine Demo:");
 
     // Create a circuit
-    let circuit = circuits_engine.create_circuit(
-        "Demo Circuit".to_string(),
-        "A demonstration circuit for sharing items".to_string(),
-        "owner_123".to_string(),
-        None,
-        None
-    ).unwrap();
-    println!("   Created circuit: {} (ID: {})", circuit.name, circuit.circuit_id);
+    let circuit = circuits_engine
+        .create_circuit(
+            "Demo Circuit".to_string(),
+            "A demonstration circuit for sharing items".to_string(),
+            "owner_123".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
+    println!(
+        "   Created circuit: {} (ID: {})",
+        circuit.name, circuit.circuit_id
+    );
 
     // Add a member to the circuit
-    let updated_circuit = circuits_engine.add_member_to_circuit(
-        &circuit.circuit_id,
-        "member_456".to_string(),
-        MemberRole::Member,
-        "owner_123"
-    ).unwrap();
-    println!("   Added member to circuit. Total members: {}", updated_circuit.members.len());
+    let updated_circuit = circuits_engine
+        .add_member_to_circuit(
+            &circuit.circuit_id,
+            "member_456".to_string(),
+            MemberRole::Member,
+            "owner_123",
+        )
+        .unwrap();
+    println!(
+        "   Added member to circuit. Total members: {}",
+        updated_circuit.members.len()
+    );
 
     // Create a demo item in storage first
     {
         let mut storage = shared_storage.lock().unwrap();
         let demo_identifiers = vec![
             Identifier::new("user_id", "user_12345"),
-            Identifier::new("transaction_id", "tx_abc123")
+            Identifier::new("transaction_id", "tx_abc123"),
         ];
-        let demo_item = Item::new(
-            demo_dfid.clone(),
-            demo_identifiers,
-            Uuid::new_v4()
-        );
+        let demo_item = Item::new(demo_dfid.clone(), demo_identifiers, Uuid::new_v4());
         storage.store_item(&demo_item).unwrap();
     }
 
     // Demonstrate push/pull operations with the item
-    println!("   Demonstrating circuit operations with item: {}", demo_dfid);
+    println!(
+        "   Demonstrating circuit operations with item: {}",
+        demo_dfid
+    );
 
     // Push item to circuit
-    let push_operation = circuits_engine.push_item_to_circuit(
-        &demo_dfid,
-        &circuit.circuit_id,
-        "owner_123"
-    ).await.unwrap();
+    let push_operation = circuits_engine
+        .push_item_to_circuit(&demo_dfid, &circuit.circuit_id, "owner_123")
+        .await
+        .unwrap();
     println!("   Push operation created: {}", push_operation.operation_id);
 
     // Pull item from circuit
-    let (pulled_item, pull_operation) = circuits_engine.pull_item_from_circuit(
-        &demo_dfid,
-        &circuit.circuit_id,
-        "member_456"
-    ).unwrap();
-    println!("   Pull operation completed: {}", pull_operation.operation_id);
+    let (pulled_item, pull_operation) = circuits_engine
+        .pull_item_from_circuit(&demo_dfid, &circuit.circuit_id, "member_456")
+        .unwrap();
+    println!(
+        "   Pull operation completed: {}",
+        pull_operation.operation_id
+    );
     println!("   Pulled item DFID: {}", pulled_item.dfid);
 
     // Check events created by circuit operations
     let circuit_events = events_engine.get_events_for_item(&demo_dfid).unwrap();
-    let circuit_operation_events: Vec<_> = circuit_events.iter()
-        .filter(|e| matches!(e.event_type, EventType::PushedToCircuit | EventType::PulledFromCircuit))
+    let circuit_operation_events: Vec<_> = circuit_events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.event_type,
+                EventType::PushedToCircuit | EventType::PulledFromCircuit
+            )
+        })
         .collect();
-    println!("   Circuit operation events created: {}", circuit_operation_events.len());
+    println!(
+        "   Circuit operation events created: {}",
+        circuit_operation_events.len()
+    );
 
     println!("\n6. System Summary:");
     let total_events = events_engine.list_all_events().unwrap().len();

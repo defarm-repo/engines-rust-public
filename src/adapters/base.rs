@@ -1,8 +1,8 @@
+use crate::storage::StorageError;
+use crate::types::*;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::types::*;
-use crate::storage::StorageError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageMetadata {
@@ -15,19 +15,26 @@ pub struct StorageMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StorageLocation {
-    Local { id: String },
-    IPFS { cid: String, pinned: bool },
+    Local {
+        id: String,
+    },
+    IPFS {
+        cid: String,
+        pinned: bool,
+    },
     Stellar {
         transaction_id: String,
         contract_address: String,
-        asset_id: Option<String>
+        asset_id: Option<String>,
     },
     Ethereum {
         transaction_hash: String,
         contract_address: String,
-        token_id: Option<String>
+        token_id: Option<String>,
     },
-    Arweave { transaction_id: String },
+    Arweave {
+        transaction_id: String,
+    },
 }
 
 #[derive(Debug)]
@@ -50,19 +57,32 @@ pub trait StorageAdapter: Send + Sync {
 
     /// Store item with knowledge of whether this is a new DFID (for NFT minting)
     /// Default implementation calls store_item() for backwards compatibility
-    async fn store_new_item(&self, item: &Item, is_new_dfid: bool, creator: &str) -> Result<AdapterResult<String>, StorageError> {
+    async fn store_new_item(
+        &self,
+        item: &Item,
+        is_new_dfid: bool,
+        creator: &str,
+    ) -> Result<AdapterResult<String>, StorageError> {
         // Default: ignore the is_new_dfid flag and just store normally
         let _ = (is_new_dfid, creator); // Suppress unused warnings
         self.store_item(item).await
     }
 
-    async fn store_event(&self, event: &Event, item_id: &str) -> Result<AdapterResult<String>, StorageError>;
+    async fn store_event(
+        &self,
+        event: &Event,
+        item_id: &str,
+    ) -> Result<AdapterResult<String>, StorageError>;
 
     async fn get_item(&self, item_id: &str) -> Result<Option<AdapterResult<Item>>, StorageError>;
 
-    async fn get_event(&self, event_id: &str) -> Result<Option<AdapterResult<Event>>, StorageError>;
+    async fn get_event(&self, event_id: &str)
+        -> Result<Option<AdapterResult<Event>>, StorageError>;
 
-    async fn get_item_events(&self, item_id: &str) -> Result<Vec<AdapterResult<Event>>, StorageError>;
+    async fn get_item_events(
+        &self,
+        item_id: &str,
+    ) -> Result<Vec<AdapterResult<Event>>, StorageError>;
 
     async fn sync_status(&self) -> Result<SyncStatus, StorageError>;
 

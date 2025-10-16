@@ -1,21 +1,23 @@
-use axum::{
-    extract::{State, Extension},
-    http::StatusCode,
-    response::Json,
-    routing::{post, get},
-    Router,
-    middleware,
-};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::sync::Arc;
-use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation};
-use bcrypt::{hash, verify, DEFAULT_COST};
-use chrono::{Utc, Duration};
 use crate::api::shared_state::AppState;
 use crate::auth_middleware::jwt_auth_middleware;
 use crate::storage::StorageBackend;
-use crate::types::{UserAccount, UserTier, AccountStatus, TierLimits, CreditTransaction, CreditTransactionType};
+use crate::types::{
+    AccountStatus, CreditTransaction, CreditTransactionType, TierLimits, UserAccount, UserTier,
+};
+use axum::{
+    extract::{Extension, State},
+    http::StatusCode,
+    middleware,
+    response::Json,
+    routing::{get, post},
+    Router,
+};
+use bcrypt::{hash, verify, DEFAULT_COST};
+use chrono::{Duration, Utc};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// Validates password complexity requirements
@@ -102,12 +104,14 @@ impl AuthState {
             panic!("JWT_SECRET must be at least 32 characters long for security");
         }
 
-        Self {
-            jwt_secret,
-        }
+        Self { jwt_secret }
     }
 
-    pub fn generate_token(&self, user_id: &str, workspace_id: Option<String>) -> Result<String, jsonwebtoken::errors::Error> {
+    pub fn generate_token(
+        &self,
+        user_id: &str,
+        workspace_id: Option<String>,
+    ) -> Result<String, jsonwebtoken::errors::Error> {
         let expiration = Utc::now()
             .checked_add_signed(Duration::hours(24))
             .expect("valid timestamp")
@@ -131,7 +135,8 @@ impl AuthState {
             token,
             &DecodingKey::from_secret(self.jwt_secret.as_ref()),
             &Validation::default(),
-        ).map(|data| data.claims)
+        )
+        .map(|data| data.claims)
     }
 }
 
@@ -144,7 +149,7 @@ pub fn auth_routes(app_state: Arc<AppState>) -> Router {
     // Unauthenticated routes
     let public_routes = Router::new()
         .route("/login", post(login))
-        .route("/register", post(register));  // Active but hidden from public docs
+        .route("/register", post(register)); // Active but hidden from public docs
 
     // Protected routes requiring JWT authentication
     let protected_routes = Router::new()
@@ -166,11 +171,21 @@ async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
     // Get user by username from shared storage
-    let storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
-    if let Some(user) = storage.get_user_by_username(&payload.username)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
+    if let Some(user) = storage
+        .get_user_by_username(&payload.username)
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?
     {
         // Verify password
         if verify(&payload.password, &user.password_hash).unwrap_or(false) {
@@ -179,25 +194,33 @@ async fn login(
                 AccountStatus::Suspended => {
                     return Err((
                         StatusCode::FORBIDDEN,
-                        Json(json!({"error": "Your account has been suspended. Please contact an administrator."}))
+                        Json(
+                            json!({"error": "Your account has been suspended. Please contact an administrator."}),
+                        ),
                     ));
                 }
                 AccountStatus::Banned => {
                     return Err((
                         StatusCode::FORBIDDEN,
-                        Json(json!({"error": "Your account has been banned. Please contact an administrator."}))
+                        Json(
+                            json!({"error": "Your account has been banned. Please contact an administrator."}),
+                        ),
                     ));
                 }
                 AccountStatus::PendingVerification => {
                     return Err((
                         StatusCode::FORBIDDEN,
-                        Json(json!({"error": "Your account is pending verification. Please check your email."}))
+                        Json(
+                            json!({"error": "Your account is pending verification. Please check your email."}),
+                        ),
                     ));
                 }
                 AccountStatus::TrialExpired => {
                     return Err((
                         StatusCode::FORBIDDEN,
-                        Json(json!({"error": "Your trial has expired. Please upgrade your account."}))
+                        Json(
+                            json!({"error": "Your trial has expired. Please upgrade your account."}),
+                        ),
                     ));
                 }
                 AccountStatus::Active => {
@@ -206,8 +229,14 @@ async fn login(
             }
 
             // Generate token with actual user_id
-            let token = auth.generate_token(&user.user_id, user.workspace_id.clone())
-                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to generate token"}))))?;
+            let token = auth
+                .generate_token(&user.user_id, user.workspace_id.clone())
+                .map_err(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": "Failed to generate token"})),
+                    )
+                })?;
 
             let expires_at = Utc::now()
                 .checked_add_signed(Duration::hours(24))
@@ -223,7 +252,10 @@ async fn login(
         }
     }
 
-    Err((StatusCode::UNAUTHORIZED, Json(json!({"error": "Invalid credentials"}))))
+    Err((
+        StatusCode::UNAUTHORIZED,
+        Json(json!({"error": "Invalid credentials"})),
+    ))
 }
 
 async fn register(
@@ -235,31 +267,60 @@ async fn register(
         return Err((StatusCode::BAD_REQUEST, Json(json!({"error": e}))));
     }
 
-    let mut storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let mut storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
     // Check if username already exists
-    if storage.get_user_by_username(&payload.username)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
+    if storage
+        .get_user_by_username(&payload.username)
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?
         .is_some()
     {
-        return Err((StatusCode::CONFLICT, Json(json!({"error": "Username already exists"}))));
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Username already exists"})),
+        ));
     }
 
     // Check if email already exists
-    if storage.get_user_by_email(&payload.email)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
+    if storage
+        .get_user_by_email(&payload.email)
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?
         .is_some()
     {
-        return Err((StatusCode::CONFLICT, Json(json!({"error": "Email already exists"}))));
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Email already exists"})),
+        ));
     }
 
-    let password_hash = hash(&payload.password, DEFAULT_COST)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to hash password"}))))?;
+    let password_hash = hash(&payload.password, DEFAULT_COST).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to hash password"})),
+        )
+    })?;
 
     // Create new user account
     let user_id = format!("user-{}", Uuid::new_v4());
-    let workspace_id = payload.workspace_name.as_ref().map(|name| format!("{}-workspace", name))
+    let workspace_id = payload
+        .workspace_name
+        .as_ref()
+        .map(|name| format!("{}-workspace", name))
         .or_else(|| Some(format!("{}-workspace", payload.username)));
 
     let new_user = UserAccount {
@@ -281,8 +342,12 @@ async fn register(
     };
 
     // Store user account
-    storage.store_user_account(&new_user)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    storage.store_user_account(&new_user).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     // Record initial credit grant
     let initial_credit_transaction = CreditTransaction {
@@ -297,8 +362,14 @@ async fn register(
         balance_after: 100,
     };
 
-    storage.record_credit_transaction(&initial_credit_transaction)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    storage
+        .record_credit_transaction(&initial_credit_transaction)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     drop(storage); // Release the lock
 
@@ -317,8 +388,14 @@ async fn register(
         }
     });
 
-    let token = auth.generate_token(&user_id, workspace_id.clone())
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to generate token"}))))?;
+    let token = auth
+        .generate_token(&user_id, workspace_id.clone())
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to generate token"})),
+            )
+        })?;
 
     let expires_at = Utc::now()
         .checked_add_signed(Duration::hours(24))
@@ -340,12 +417,19 @@ async fn get_profile(
     // Extract user_id from JWT Claims injected by jwt_auth_middleware
     let user_id = &claims.user_id;
 
-    let storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
-    if let Some(user) = storage.get_user_account(user_id)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
-    {
+    if let Some(user) = storage.get_user_account(user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })? {
         return Ok(Json(UserProfile {
             user_id: user.user_id,
             username: user.username,
@@ -355,7 +439,10 @@ async fn get_profile(
         }));
     }
 
-    Err((StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))))
+    Err((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "User not found"})),
+    ))
 }
 
 async fn refresh_token(
@@ -365,14 +452,27 @@ async fn refresh_token(
     // Extract user_id from JWT Claims injected by jwt_auth_middleware
     let user_id = &claims.user_id;
 
-    let storage = app_state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let storage = app_state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
-    if let Some(user) = storage.get_user_account(user_id)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
-    {
-        let token = auth.generate_token(&user.user_id, user.workspace_id.clone())
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to generate token"}))))?;
+    if let Some(user) = storage.get_user_account(user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })? {
+        let token = auth
+            .generate_token(&user.user_id, user.workspace_id.clone())
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Failed to generate token"})),
+                )
+            })?;
 
         let expires_at = Utc::now()
             .checked_add_signed(Duration::hours(24))
@@ -387,5 +487,8 @@ async fn refresh_token(
         }));
     }
 
-    Err((StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))))
+    Err((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "User not found"})),
+    ))
 }

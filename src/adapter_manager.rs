@@ -1,13 +1,12 @@
+use crate::logging::LoggingEngine;
 use crate::storage::StorageBackend;
 use crate::types::{
-    AdapterConfig, AdapterConnectionDetails, ContractConfigs, ContractInfo,
-    AdapterType, AdapterTestResult, TestStatus, ConnectionTestResult, ContractTestResult,
-    AuthType
+    AdapterConfig, AdapterConnectionDetails, AdapterTestResult, AdapterType, AuthType,
+    ConnectionTestResult, ContractConfigs, ContractInfo, ContractTestResult, TestStatus,
 };
-use crate::logging::LoggingEngine;
+use chrono::Utc;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
-use chrono::Utc;
 
 pub struct AdapterManager<S: StorageBackend> {
     storage: Arc<Mutex<S>>,
@@ -33,7 +32,10 @@ impl<S: StorageBackend> AdapterManager<S> {
         created_by: String,
     ) -> Result<AdapterConfig, AdapterManagerError> {
         // Validate name uniqueness
-        let existing_configs = self.storage.lock().unwrap()
+        let existing_configs = self
+            .storage
+            .lock()
+            .unwrap()
             .list_adapter_configs()
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
@@ -60,12 +62,19 @@ impl<S: StorageBackend> AdapterManager<S> {
         config.contract_configs = contract_configs;
 
         // Store the configuration
-        self.storage.lock().unwrap()
+        self.storage
+            .lock()
+            .unwrap()
             .store_adapter_config(&config)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
-        self.logger.borrow_mut()
-            .info("adapter_manager", "adapter_created", "New adapter configuration created")
+        self.logger
+            .borrow_mut()
+            .info(
+                "adapter_manager",
+                "adapter_created",
+                "New adapter configuration created",
+            )
             .with_context("config_id", config.config_id.to_string())
             .with_context("name", config.name.clone())
             .with_context("type", format!("{:?}", config.adapter_type))
@@ -84,7 +93,10 @@ impl<S: StorageBackend> AdapterManager<S> {
         contract_configs: Option<ContractConfigs>,
         is_active: Option<bool>,
     ) -> Result<AdapterConfig, AdapterManagerError> {
-        let mut config = self.storage.lock().unwrap()
+        let mut config = self
+            .storage
+            .lock()
+            .unwrap()
             .get_adapter_config(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?
             .ok_or(AdapterManagerError::NotFound)?;
@@ -92,11 +104,17 @@ impl<S: StorageBackend> AdapterManager<S> {
         // Update fields if provided
         if let Some(name) = name {
             // Check name uniqueness
-            let existing_configs = self.storage.lock().unwrap()
+            let existing_configs = self
+                .storage
+                .lock()
+                .unwrap()
                 .list_adapter_configs()
                 .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
-            if existing_configs.iter().any(|c| c.name == name && c.config_id != *config_id) {
+            if existing_configs
+                .iter()
+                .any(|c| c.name == name && c.config_id != *config_id)
+            {
                 return Err(AdapterManagerError::DuplicateName(name));
             }
             config.name = name;
@@ -121,12 +139,19 @@ impl<S: StorageBackend> AdapterManager<S> {
         }
 
         // Save updated config
-        self.storage.lock().unwrap()
+        self.storage
+            .lock()
+            .unwrap()
             .update_adapter_config(&config)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
-        self.logger.borrow_mut()
-            .info("adapter_manager", "adapter_updated", "Adapter configuration updated")
+        self.logger
+            .borrow_mut()
+            .info(
+                "adapter_manager",
+                "adapter_updated",
+                "Adapter configuration updated",
+            )
             .with_context("config_id", config_id.to_string())
             .with_context("name", config.name.clone());
 
@@ -136,7 +161,10 @@ impl<S: StorageBackend> AdapterManager<S> {
     /// Delete an adapter configuration
     pub fn delete_adapter_config(&mut self, config_id: &Uuid) -> Result<(), AdapterManagerError> {
         // Check if it exists
-        let config = self.storage.lock().unwrap()
+        let config = self
+            .storage
+            .lock()
+            .unwrap()
             .get_adapter_config(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?
             .ok_or(AdapterManagerError::NotFound)?;
@@ -146,12 +174,19 @@ impl<S: StorageBackend> AdapterManager<S> {
             return Err(AdapterManagerError::CannotDeleteDefault);
         }
 
-        self.storage.lock().unwrap()
+        self.storage
+            .lock()
+            .unwrap()
             .delete_adapter_config(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
-        self.logger.borrow_mut()
-            .info("adapter_manager", "adapter_deleted", "Adapter configuration deleted")
+        self.logger
+            .borrow_mut()
+            .info(
+                "adapter_manager",
+                "adapter_deleted",
+                "Adapter configuration deleted",
+            )
             .with_context("config_id", config_id.to_string())
             .with_context("name", config.name);
 
@@ -159,21 +194,33 @@ impl<S: StorageBackend> AdapterManager<S> {
     }
 
     /// Get adapter configuration by ID
-    pub fn get_adapter_config(&self, config_id: &Uuid) -> Result<AdapterConfig, AdapterManagerError> {
-        self.storage.lock().unwrap()
+    pub fn get_adapter_config(
+        &self,
+        config_id: &Uuid,
+    ) -> Result<AdapterConfig, AdapterManagerError> {
+        self.storage
+            .lock()
+            .unwrap()
             .get_adapter_config(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?
             .ok_or(AdapterManagerError::NotFound)
     }
 
     /// List all adapter configurations
-    pub fn list_adapters(&self, active_only: bool) -> Result<Vec<AdapterConfig>, AdapterManagerError> {
+    pub fn list_adapters(
+        &self,
+        active_only: bool,
+    ) -> Result<Vec<AdapterConfig>, AdapterManagerError> {
         if active_only {
-            self.storage.lock().unwrap()
+            self.storage
+                .lock()
+                .unwrap()
                 .list_active_adapter_configs()
                 .map_err(|e| AdapterManagerError::StorageError(e.to_string()))
         } else {
-            self.storage.lock().unwrap()
+            self.storage
+                .lock()
+                .unwrap()
                 .list_adapter_configs()
                 .map_err(|e| AdapterManagerError::StorageError(e.to_string()))
         }
@@ -181,12 +228,19 @@ impl<S: StorageBackend> AdapterManager<S> {
 
     /// Set an adapter as the default
     pub fn set_default_adapter(&mut self, config_id: &Uuid) -> Result<(), AdapterManagerError> {
-        self.storage.lock().unwrap()
+        self.storage
+            .lock()
+            .unwrap()
             .set_default_adapter(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
-        self.logger.borrow_mut()
-            .info("adapter_manager", "default_adapter_set", "Default adapter configuration changed")
+        self.logger
+            .borrow_mut()
+            .info(
+                "adapter_manager",
+                "default_adapter_set",
+                "Default adapter configuration changed",
+            )
             .with_context("config_id", config_id.to_string());
 
         Ok(())
@@ -226,7 +280,7 @@ impl<S: StorageBackend> AdapterManager<S> {
         } else if contract_tests.iter().any(|t| !t.is_valid) {
             TestStatus::Failed
         } else if contract_tests.is_empty() && connection_test.success {
-            TestStatus::Warning  // No contracts to test
+            TestStatus::Warning // No contracts to test
         } else {
             TestStatus::Passed
         };
@@ -242,12 +296,19 @@ impl<S: StorageBackend> AdapterManager<S> {
         };
 
         // Store test result
-        self.storage.lock().unwrap()
+        self.storage
+            .lock()
+            .unwrap()
             .store_adapter_test_result(&result)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
-        self.logger.borrow_mut()
-            .info("adapter_manager", "adapter_tested", "Adapter configuration tested")
+        self.logger
+            .borrow_mut()
+            .info(
+                "adapter_manager",
+                "adapter_tested",
+                "Adapter configuration tested",
+            )
             .with_context("config_id", config_id.to_string())
             .with_context("status", format!("{:?}", status))
             .with_context("latency_ms", latency_ms.to_string());
@@ -257,34 +318,49 @@ impl<S: StorageBackend> AdapterManager<S> {
 
     // Private helper methods
 
-    fn validate_connection_details(&self, details: &AdapterConnectionDetails) -> Result<(), AdapterManagerError> {
+    fn validate_connection_details(
+        &self,
+        details: &AdapterConnectionDetails,
+    ) -> Result<(), AdapterManagerError> {
         if details.endpoint.is_empty() {
-            return Err(AdapterManagerError::ValidationError("Endpoint cannot be empty".to_string()));
+            return Err(AdapterManagerError::ValidationError(
+                "Endpoint cannot be empty".to_string(),
+            ));
         }
 
         if details.timeout_ms == 0 {
-            return Err(AdapterManagerError::ValidationError("Timeout must be greater than 0".to_string()));
+            return Err(AdapterManagerError::ValidationError(
+                "Timeout must be greater than 0".to_string(),
+            ));
         }
 
         if details.retry_attempts > 10 {
-            return Err(AdapterManagerError::ValidationError("Retry attempts cannot exceed 10".to_string()));
+            return Err(AdapterManagerError::ValidationError(
+                "Retry attempts cannot exceed 10".to_string(),
+            ));
         }
 
         // Validate authentication based on auth_type
         match &details.auth_type {
             AuthType::ApiKey => {
                 if details.api_key.is_none() {
-                    return Err(AdapterManagerError::ValidationError("API key required for ApiKey auth type".to_string()));
+                    return Err(AdapterManagerError::ValidationError(
+                        "API key required for ApiKey auth type".to_string(),
+                    ));
                 }
             }
             AuthType::Bearer => {
                 if details.api_key.is_none() {
-                    return Err(AdapterManagerError::ValidationError("Bearer token required for Bearer auth type".to_string()));
+                    return Err(AdapterManagerError::ValidationError(
+                        "Bearer token required for Bearer auth type".to_string(),
+                    ));
                 }
             }
             AuthType::BasicAuth => {
                 if details.api_key.is_none() || details.secret_key.is_none() {
-                    return Err(AdapterManagerError::ValidationError("Username and password required for BasicAuth".to_string()));
+                    return Err(AdapterManagerError::ValidationError(
+                        "Username and password required for BasicAuth".to_string(),
+                    ));
                 }
             }
             _ => {}
@@ -293,27 +369,39 @@ impl<S: StorageBackend> AdapterManager<S> {
         Ok(())
     }
 
-    fn validate_contract_configs(&self, configs: &ContractConfigs) -> Result<(), AdapterManagerError> {
+    fn validate_contract_configs(
+        &self,
+        configs: &ContractConfigs,
+    ) -> Result<(), AdapterManagerError> {
         if configs.network.is_empty() {
-            return Err(AdapterManagerError::ValidationError("Network cannot be empty".to_string()));
+            return Err(AdapterManagerError::ValidationError(
+                "Network cannot be empty".to_string(),
+            ));
         }
 
         if let Some(ref contract) = configs.mint_contract {
             if contract.contract_address.is_empty() {
-                return Err(AdapterManagerError::ValidationError("Mint contract address cannot be empty".to_string()));
+                return Err(AdapterManagerError::ValidationError(
+                    "Mint contract address cannot be empty".to_string(),
+                ));
             }
         }
 
         if let Some(ref contract) = configs.ipcm_contract {
             if contract.contract_address.is_empty() {
-                return Err(AdapterManagerError::ValidationError("IPCM contract address cannot be empty".to_string()));
+                return Err(AdapterManagerError::ValidationError(
+                    "IPCM contract address cannot be empty".to_string(),
+                ));
             }
         }
 
         Ok(())
     }
 
-    async fn test_connection(&self, config: &AdapterConfig) -> Result<ConnectionTestResult, AdapterManagerError> {
+    async fn test_connection(
+        &self,
+        config: &AdapterConfig,
+    ) -> Result<ConnectionTestResult, AdapterManagerError> {
         // Basic connectivity test
         // In a real implementation, this would make actual HTTP/network requests
         let start_time = std::time::Instant::now();
@@ -324,7 +412,10 @@ impl<S: StorageBackend> AdapterManager<S> {
             AuthType::None => true,
             AuthType::ApiKey => config.connection_details.api_key.is_some(),
             AuthType::Bearer => config.connection_details.api_key.is_some(),
-            AuthType::BasicAuth => config.connection_details.api_key.is_some() && config.connection_details.secret_key.is_some(),
+            AuthType::BasicAuth => {
+                config.connection_details.api_key.is_some()
+                    && config.connection_details.secret_key.is_some()
+            }
             _ => true,
         };
 
@@ -336,11 +427,19 @@ impl<S: StorageBackend> AdapterManager<S> {
             endpoint_reachable,
             authentication_valid,
             latency_ms,
-            error: if !success { Some("Connection test failed".to_string()) } else { None },
+            error: if !success {
+                Some("Connection test failed".to_string())
+            } else {
+                None
+            },
         })
     }
 
-    async fn test_contract(&self, contract: &ContractInfo, contract_type: &str) -> Result<ContractTestResult, AdapterManagerError> {
+    async fn test_contract(
+        &self,
+        contract: &ContractInfo,
+        contract_type: &str,
+    ) -> Result<ContractTestResult, AdapterManagerError> {
         // Validate contract configuration
         // In a real implementation, this would verify the contract on-chain
 
@@ -352,7 +451,11 @@ impl<S: StorageBackend> AdapterManager<S> {
             contract_address: contract.contract_address.clone(),
             is_valid,
             methods_verified,
-            error: if !is_valid { Some("Invalid contract configuration".to_string()) } else { None },
+            error: if !is_valid {
+                Some("Invalid contract configuration".to_string())
+            } else {
+                None
+            },
         })
     }
 }
@@ -372,9 +475,13 @@ impl std::fmt::Display for AdapterManagerError {
         match self {
             AdapterManagerError::StorageError(msg) => write!(f, "Storage error: {}", msg),
             AdapterManagerError::NotFound => write!(f, "Adapter configuration not found"),
-            AdapterManagerError::DuplicateName(name) => write!(f, "Adapter with name '{}' already exists", name),
+            AdapterManagerError::DuplicateName(name) => {
+                write!(f, "Adapter with name '{}' already exists", name)
+            }
             AdapterManagerError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
-            AdapterManagerError::CannotDeleteDefault => write!(f, "Cannot delete the default adapter"),
+            AdapterManagerError::CannotDeleteDefault => {
+                write!(f, "Cannot delete the default adapter")
+            }
             AdapterManagerError::TestFailed(msg) => write!(f, "Adapter test failed: {}", msg),
         }
     }

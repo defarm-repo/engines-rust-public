@@ -1,10 +1,8 @@
 use crate::storage::{StorageBackend, StorageError};
-use crate::types::{
-    UserAccount, UserTier, CreditTransaction, CreditTransactionType
-};
-use chrono::{Utc, Datelike, Timelike};
-use std::sync::Arc;
+use crate::types::{CreditTransaction, CreditTransactionType, UserAccount, UserTier};
+use chrono::{Datelike, Timelike, Utc};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -25,8 +23,10 @@ impl<S: StorageBackend> CreditEngine<S> {
     ) -> Result<bool, StorageError> {
         let cost = self.get_operation_cost(operation_type);
 
-        let mut storage = self.storage.lock()
-        .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+        let mut storage = self
+            .storage
+            .lock()
+            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
 
         // Get user account
         let mut user = match storage.get_user_account(user_id)? {
@@ -74,10 +74,13 @@ impl<S: StorageBackend> CreditEngine<S> {
         amount: i64,
         description: &str,
     ) -> Result<(), StorageError> {
-        let mut storage = self.storage.lock()
-        .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+        let mut storage = self
+            .storage
+            .lock()
+            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
 
-        let mut user = storage.get_user_account(user_id)?
+        let mut user = storage
+            .get_user_account(user_id)?
             .ok_or_else(|| StorageError::NotFound)?;
 
         user.credits += amount;
@@ -105,9 +108,14 @@ impl<S: StorageBackend> CreditEngine<S> {
         Ok(())
     }
 
-    pub async fn get_user_credit_balance(&self, user_id: &str) -> Result<Option<i64>, StorageError> {
-        let storage = self.storage.lock()
-        .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+    pub async fn get_user_credit_balance(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<i64>, StorageError> {
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
         match storage.get_user_account(user_id)? {
             Some(user) => Ok(Some(user.credits)),
             None => Ok(None),
@@ -119,8 +127,10 @@ impl<S: StorageBackend> CreditEngine<S> {
         user_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<CreditTransaction>, StorageError> {
-        let storage = self.storage.lock()
-        .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
         storage.get_credit_transactions(user_id, limit)
     }
 
@@ -130,14 +140,16 @@ impl<S: StorageBackend> CreditEngine<S> {
         operation_id: &str,
         reason: &str,
     ) -> Result<bool, StorageError> {
-        let storage = self.storage.lock()
-        .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
 
         // Find the original transaction
         let transactions = storage.get_credit_transactions(user_id, None)?;
         let original_transaction = transactions.iter().find(|t| {
-            t.operation_id.as_deref() == Some(operation_id) &&
-            t.transaction_type == CreditTransactionType::Consumption
+            t.operation_id.as_deref() == Some(operation_id)
+                && t.transaction_type == CreditTransactionType::Consumption
         });
 
         if let Some(original) = original_transaction {
@@ -146,8 +158,9 @@ impl<S: StorageBackend> CreditEngine<S> {
             self.add_credits(
                 user_id,
                 -original.amount, // Refund the consumed amount (make it positive)
-                &format!("Refund for operation {}: {}", operation_id, reason)
-            ).await?;
+                &format!("Refund for operation {}: {}", operation_id, reason),
+            )
+            .await?;
             return Ok(true);
         }
 
@@ -166,7 +179,11 @@ impl<S: StorageBackend> CreditEngine<S> {
         }
     }
 
-    fn check_tier_limits(&self, user: &UserAccount, operation_type: &str) -> Result<bool, StorageError> {
+    fn check_tier_limits(
+        &self,
+        user: &UserAccount,
+        operation_type: &str,
+    ) -> Result<bool, StorageError> {
         // Check if operation is allowed for user's tier
         match (&user.tier, operation_type) {
             (UserTier::Basic, "circuit_execution") => Ok(false),
@@ -197,9 +214,14 @@ impl<S: StorageBackend> CreditEngine<S> {
         costs
     }
 
-    pub async fn calculate_monthly_usage(&self, user_id: &str) -> Result<HashMap<String, i64>, StorageError> {
-        let storage = self.storage.lock()
-        .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+    pub async fn calculate_monthly_usage(
+        &self,
+        user_id: &str,
+    ) -> Result<HashMap<String, i64>, StorageError> {
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
         let transactions = storage.get_credit_transactions(user_id, None)?;
 
         let start_of_month = chrono::Utc::now()
@@ -215,8 +237,9 @@ impl<S: StorageBackend> CreditEngine<S> {
         let mut usage = HashMap::new();
 
         for transaction in transactions {
-            if transaction.timestamp >= start_of_month &&
-               transaction.transaction_type == CreditTransactionType::Consumption {
+            if transaction.timestamp >= start_of_month
+                && transaction.transaction_type == CreditTransactionType::Consumption
+            {
                 if let Some(op_type) = &transaction.operation_type {
                     *usage.entry(op_type.clone()).or_insert(0) += -transaction.amount;
                 }
@@ -227,8 +250,10 @@ impl<S: StorageBackend> CreditEngine<S> {
     }
 
     pub async fn auto_refill_credits(&self, user_id: &str) -> Result<bool, StorageError> {
-        let storage = self.storage.lock()
-        .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
         let user = match storage.get_user_account(user_id)? {
             Some(user) => user,
             None => return Ok(false),
@@ -246,11 +271,8 @@ impl<S: StorageBackend> CreditEngine<S> {
                     UserTier::Admin => 100000,
                 };
 
-                self.add_credits(
-                    user_id,
-                    refill_amount,
-                    "Automatic subscription refill"
-                ).await?;
+                self.add_credits(user_id, refill_amount, "Automatic subscription refill")
+                    .await?;
 
                 return Ok(true);
             }

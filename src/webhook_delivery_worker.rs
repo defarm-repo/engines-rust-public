@@ -1,4 +1,4 @@
-use crate::types::{WebhookConfig, WebhookDelivery, DeliveryStatus, HttpMethod};
+use crate::types::{DeliveryStatus, HttpMethod, WebhookConfig};
 use chrono::Utc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -22,7 +22,9 @@ impl WebhookDeliveryQueue {
     }
 
     pub async fn enqueue(&self, task: DeliveryTask) -> Result<(), String> {
-        self.tx.send(task).await
+        self.tx
+            .send(task)
+            .await
             .map_err(|e| format!("Failed to enqueue webhook delivery: {}", e))
     }
 }
@@ -44,7 +46,8 @@ pub async fn webhook_delivery_worker(
             &task.payload,
             task.delivery_id,
             &storage_tx,
-        ).await;
+        )
+        .await;
 
         if let Err(e) = result {
             eprintln!("Webhook delivery failed for {}: {}", task.delivery_id, e);
@@ -78,16 +81,18 @@ async fn deliver_webhook_with_retry(
         attempt += 1;
 
         // Update delivery status to in progress
-        let _ = storage_tx.send(DeliveryStatusUpdate {
-            delivery_id,
-            status: DeliveryStatus::InProgress,
-            attempts: attempt,
-            response_code: None,
-            response_body: None,
-            error_message: None,
-            delivered_at: None,
-            next_retry_at: None,
-        }).await;
+        let _ = storage_tx
+            .send(DeliveryStatusUpdate {
+                delivery_id,
+                status: DeliveryStatus::InProgress,
+                attempts: attempt,
+                response_code: None,
+                response_body: None,
+                error_message: None,
+                delivered_at: None,
+                next_retry_at: None,
+            })
+            .await;
 
         // Build HTTP request
         let mut request = match webhook.method {
@@ -149,34 +154,44 @@ async fn deliver_webhook_with_retry(
 
                 if status_code >= 200 && status_code < 300 {
                     // Success
-                    let _ = storage_tx.send(DeliveryStatusUpdate {
-                        delivery_id,
-                        status: DeliveryStatus::Delivered,
-                        attempts: attempt,
-                        response_code: Some(status_code),
-                        response_body: Some(response_body),
-                        error_message: None,
-                        delivered_at: Some(Utc::now()),
-                        next_retry_at: None,
-                    }).await;
+                    let _ = storage_tx
+                        .send(DeliveryStatusUpdate {
+                            delivery_id,
+                            status: DeliveryStatus::Delivered,
+                            attempts: attempt,
+                            response_code: Some(status_code),
+                            response_body: Some(response_body),
+                            error_message: None,
+                            delivered_at: Some(Utc::now()),
+                            next_retry_at: None,
+                        })
+                        .await;
 
                     return Ok(());
                 } else {
                     // HTTP error
                     if attempt > max_retries {
                         // Max retries reached
-                        let _ = storage_tx.send(DeliveryStatusUpdate {
-                            delivery_id,
-                            status: DeliveryStatus::Failed,
-                            attempts: attempt,
-                            response_code: Some(status_code),
-                            response_body: Some(response_body.clone()),
-                            error_message: Some(format!("HTTP error {}: {}", status_code, response_body)),
-                            delivered_at: None,
-                            next_retry_at: None,
-                        }).await;
+                        let _ = storage_tx
+                            .send(DeliveryStatusUpdate {
+                                delivery_id,
+                                status: DeliveryStatus::Failed,
+                                attempts: attempt,
+                                response_code: Some(status_code),
+                                response_body: Some(response_body.clone()),
+                                error_message: Some(format!(
+                                    "HTTP error {}: {}",
+                                    status_code, response_body
+                                )),
+                                delivered_at: None,
+                                next_retry_at: None,
+                            })
+                            .await;
 
-                        return Err(format!("HTTP error {} after {} attempts", status_code, attempt));
+                        return Err(format!(
+                            "HTTP error {} after {} attempts",
+                            status_code, attempt
+                        ));
                     }
                 }
             }
@@ -184,16 +199,18 @@ async fn deliver_webhook_with_retry(
                 // Network error
                 if attempt > max_retries {
                     // Max retries reached
-                    let _ = storage_tx.send(DeliveryStatusUpdate {
-                        delivery_id,
-                        status: DeliveryStatus::Failed,
-                        attempts: attempt,
-                        response_code: None,
-                        response_body: None,
-                        error_message: Some(format!("Network error: {}", e)),
-                        delivered_at: None,
-                        next_retry_at: None,
-                    }).await;
+                    let _ = storage_tx
+                        .send(DeliveryStatusUpdate {
+                            delivery_id,
+                            status: DeliveryStatus::Failed,
+                            attempts: attempt,
+                            response_code: None,
+                            response_body: None,
+                            error_message: Some(format!("Network error: {}", e)),
+                            delivered_at: None,
+                            next_retry_at: None,
+                        })
+                        .await;
 
                     return Err(format!("Network error after {} attempts: {}", attempt, e));
                 }
@@ -202,21 +219,26 @@ async fn deliver_webhook_with_retry(
 
         // Calculate retry delay with exponential backoff
         let delay_ms = webhook.retry_config.initial_delay_ms as f64
-            * webhook.retry_config.backoff_multiplier.powi((attempt - 1) as i32);
+            * webhook
+                .retry_config
+                .backoff_multiplier
+                .powi((attempt - 1) as i32);
         let delay_ms = delay_ms.min(webhook.retry_config.max_delay_ms as f64) as u64;
 
         // Update status to retrying
         let next_retry = Utc::now() + chrono::Duration::milliseconds(delay_ms as i64);
-        let _ = storage_tx.send(DeliveryStatusUpdate {
-            delivery_id,
-            status: DeliveryStatus::Retrying,
-            attempts: attempt,
-            response_code: None,
-            response_body: None,
-            error_message: None,
-            delivered_at: None,
-            next_retry_at: Some(next_retry),
-        }).await;
+        let _ = storage_tx
+            .send(DeliveryStatusUpdate {
+                delivery_id,
+                status: DeliveryStatus::Retrying,
+                attempts: attempt,
+                response_code: None,
+                response_body: None,
+                error_message: None,
+                delivered_at: None,
+                next_retry_at: Some(next_retry),
+            })
+            .await;
 
         // Wait before retrying
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
@@ -231,7 +253,8 @@ pub async fn storage_update_worker<S: crate::storage::StorageBackend + 'static>(
     while let Some(update) = rx.recv().await {
         // Update delivery in storage
         if let Ok(mut storage_guard) = storage.lock() {
-            if let Ok(Some(mut delivery)) = storage_guard.get_webhook_delivery(&update.delivery_id) {
+            if let Ok(Some(mut delivery)) = storage_guard.get_webhook_delivery(&update.delivery_id)
+            {
                 delivery.status = update.status;
                 delivery.attempts = update.attempts;
                 delivery.response_code = update.response_code;

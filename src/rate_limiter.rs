@@ -293,7 +293,10 @@ impl RateLimiter {
         let cutoff = Utc::now() - Duration::days(1);
         limits.retain(|_, key_limits| {
             // Remove keys with no recent requests
-            key_limits.requests.back().map_or(false, |r| r.timestamp >= cutoff)
+            key_limits
+                .requests
+                .back()
+                .map_or(false, |r| r.timestamp >= cutoff)
         });
 
         Ok(())
@@ -303,8 +306,6 @@ impl RateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread::sleep;
-    use std::time::Duration as StdDuration;
 
     fn create_test_limiter() -> RateLimiter {
         RateLimiter::new()
@@ -419,6 +420,7 @@ mod tests {
 
         // Make some requests
         for _ in 0..3 {
+            limiter.check_rate_limit(api_key_id, &config).unwrap();
             limiter.record_request(api_key_id).unwrap();
         }
 

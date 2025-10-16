@@ -1,10 +1,10 @@
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::Item;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 // ============================================================================
 // ZK PROOF TYPES AND STRUCTURES
@@ -77,7 +77,7 @@ pub struct CircuitInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgriculturalContext {
-    pub domain: String, // "organic", "pesticide", "quality", etc.
+    pub domain: String,         // "organic", "pesticide", "quality", etc.
     pub standards: Vec<String>, // "USDA", "EU", "JAS", etc.
     pub applicable_crops: Vec<String>,
     pub certification_bodies: Vec<String>,
@@ -158,7 +158,8 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         self.validate_proof_inputs(&circuit_type, &public_inputs, &private_inputs)?;
 
         // Generate proof data (simplified for now - in real implementation would use actual ZK library)
-        let proof_data = self.generate_proof_data(&circuit_type, &public_inputs, &private_inputs)?;
+        let proof_data =
+            self.generate_proof_data(&circuit_type, &public_inputs, &private_inputs)?;
 
         // Hash private inputs for privacy
         let private_inputs_hash = self.hash_private_inputs(&private_inputs);
@@ -187,10 +188,15 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         Ok(proof_id)
     }
 
-    pub fn verify_proof(&self, proof_id: Uuid, verifier_id: String) -> Result<VerificationResult, ZkProofError> {
+    pub fn verify_proof(
+        &self,
+        proof_id: Uuid,
+        verifier_id: String,
+    ) -> Result<VerificationResult, ZkProofError> {
         let mut proof = {
             let storage = self.storage.lock().unwrap();
-            storage.get_zk_proof(&proof_id)?
+            storage
+                .get_zk_proof(&proof_id)?
                 .ok_or_else(|| ZkProofError::VerificationError("Proof not found".to_string()))?
         };
 
@@ -216,7 +222,11 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         };
 
         // Update proof status
-        proof.status = if is_valid { ProofStatus::Verified } else { ProofStatus::Failed };
+        proof.status = if is_valid {
+            ProofStatus::Verified
+        } else {
+            ProofStatus::Failed
+        };
         proof.verified_at = Some(verification_result.verification_timestamp);
         proof.verification_result = Some(verification_result.clone());
 
@@ -242,13 +252,16 @@ impl<S: StorageBackend> ZkProofEngine<S> {
     ) -> Result<Vec<ZkProof>, ZkProofError> {
         let storage = self.storage.lock().unwrap();
         // Use existing storage methods instead of non-existent search_zk_proofs
-        let proofs = storage.list_zk_proofs().map_err(ZkProofError::StorageError)?;
-        let filtered_proofs: Vec<ZkProof> = proofs.into_iter()
+        let proofs = storage
+            .list_zk_proofs()
+            .map_err(ZkProofError::StorageError)?;
+        let filtered_proofs: Vec<ZkProof> = proofs
+            .into_iter()
             .filter(|p| {
-                (circuit_type.is_none() || p.circuit_type == circuit_type.as_ref().unwrap().clone()) &&
-                (prover_id.is_none() || p.prover_id == *prover_id.as_ref().unwrap()) &&
-                (item_id.is_none() || p.item_id == item_id) &&
-                (status.is_none() || p.status == status.as_ref().unwrap().clone())
+                (circuit_type.is_none() || p.circuit_type == circuit_type.as_ref().unwrap().clone())
+                    && (prover_id.is_none() || p.prover_id == *prover_id.as_ref().unwrap())
+                    && (item_id.is_none() || p.item_id == item_id)
+                    && (status.is_none() || p.status == status.as_ref().unwrap().clone())
             })
             .collect();
         Ok(filtered_proofs)
@@ -258,19 +271,34 @@ impl<S: StorageBackend> ZkProofEngine<S> {
     // PROOF QUERY AND MANAGEMENT
     // ============================================================================
 
-    pub fn query_proofs(&self, query: &crate::api::zk_proofs::ZkProofQuery) -> Result<Vec<ZkProof>, ZkProofError> {
-        let storage = self.storage.lock().map_err(|_| ZkProofError::StorageError(StorageError::IoError("Lock error".to_string())))?;
-        storage.query_zk_proofs(query).map_err(ZkProofError::StorageError)
+    pub fn query_proofs(
+        &self,
+        query: &crate::api::zk_proofs::ZkProofQuery,
+    ) -> Result<Vec<ZkProof>, ZkProofError> {
+        let storage = self.storage.lock().map_err(|_| {
+            ZkProofError::StorageError(StorageError::IoError("Lock error".to_string()))
+        })?;
+        storage
+            .query_zk_proofs(query)
+            .map_err(ZkProofError::StorageError)
     }
 
     pub fn get_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, ZkProofError> {
-        let storage = self.storage.lock().map_err(|_| ZkProofError::StorageError(StorageError::IoError("Lock error".to_string())))?;
-        storage.get_zk_proof_statistics().map_err(ZkProofError::StorageError)
+        let storage = self.storage.lock().map_err(|_| {
+            ZkProofError::StorageError(StorageError::IoError("Lock error".to_string()))
+        })?;
+        storage
+            .get_zk_proof_statistics()
+            .map_err(ZkProofError::StorageError)
     }
 
     pub fn delete_proof(&self, proof_id: &Uuid) -> Result<(), ZkProofError> {
-        let mut storage = self.storage.lock().map_err(|_| ZkProofError::StorageError(StorageError::IoError("Lock error".to_string())))?;
-        storage.delete_zk_proof(proof_id).map_err(ZkProofError::StorageError)
+        let mut storage = self.storage.lock().map_err(|_| {
+            ZkProofError::StorageError(StorageError::IoError("Lock error".to_string()))
+        })?;
+        storage
+            .delete_zk_proof(proof_id)
+            .map_err(ZkProofError::StorageError)
     }
 
     // ============================================================================
@@ -285,8 +313,12 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         self.circuit_templates.get(template_id)
     }
 
-    pub fn add_custom_circuit_template(&mut self, template: CircuitTemplate) -> Result<(), ZkProofError> {
-        self.circuit_templates.insert(template.template_id.clone(), template);
+    pub fn add_custom_circuit_template(
+        &mut self,
+        template: CircuitTemplate,
+    ) -> Result<(), ZkProofError> {
+        self.circuit_templates
+            .insert(template.template_id.clone(), template);
         Ok(())
     }
 
@@ -303,8 +335,14 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         prover_id: String,
     ) -> Result<Uuid, ZkProofError> {
         let mut public_inputs = HashMap::new();
-        public_inputs.insert("item_dfid".to_string(), serde_json::Value::String(item.dfid.clone()));
-        public_inputs.insert("property".to_string(), serde_json::Value::String(property.to_string()));
+        public_inputs.insert(
+            "item_dfid".to_string(),
+            serde_json::Value::String(item.dfid.clone()),
+        );
+        public_inputs.insert(
+            "property".to_string(),
+            serde_json::Value::String(property.to_string()),
+        );
 
         let mut private_inputs = HashMap::new();
         private_inputs.insert("property_value".to_string(), value);
@@ -313,13 +351,19 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         for identifier in &item.identifiers {
             public_inputs.insert(
                 format!("identifier_{}", identifier.key),
-                serde_json::Value::String(identifier.value.clone())
+                serde_json::Value::String(identifier.value.clone()),
             );
         }
 
         // Generate a UUID from the item's dfid for item_id
         let item_uuid = Uuid::new_v4();
-        self.submit_proof(circuit_type, prover_id, public_inputs, private_inputs, Some(item_uuid))
+        self.submit_proof(
+            circuit_type,
+            prover_id,
+            public_inputs,
+            private_inputs,
+            Some(item_uuid),
+        )
     }
 
     // ============================================================================
@@ -332,7 +376,9 @@ impl<S: StorageBackend> ZkProofEngine<S> {
             template_id: "organic_certification_v1".to_string(),
             circuit_type: CircuitType::OrganicCertification,
             name: "Organic Certification Proof".to_string(),
-            description: "Prove organic certification status without revealing sensitive farming data".to_string(),
+            description:
+                "Prove organic certification status without revealing sensitive farming data"
+                    .to_string(),
             version: "1.0.0".to_string(),
             required_inputs: vec![
                 CircuitInput {
@@ -351,12 +397,19 @@ impl<S: StorageBackend> ZkProofEngine<S> {
                 },
             ],
             public_parameters: vec!["item_dfid".to_string(), "certification_body".to_string()],
-            verification_constraints: vec!["valid_certification_format".to_string(), "active_certification".to_string()],
+            verification_constraints: vec![
+                "valid_certification_format".to_string(),
+                "active_certification".to_string(),
+            ],
             agricultural_context: AgriculturalContext {
                 domain: "organic".to_string(),
                 standards: vec!["USDA".to_string(), "EU".to_string(), "JAS".to_string()],
                 applicable_crops: vec!["all".to_string()],
-                certification_bodies: vec!["USDA".to_string(), "CCOF".to_string(), "OCIA".to_string()],
+                certification_bodies: vec![
+                    "USDA".to_string(),
+                    "CCOF".to_string(),
+                    "OCIA".to_string(),
+                ],
             },
         };
 
@@ -365,7 +418,9 @@ impl<S: StorageBackend> ZkProofEngine<S> {
             template_id: "pesticide_threshold_v1".to_string(),
             circuit_type: CircuitType::PesticideThreshold,
             name: "Pesticide Threshold Compliance".to_string(),
-            description: "Prove pesticide levels are below threshold without revealing exact values".to_string(),
+            description:
+                "Prove pesticide levels are below threshold without revealing exact values"
+                    .to_string(),
             version: "1.0.0".to_string(),
             required_inputs: vec![
                 CircuitInput {
@@ -384,11 +439,18 @@ impl<S: StorageBackend> ZkProofEngine<S> {
                 },
             ],
             public_parameters: vec!["item_dfid".to_string(), "threshold_standard".to_string()],
-            verification_constraints: vec!["below_threshold".to_string(), "valid_testing_method".to_string()],
+            verification_constraints: vec![
+                "below_threshold".to_string(),
+                "valid_testing_method".to_string(),
+            ],
             agricultural_context: AgriculturalContext {
                 domain: "pesticide".to_string(),
                 standards: vec!["EPA".to_string(), "EU_MRL".to_string(), "Codex".to_string()],
-                applicable_crops: vec!["fruits".to_string(), "vegetables".to_string(), "grains".to_string()],
+                applicable_crops: vec![
+                    "fruits".to_string(),
+                    "vegetables".to_string(),
+                    "grains".to_string(),
+                ],
                 certification_bodies: vec!["EPA".to_string(), "EFSA".to_string()],
             },
         };
@@ -398,7 +460,8 @@ impl<S: StorageBackend> ZkProofEngine<S> {
             template_id: "quality_grade_v1".to_string(),
             circuit_type: CircuitType::QualityGrade,
             name: "Quality Grade Verification".to_string(),
-            description: "Prove product meets quality grade without revealing specific metrics".to_string(),
+            description: "Prove product meets quality grade without revealing specific metrics"
+                .to_string(),
             version: "1.0.0".to_string(),
             required_inputs: vec![
                 CircuitInput {
@@ -426,9 +489,12 @@ impl<S: StorageBackend> ZkProofEngine<S> {
             },
         };
 
-        self.circuit_templates.insert(organic_template.template_id.clone(), organic_template);
-        self.circuit_templates.insert(pesticide_template.template_id.clone(), pesticide_template);
-        self.circuit_templates.insert(quality_template.template_id.clone(), quality_template);
+        self.circuit_templates
+            .insert(organic_template.template_id.clone(), organic_template);
+        self.circuit_templates
+            .insert(pesticide_template.template_id.clone(), pesticide_template);
+        self.circuit_templates
+            .insert(quality_template.template_id.clone(), quality_template);
     }
 
     fn validate_proof_inputs(
@@ -438,17 +504,26 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         private_inputs: &HashMap<String, serde_json::Value>,
     ) -> Result<(), ZkProofError> {
         // Find matching template
-        let template = self.circuit_templates.values()
+        let template = self
+            .circuit_templates
+            .values()
             .find(|t| t.circuit_type == *circuit_type)
-            .ok_or_else(|| ZkProofError::InvalidCircuit("No template found for circuit type".to_string()))?;
+            .ok_or_else(|| {
+                ZkProofError::InvalidCircuit("No template found for circuit type".to_string())
+            })?;
 
         // Validate required inputs are present
         for required_input in &template.required_inputs {
-            let inputs = if required_input.is_public { public_inputs } else { private_inputs };
+            let inputs = if required_input.is_public {
+                public_inputs
+            } else {
+                private_inputs
+            };
             if !inputs.contains_key(&required_input.name) {
-                return Err(ZkProofError::InvalidInput(
-                    format!("Missing required input: {}", required_input.name)
-                ));
+                return Err(ZkProofError::InvalidInput(format!(
+                    "Missing required input: {}",
+                    required_input.name
+                )));
             }
         }
 
@@ -487,12 +562,12 @@ impl<S: StorageBackend> ZkProofEngine<S> {
     fn calculate_expiry(&self, circuit_type: &CircuitType) -> Option<DateTime<Utc>> {
         // Different circuit types have different validity periods
         let hours = match circuit_type {
-            CircuitType::TimestampFreshness => 24,  // Freshness proofs expire quickly
-            CircuitType::OrganicCertification => 8760,  // 1 year
-            CircuitType::QualityGrade => 720,  // 30 days
-            CircuitType::PesticideThreshold => 2160,  // 90 days
-            CircuitType::OwnershipProof => 8760,  // 1 year
-            CircuitType::Custom(_) => 720,  // 30 days default
+            CircuitType::TimestampFreshness => 24, // Freshness proofs expire quickly
+            CircuitType::OrganicCertification => 8760, // 1 year
+            CircuitType::QualityGrade => 720,      // 30 days
+            CircuitType::PesticideThreshold => 2160, // 90 days
+            CircuitType::OwnershipProof => 8760,   // 1 year
+            CircuitType::Custom(_) => 720,         // 30 days default
         };
 
         Some(Utc::now() + chrono::Duration::hours(hours))
@@ -508,11 +583,15 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         }
 
         // Check if we have a template for this circuit type
-        let has_template = self.circuit_templates.values()
+        let has_template = self
+            .circuit_templates
+            .values()
             .any(|t| t.circuit_type == proof.circuit_type);
 
         if !has_template {
-            return Err(ZkProofError::InvalidCircuit("Unknown circuit type".to_string()));
+            return Err(ZkProofError::InvalidCircuit(
+                "Unknown circuit type".to_string(),
+            ));
         }
 
         // Simplified: assume proof is valid if it has proper structure

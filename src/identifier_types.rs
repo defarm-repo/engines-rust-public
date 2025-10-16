@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 // Namespaces padrão do sistema
 pub mod namespaces {
@@ -14,14 +14,24 @@ pub mod namespaces {
     pub const GENERIC: &str = "generic";
 
     pub fn is_valid(namespace: &str) -> bool {
-        matches!(namespace,
-            "bovino" | "aves" | "suino" | "soja" | "milho" |
-            "algodao" | "cafe" | "leite" | "generic"
+        matches!(
+            namespace,
+            "bovino"
+                | "aves"
+                | "suino"
+                | "soja"
+                | "milho"
+                | "algodao"
+                | "cafe"
+                | "leite"
+                | "generic"
         )
     }
 
     pub fn all() -> Vec<&'static str> {
-        vec![BOVINO, AVES, SUINO, SOJA, MILHO, ALGODAO, CAFE, LEITE, GENERIC]
+        vec![
+            BOVINO, AVES, SUINO, SOJA, MILHO, ALGODAO, CAFE, LEITE, GENERIC,
+        ]
     }
 }
 
@@ -42,7 +52,7 @@ pub mod registries {
             "cnpj" => validate_cnpj(value),
             "car" => validate_car(value),
             "nirf" => validate_nirf(value),
-            "ie" => value.len() >= 8, // Basic validation
+            "ie" => value.len() >= 8,    // Basic validation
             "rfid" => value.len() >= 10, // Basic validation
             _ => true,
         }
@@ -116,7 +126,12 @@ impl EnhancedIdentifier {
         }
     }
 
-    pub fn canonical_verified(namespace: &str, registry: &str, value: &str, verification_date: DateTime<Utc>) -> Self {
+    pub fn canonical_verified(
+        namespace: &str,
+        registry: &str,
+        value: &str,
+        verification_date: DateTime<Utc>,
+    ) -> Self {
         Self {
             namespace: namespace.to_string(),
             key: registry.to_string(),
@@ -198,9 +213,9 @@ impl EnhancedIdentifier {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalAlias {
-    pub scheme: String,        // "certA:animal", "erp:lote", "user:123"
+    pub scheme: String, // "certA:animal", "erp:lote", "user:123"
     pub value: String,
-    pub issuer_id: String,     // user_id or api_key_id
+    pub issuer_id: String, // user_id or api_key_id
     pub issued_at: DateTime<Utc>,
     pub evidence_hash: String, // hash of the original receipt/proof
 }
@@ -219,11 +234,11 @@ impl ExternalAlias {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircuitAliasConfig {
-    pub required_canonical: Vec<String>,     // ["sisbov", "cpf"]
-    pub required_contextual: Vec<String>,    // ["lote", "safra"]
-    pub use_fingerprint: bool,               // use fingerprint for dedup
+    pub required_canonical: Vec<String>,         // ["sisbov", "cpf"]
+    pub required_contextual: Vec<String>,        // ["lote", "safra"]
+    pub use_fingerprint: bool,                   // use fingerprint for dedup
     pub allowed_namespaces: Option<Vec<String>>, // None = all allowed
-    pub auto_apply_namespace: bool,          // apply default_namespace if missing
+    pub auto_apply_namespace: bool,              // apply default_namespace if missing
 }
 
 impl Default for CircuitAliasConfig {
@@ -299,10 +314,10 @@ mod tests {
 
     #[test]
     fn test_sisbov_validation() {
-        assert!(registries::validate("sisbov", "BR12345678901234"));
+        assert!(registries::validate("sisbov", "BR123456789012"));
         assert!(!registries::validate("sisbov", "12345678901234")); // Missing BR
-        assert!(!registries::validate("sisbov", "BR123456789012")); // Too short
-        assert!(!registries::validate("sisbov", "BR1234567890123A")); // Contains letter
+        assert!(!registries::validate("sisbov", "BR12345678901")); // Too short
+        assert!(!registries::validate("sisbov", "BR12345678901A")); // Contains letter
     }
 
     #[test]
@@ -315,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_canonical_identifier() {
-        let id = EnhancedIdentifier::canonical("bovino", "sisbov", "BR12345678901234");
+        let id = EnhancedIdentifier::canonical("bovino", "sisbov", "BR123456789012");
         assert!(id.is_canonical());
         assert!(!id.is_contextual());
         assert_eq!(id.get_registry(), Some("sisbov".to_string()));
@@ -333,8 +348,8 @@ mod tests {
 
     #[test]
     fn test_unique_key() {
-        let id1 = EnhancedIdentifier::canonical("bovino", "sisbov", "BR12345678901234");
-        assert_eq!(id1.unique_key(), "bovino:sisbov:BR12345678901234");
+        let id1 = EnhancedIdentifier::canonical("bovino", "sisbov", "BR123456789012");
+        assert_eq!(id1.unique_key(), "bovino:sisbov:BR123456789012");
 
         let id2 = EnhancedIdentifier::contextual("soja", "lote", "123");
         assert_eq!(id2.unique_key(), "soja:lote:123");
@@ -342,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_invalid_identifier() {
-        let id1 = EnhancedIdentifier::canonical("invalid_namespace", "sisbov", "BR12345678901234");
+        let id1 = EnhancedIdentifier::canonical("invalid_namespace", "sisbov", "BR123456789012");
         assert!(!id1.validate());
 
         let id2 = EnhancedIdentifier::canonical("bovino", "sisbov", "invalid");

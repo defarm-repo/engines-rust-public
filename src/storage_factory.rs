@@ -1,9 +1,9 @@
+use std::env;
 /// Storage Factory
 /// Creates the appropriate storage backend based on environment configuration
 use std::sync::{Arc, Mutex};
-use std::env;
 
-use crate::storage::{StorageBackend, InMemoryStorage};
+use crate::storage::{InMemoryStorage, StorageBackend};
 // TEMPORARILY DISABLED: PostgreSQL implementation needs type fixes
 // use crate::postgres_storage::PostgresStorage;
 
@@ -21,11 +21,10 @@ impl StorageType {
                 // that implements StorageBackend. The Arc<Mutex<InMemoryStorage>>
                 // implements StorageBackend, so we can return a reference to it.
                 storage as &dyn StorageBackend
-            }
-            // TEMPORARILY DISABLED: PostgreSQL implementation needs type fixes
-            // StorageType::Postgres(storage) => {
-            //     storage as &dyn StorageBackend
-            // }
+            } // TEMPORARILY DISABLED: PostgreSQL implementation needs type fixes
+              // StorageType::Postgres(storage) => {
+              //     storage as &dyn StorageBackend
+              // }
         }
     }
 }
@@ -45,7 +44,9 @@ pub async fn create_storage() -> Result<StorageType, Box<dyn std::error::Error>>
     tracing::warn!("⚠️  Data will not persist between restarts");
     tracing::info!("💡 PostgreSQL support coming soon");
 
-    Ok(StorageType::InMemory(Arc::new(Mutex::new(InMemoryStorage::new()))))
+    Ok(StorageType::InMemory(Arc::new(Mutex::new(
+        InMemoryStorage::new(),
+    ))))
 }
 
 /// Run database migrations (PostgreSQL only)

@@ -1,10 +1,10 @@
+use crate::adapters::{base::StorageLocation, AdapterInstance};
 use crate::storage::{StorageBackend, StorageError};
-use crate::types::{StorageRecord, ItemStorageHistory, AdapterType};
-use crate::adapters::{StorageLocation, AdapterInstance};
+use crate::types::{AdapterType, ItemStorageHistory, StorageRecord};
 use chrono::Utc;
-use uuid::Uuid;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
+use uuid::Uuid;
 
 pub struct StorageHistoryManager<S: StorageBackend> {
     storage: Arc<std::sync::Mutex<S>>,
@@ -24,17 +24,27 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         user_id: &str,
     ) -> Result<(), StorageError> {
         let storage_location = match adapter_type {
-            AdapterType::IpfsIpfs => StorageLocation::IPFS { cid: storage_id.clone(), pinned: true },
-            AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS { cid: storage_id.clone(), pinned: true },
-            AdapterType::PolygonArweave => StorageLocation::Local { id: storage_id.clone() }, // TODO: Add Arweave storage location type
+            AdapterType::IpfsIpfs => StorageLocation::IPFS {
+                cid: storage_id.clone(),
+                pinned: true,
+            },
+            AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS {
+                cid: storage_id.clone(),
+                pinned: true,
+            },
+            AdapterType::PolygonArweave => StorageLocation::Local {
+                id: storage_id.clone(),
+            }, // TODO: Add Arweave storage location type
             AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                 StorageLocation::Stellar {
                     transaction_id: storage_id.clone(),
                     contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration
                     asset_id: None,
                 }
-            },
-            AdapterType::Custom(_) => StorageLocation::Local { id: storage_id.clone() }, // Fallback
+            }
+            AdapterType::Custom(_) => StorageLocation::Local {
+                id: storage_id.clone(),
+            }, // Fallback
         };
 
         let record = StorageRecord {
@@ -63,17 +73,27 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         user_id: &str,
     ) -> Result<(), StorageError> {
         let storage_location = match adapter_type {
-            AdapterType::IpfsIpfs => StorageLocation::IPFS { cid: storage_id.clone(), pinned: true },
-            AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS { cid: storage_id.clone(), pinned: true },
-            AdapterType::PolygonArweave => StorageLocation::Local { id: storage_id.clone() }, // TODO: Add Arweave storage location type
+            AdapterType::IpfsIpfs => StorageLocation::IPFS {
+                cid: storage_id.clone(),
+                pinned: true,
+            },
+            AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS {
+                cid: storage_id.clone(),
+                pinned: true,
+            },
+            AdapterType::PolygonArweave => StorageLocation::Local {
+                id: storage_id.clone(),
+            }, // TODO: Add Arweave storage location type
             AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                 StorageLocation::Stellar {
                     transaction_id: storage_id.clone(),
                     contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration
                     asset_id: None,
                 }
-            },
-            AdapterType::Custom(_) => StorageLocation::Local { id: storage_id.clone() }, // Fallback
+            }
+            AdapterType::Custom(_) => StorageLocation::Local {
+                id: storage_id.clone(),
+            }, // Fallback
         };
 
         let record = StorageRecord {
@@ -92,21 +112,35 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         Ok(())
     }
 
-    pub async fn get_item_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
+    pub async fn get_item_storage_history(
+        &self,
+        dfid: &str,
+    ) -> Result<Option<ItemStorageHistory>, StorageError> {
         let storage = self.storage.lock().unwrap();
         storage.get_storage_history(dfid)
     }
 
-    pub async fn get_all_storage_locations(&self, dfid: &str) -> Result<Vec<StorageLocation>, StorageError> {
+    pub async fn get_all_storage_locations(
+        &self,
+        dfid: &str,
+    ) -> Result<Vec<StorageLocation>, StorageError> {
         let storage = self.storage.lock().unwrap();
         if let Some(history) = storage.get_storage_history(dfid)? {
-            Ok(history.storage_records.into_iter().map(|record| record.storage_location).collect())
+            Ok(history
+                .storage_records
+                .into_iter()
+                .map(|record| record.storage_location)
+                .collect())
         } else {
             Ok(Vec::new())
         }
     }
 
-    pub async fn set_primary_storage(&self, dfid: &str, location: StorageLocation) -> Result<(), StorageError> {
+    pub async fn set_primary_storage(
+        &self,
+        dfid: &str,
+        location: StorageLocation,
+    ) -> Result<(), StorageError> {
         let mut storage = self.storage.lock().unwrap();
         if let Some(mut history) = storage.get_storage_history(dfid)? {
             history.current_primary = Some(location);
@@ -138,17 +172,27 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
             // For now, we'll record the migration intent
 
             let storage_location = match adapter_type {
-                AdapterType::IpfsIpfs => StorageLocation::IPFS { cid: format!("migrated_{}", dfid), pinned: true },
-                AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS { cid: format!("migrated_{}", dfid), pinned: true },
-                AdapterType::PolygonArweave => StorageLocation::Arweave { transaction_id: format!("migrated_{}", dfid) },
+                AdapterType::IpfsIpfs => StorageLocation::IPFS {
+                    cid: format!("migrated_{}", dfid),
+                    pinned: true,
+                },
+                AdapterType::EthereumGoerliIpfs => StorageLocation::IPFS {
+                    cid: format!("migrated_{}", dfid),
+                    pinned: true,
+                },
+                AdapterType::PolygonArweave => StorageLocation::Arweave {
+                    transaction_id: format!("migrated_{}", dfid),
+                },
                 AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                     StorageLocation::Stellar {
                         transaction_id: format!("migrated_{}", dfid),
                         contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration
                         asset_id: None,
                     }
-                },
-                AdapterType::Custom(_) => StorageLocation::Local { id: format!("migrated_{}", dfid) }, // Fallback
+                }
+                AdapterType::Custom(_) => StorageLocation::Local {
+                    id: format!("migrated_{}", dfid),
+                }, // Fallback
             };
 
             let migration_record = StorageRecord {

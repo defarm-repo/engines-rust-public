@@ -72,7 +72,10 @@ impl<S: StorageBackend> NotificationEngine<S> {
             requester_id.to_string(),
             NotificationType::JoinRequestApproved,
             format!("Join request approved for {}", circuit_name),
-            format!("Your request to join {} has been approved. You are now a {}.", circuit_name, assigned_role),
+            format!(
+                "Your request to join {} has been approved. You are now a {}.",
+                circuit_name, assigned_role
+            ),
             json!({
                 "circuit_id": circuit_id,
                 "circuit_name": circuit_name,
@@ -124,7 +127,10 @@ impl<S: StorageBackend> NotificationEngine<S> {
             invited_user_id.to_string(),
             NotificationType::CircuitInvite,
             format!("Invited to {}", circuit_name),
-            format!("You have been invited to join {} as a {}.", circuit_name, role),
+            format!(
+                "You have been invited to join {} as a {}.",
+                circuit_name, role
+            ),
             json!({
                 "circuit_id": circuit_id,
                 "circuit_name": circuit_name,
@@ -176,7 +182,10 @@ impl<S: StorageBackend> NotificationEngine<S> {
             user_id.to_string(),
             NotificationType::AccountUpdated,
             "Account Updated".to_string(),
-            format!("Your account has been updated by admin {}. Changes: {}", admin_username, changes),
+            format!(
+                "Your account has been updated by admin {}. Changes: {}",
+                admin_username, changes
+            ),
             json!({
                 "admin_username": admin_username,
                 "changes": changes,
@@ -202,8 +211,14 @@ impl<S: StorageBackend> NotificationEngine<S> {
             user_id.to_string(),
             NotificationType::CreditsAdjusted,
             "Credits Adjusted".to_string(),
-            format!("Admin {} {} {} credits. Reason: {}. New balance: {}",
-                admin_username, action, amount.abs(), reason, new_balance),
+            format!(
+                "Admin {} {} {} credits. Reason: {}. New balance: {}",
+                admin_username,
+                action,
+                amount.abs(),
+                reason,
+                new_balance
+            ),
             json!({
                 "admin_username": admin_username,
                 "amount": amount,
@@ -228,7 +243,10 @@ impl<S: StorageBackend> NotificationEngine<S> {
             user_id.to_string(),
             NotificationType::AccountFrozen,
             "Account Frozen".to_string(),
-            format!("Your account has been frozen by admin {}. Reason: {}", admin_username, reason),
+            format!(
+                "Your account has been frozen by admin {}. Reason: {}",
+                admin_username, reason
+            ),
             json!({
                 "admin_username": admin_username,
                 "reason": reason,
@@ -250,7 +268,10 @@ impl<S: StorageBackend> NotificationEngine<S> {
             user_id.to_string(),
             NotificationType::AccountUnfrozen,
             "Account Unfrozen".to_string(),
-            format!("Your account has been reactivated by admin {}. You can now access all features.", admin_username),
+            format!(
+                "Your account has been reactivated by admin {}. You can now access all features.",
+                admin_username
+            ),
             json!({
                 "admin_username": admin_username,
                 "timestamp": Utc::now().timestamp(),
@@ -269,26 +290,39 @@ impl<S: StorageBackend> NotificationEngine<S> {
         limit: Option<usize>,
         unread_only: bool,
     ) -> Result<Vec<Notification>, NotificationError> {
-        let storage = self.storage.lock()
-        .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_user_notifications(user_id, since, limit, unread_only)
             .map_err(|e| NotificationError::StorageError(e.to_string()))
     }
 
     /// Get a specific notification
-    pub fn get_notification(&self, notification_id: &str) -> Result<Option<Notification>, NotificationError> {
-        let storage = self.storage.lock()
-        .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
+    pub fn get_notification(
+        &self,
+        notification_id: &str,
+    ) -> Result<Option<Notification>, NotificationError> {
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_notification(notification_id)
             .map_err(|e| NotificationError::StorageError(e.to_string()))
     }
 
     /// Mark a notification as read
-    pub fn mark_as_read(&self, notification_id: &str, user_id: &str) -> Result<Notification, NotificationError> {
-        let mut storage = self.storage.lock()
-        .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
+    pub fn mark_as_read(
+        &self,
+        notification_id: &str,
+        user_id: &str,
+    ) -> Result<Notification, NotificationError> {
+        let mut storage = self
+            .storage
+            .lock()
+            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
 
         let mut notification = storage
             .get_notification(notification_id)
@@ -312,17 +346,25 @@ impl<S: StorageBackend> NotificationEngine<S> {
 
     /// Mark all notifications as read for a user
     pub fn mark_all_as_read(&self, user_id: &str) -> Result<usize, NotificationError> {
-        let mut storage = self.storage.lock()
-        .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
+        let mut storage = self
+            .storage
+            .lock()
+            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .mark_all_notifications_read(user_id)
             .map_err(|e| NotificationError::StorageError(e.to_string()))
     }
 
     /// Delete a notification
-    pub fn delete_notification(&self, notification_id: &str, user_id: &str) -> Result<(), NotificationError> {
-        let mut storage = self.storage.lock()
-        .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
+    pub fn delete_notification(
+        &self,
+        notification_id: &str,
+        user_id: &str,
+    ) -> Result<(), NotificationError> {
+        let mut storage = self
+            .storage
+            .lock()
+            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
 
         let notification = storage
             .get_notification(notification_id)
@@ -345,8 +387,10 @@ impl<S: StorageBackend> NotificationEngine<S> {
 
     /// Get count of unread notifications for a user
     pub fn get_unread_count(&self, user_id: &str) -> Result<usize, NotificationError> {
-        let storage = self.storage.lock()
-        .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .get_unread_notification_count(user_id)
             .map_err(|e| NotificationError::StorageError(e.to_string()))
@@ -354,8 +398,10 @@ impl<S: StorageBackend> NotificationEngine<S> {
 
     // Internal helper to store a notification
     fn store_notification(&self, notification: &Notification) -> Result<(), NotificationError> {
-        let mut storage = self.storage.lock()
-        .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
+        let mut storage = self
+            .storage
+            .lock()
+            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
         storage
             .store_notification(notification)
             .map_err(|e| NotificationError::StorageError(e.to_string()))?;

@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -10,10 +10,12 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::{ItemsEngine, InMemoryStorage, Item, ItemStatus, Identifier, PendingItem, PendingReason};
-use crate::items_engine::ResolutionAction;
 use crate::identifier_types::EnhancedIdentifier;
+use crate::items_engine::ResolutionAction;
 use crate::storage::StorageBackend;
+use crate::{
+    Identifier, InMemoryStorage, Item, ItemStatus, ItemsEngine, PendingItem, PendingReason,
+};
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -66,7 +68,7 @@ pub struct LidDfidMappingData {
 pub struct MergeLocalItemsRequest {
     pub master_lid: String,
     pub merge_lids: Vec<String>,
-    pub merge_strategy: Option<String>,  // "append", "keep_first", "overwrite" - defaults to "append"
+    pub merge_strategy: Option<String>, // "append", "keep_first", "overwrite" - defaults to "append"
 }
 
 #[derive(Debug, Serialize)]
@@ -105,7 +107,7 @@ pub struct DuplicateGroup {
     pub identifier_value: String,
     pub items: Vec<DuplicateItemInfo>,
     pub suggested_master_lid: String,
-    pub conflicts: Vec<String>,  // Fields that have different values
+    pub conflicts: Vec<String>, // Fields that have different values
 }
 
 #[derive(Debug, Serialize)]
@@ -127,10 +129,10 @@ pub struct DuplicateSummary {
 // Batch Organization Structures
 #[derive(Debug, Deserialize)]
 pub struct OrganizeLocalItemsRequest {
-    pub action: String,  // "deduplicate", "merge_all"
+    pub action: String, // "deduplicate", "merge_all"
     pub dry_run: Option<bool>,
     pub merge_strategy: Option<String>,
-    pub namespace: Option<String>,  // Filter by namespace
+    pub namespace: Option<String>, // Filter by namespace
 }
 
 #[derive(Debug, Serialize)]
@@ -145,7 +147,7 @@ pub struct OrganizeLocalItemsResponse {
 pub struct MergeOperation {
     pub master_lid: String,
     pub merged_lids: Vec<String>,
-    pub status: String,  // "success", "skipped", "error"
+    pub status: String, // "success", "skipped", "error"
     pub reason: Option<String>,
 }
 
@@ -162,7 +164,7 @@ pub struct OrganizeSummary {
 // Undo Merge Structures
 #[derive(Debug, Deserialize)]
 pub struct UnmergeLocalItemRequest {
-    pub merged_lid: String,  // LID that was merged into master
+    pub merged_lid: String, // LID that was merged into master
 }
 
 #[derive(Debug, Serialize)]
@@ -342,7 +344,10 @@ pub fn item_routes(app_state: Arc<AppState>) -> Router {
         .route("/:dfid/split", post(split_item))
         .route("/:dfid/deprecate", put(deprecate_item))
         .route("/:dfid/share", post(share_item))
-        .route("/:dfid/shared-with/:user_id", get(check_item_shared_with_user))
+        .route(
+            "/:dfid/shared-with/:user_id",
+            get(check_item_shared_with_user),
+        )
         .route("/search", get(search_items))
         .route("/stats", get(get_item_stats))
         .route("/identifier/:key/:value", get(get_items_by_identifier))
@@ -367,14 +372,19 @@ fn parse_item_status(status_str: &str) -> Result<ItemStatus, String> {
 fn item_to_response(item: Item) -> ItemResponse {
     ItemResponse {
         dfid: item.dfid,
-        identifiers: item.identifiers
+        identifiers: item
+            .identifiers
             .into_iter()
-            .map(|id| IdentifierRequest { key: id.key, value: id.value })
+            .map(|id| IdentifierRequest {
+                key: id.key,
+                value: id.value,
+            })
             .collect(),
         enriched_data: item.enriched_data,
         creation_timestamp: item.creation_timestamp.timestamp(),
         last_modified: item.last_modified.timestamp(),
-        source_entries: item.source_entries
+        source_entries: item
+            .source_entries
             .into_iter()
             .map(|uuid| uuid.to_string())
             .collect(),
@@ -386,20 +396,32 @@ async fn create_item(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateItemRequest>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
-    let source_entry = uuid::Uuid::parse_str(&payload.source_entry)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid source entry UUID"}))))?;
+    let source_entry = uuid::Uuid::parse_str(&payload.source_entry).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid source entry UUID"})),
+        )
+    })?;
 
-    let identifiers: Vec<Identifier> = payload.identifiers
+    let identifiers: Vec<Identifier> = payload
+        .identifiers
         .into_iter()
         .map(|id| Identifier::new(id.key, id.value))
         .collect();
 
     match engine.create_item_with_generated_dfid(identifiers, source_entry, payload.enriched_data) {
         Ok(item) => Ok(Json(item_to_response(item))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to create item: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to create item: {}", e)})),
+        )),
     }
 }
 
@@ -407,8 +429,12 @@ async fn create_items_batch(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateItemsBatchRequest>,
 ) -> Result<Json<CreateItemsBatchResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
     let mut results = Vec::new();
     let mut success_count = 0;
     let mut failed_count = 0;
@@ -416,12 +442,17 @@ async fn create_items_batch(
     for item_request in payload.items {
         let result = match uuid::Uuid::parse_str(&item_request.source_entry) {
             Ok(source_entry) => {
-                let identifiers: Vec<Identifier> = item_request.identifiers
+                let identifiers: Vec<Identifier> = item_request
+                    .identifiers
                     .into_iter()
                     .map(|id| Identifier::new(id.key, id.value))
                     .collect();
 
-                match engine.create_item_with_generated_dfid(identifiers, source_entry, item_request.enriched_data) {
+                match engine.create_item_with_generated_dfid(
+                    identifiers,
+                    source_entry,
+                    item_request.enriched_data,
+                ) {
                     Ok(item) => {
                         success_count += 1;
                         BatchItemResult {
@@ -463,13 +494,23 @@ async fn get_item(
     State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     match engine.get_item(&dfid) {
         Ok(Some(item)) => Ok(Json(item_to_response(item))),
-        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Item not found"})))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get item: {}", e)})))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Item not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get item: {}", e)})),
+        )),
     }
 }
 
@@ -478,15 +519,24 @@ async fn update_item(
     Path(dfid): Path<String>,
     Json(payload): Json<UpdateItemRequest>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     // Update enriched data if provided
     if let Some(enriched_data) = payload.enriched_data {
         let source_entry = uuid::Uuid::new_v4(); // Generate a new UUID for the enrichment
         match engine.enrich_item(&dfid, enriched_data, source_entry) {
-            Ok(_) => {},
-            Err(e) => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to enrich item: {}", e)})))),
+            Ok(_) => {}
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to enrich item: {}", e)})),
+                ))
+            }
         }
     }
 
@@ -498,16 +548,27 @@ async fn update_item(
             .collect();
 
         match engine.add_identifiers(&dfid, identifiers) {
-            Ok(_) => {},
-            Err(e) => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to add identifiers: {}", e)})))),
+            Ok(_) => {}
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to add identifiers: {}", e)})),
+                ))
+            }
         }
     }
 
     // Return updated item
     match engine.get_item(&dfid) {
         Ok(Some(item)) => Ok(Json(item_to_response(item))),
-        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Item not found after update"})))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get updated item: {}", e)})))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Item not found after update"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get updated item: {}", e)})),
+        )),
     }
 }
 
@@ -515,12 +576,19 @@ async fn delete_item(
     State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     match engine.deprecate_item(&dfid) {
         Ok(_) => Ok(Json(json!({"message": "Item deprecated successfully"}))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to deprecate item: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to deprecate item: {}", e)})),
+        )),
     }
 }
 
@@ -528,8 +596,12 @@ async fn list_items(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ItemQueryParams>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     match engine.list_items() {
         Ok(mut items) => {
@@ -543,7 +615,9 @@ async fn list_items(
             if let Some(key) = &params.identifier_key {
                 if let Some(value) = &params.identifier_value {
                     items.retain(|item| {
-                        item.identifiers.iter().any(|id| id.key == *key && id.value == *value)
+                        item.identifiers
+                            .iter()
+                            .any(|id| id.key == *key && id.value == *value)
                     });
                 } else {
                     items.retain(|item| item.identifiers.iter().any(|id| id.key == *key));
@@ -555,13 +629,13 @@ async fn list_items(
                 items.truncate(limit);
             }
 
-            let response: Vec<ItemResponse> = items
-                .into_iter()
-                .map(item_to_response)
-                .collect();
+            let response: Vec<ItemResponse> = items.into_iter().map(item_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to list items: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to list items: {}", e)})),
+        )),
     }
 }
 
@@ -570,12 +644,19 @@ async fn merge_items(
     Path(primary_dfid): Path<String>,
     Json(secondary_dfid): Json<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     match engine.merge_items(&primary_dfid, &secondary_dfid) {
         Ok(item) => Ok(Json(item_to_response(item))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to merge items: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to merge items: {}", e)})),
+        )),
     }
 }
 
@@ -584,22 +665,28 @@ async fn split_item(
     Path(dfid): Path<String>,
     Json(split_request): Json<SplitItemRequest>,
 ) -> Result<Json<SplitItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
-    let identifiers: Vec<Identifier> = split_request.identifiers_for_new_item
+    let identifiers: Vec<Identifier> = split_request
+        .identifiers_for_new_item
         .into_iter()
         .map(|id| Identifier::new(id.key, id.value))
         .collect();
 
     match engine.split_item_with_generated_dfid(&dfid, identifiers) {
-        Ok((original_item, new_item)) => {
-            Ok(Json(SplitItemResponse {
-                original_item: item_to_response(original_item),
-                new_item: item_to_response(new_item),
-            }))
-        }
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to split item: {}", e)})))),
+        Ok((original_item, new_item)) => Ok(Json(SplitItemResponse {
+            original_item: item_to_response(original_item),
+            new_item: item_to_response(new_item),
+        })),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to split item: {}", e)})),
+        )),
     }
 }
 
@@ -607,15 +694,21 @@ async fn deprecate_item(
     State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     match engine.deprecate_item(&dfid) {
         Ok(item) => Ok(Json(item_to_response(item))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to deprecate item: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to deprecate item: {}", e)})),
+        )),
     }
 }
-
 
 async fn search_items(
     State(state): State<Arc<AppState>>,
@@ -628,16 +721,32 @@ async fn search_items(
 async fn get_item_stats(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<ItemStatsResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     match engine.list_items() {
         Ok(items) => {
             let total_items = items.len();
-            let active_items = items.iter().filter(|i| matches!(i.status, ItemStatus::Active)).count();
-            let merged_items = items.iter().filter(|i| matches!(i.status, ItemStatus::Merged)).count();
-            let split_items = items.iter().filter(|i| matches!(i.status, ItemStatus::Split)).count();
-            let deprecated_items = items.iter().filter(|i| matches!(i.status, ItemStatus::Deprecated)).count();
+            let active_items = items
+                .iter()
+                .filter(|i| matches!(i.status, ItemStatus::Active))
+                .count();
+            let merged_items = items
+                .iter()
+                .filter(|i| matches!(i.status, ItemStatus::Merged))
+                .count();
+            let split_items = items
+                .iter()
+                .filter(|i| matches!(i.status, ItemStatus::Split))
+                .count();
+            let deprecated_items = items
+                .iter()
+                .filter(|i| matches!(i.status, ItemStatus::Deprecated))
+                .count();
 
             let average_confidence = 0.0; // Not available in current Item struct
 
@@ -650,7 +759,10 @@ async fn get_item_stats(
                 average_confidence,
             }))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get stats: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get stats: {}", e)})),
+        )),
     }
 }
 
@@ -658,19 +770,23 @@ async fn get_items_by_identifier(
     State(state): State<Arc<AppState>>,
     Path((key, value)): Path<(String, String)>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
     let identifier = Identifier::new(key, value);
 
     match engine.find_items_by_identifier(&identifier) {
         Ok(items) => {
-            let response: Vec<ItemResponse> = items
-                .into_iter()
-                .map(item_to_response)
-                .collect();
+            let response: Vec<ItemResponse> = items.into_iter().map(item_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get items by identifier: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get items by identifier: {}", e)})),
+        )),
     }
 }
 
@@ -680,21 +796,33 @@ async fn share_item(
     Path(dfid): Path<String>,
     Json(payload): Json<ShareItemRequest>,
 ) -> Result<Json<ShareItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     // For now, use a placeholder for the shared_by user ID
     // In a real application, this would come from authentication
     let shared_by = "current_user".to_string();
 
-    match engine.share_item(&dfid, shared_by, payload.recipient_user_id, payload.permissions) {
+    match engine.share_item(
+        &dfid,
+        shared_by,
+        payload.recipient_user_id,
+        payload.permissions,
+    ) {
         Ok(share) => Ok(Json(ShareItemResponse {
             share_id: share.share_id,
             dfid: share.dfid,
             recipient_user_id: share.recipient_user_id,
             shared_at: share.shared_at.timestamp(),
         })),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to share item: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to share item: {}", e)})),
+        )),
     }
 }
 
@@ -702,8 +830,12 @@ async fn check_item_shared_with_user(
     State(state): State<Arc<AppState>>,
     Path((dfid, user_id)): Path<(String, String)>,
 ) -> Result<Json<SharedWithCheckResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     match engine.is_item_shared_with_user(&dfid, &user_id) {
         Ok(is_shared) => {
@@ -725,7 +857,10 @@ async fn check_item_shared_with_user(
                 shared_at: None,
             }))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to check share status: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to check share status: {}", e)})),
+        )),
     }
 }
 
@@ -733,8 +868,12 @@ pub async fn get_shared_items_for_user(
     State(state): State<Arc<AppState>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<SharedItemListResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     match engine.get_shares_for_user(&user_id) {
         Ok(shared_items) => {
@@ -750,7 +889,10 @@ pub async fn get_shared_items_for_user(
                 .collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get shared items: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get shared items: {}", e)})),
+        )),
     }
 }
 
@@ -759,8 +901,12 @@ async fn list_pending_items(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PendingItemQueryParams>,
 ) -> Result<Json<Vec<PendingItemResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     match engine.get_pending_items() {
         Ok(pending_items) => {
@@ -790,7 +936,10 @@ async fn list_pending_items(
 
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to list pending items: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to list pending items: {}", e)})),
+        )),
     }
 }
 
@@ -798,18 +947,33 @@ async fn get_pending_item(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<PendingItemResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     let pending_id = match Uuid::parse_str(&id) {
         Ok(uuid) => uuid,
-        Err(_) => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid pending item ID format"})))),
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid pending item ID format"})),
+            ))
+        }
     };
 
     match engine.get_pending_item(&pending_id) {
         Ok(Some(pending_item)) => Ok(Json(pending_item_to_response(pending_item))),
-        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Pending item not found"})))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get pending item: {}", e)})))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Pending item not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get pending item: {}", e)})),
+        )),
     }
 }
 
@@ -818,26 +982,41 @@ async fn resolve_pending_item(
     Path(id): Path<String>,
     Json(payload): Json<ResolvePendingItemRequest>,
 ) -> Result<Json<ResolvePendingItemResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     let pending_id = match Uuid::parse_str(&id) {
         Ok(uuid) => uuid,
-        Err(_) => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid pending item ID format"})))),
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid pending item ID format"})),
+            ))
+        }
     };
 
     let resolution_action = match payload.action.as_str() {
         "approve" => ResolutionAction::Approve,
         "reject" => ResolutionAction::Reject,
         "modify" => {
-            let identifiers = payload.new_identifiers
+            let identifiers = payload
+                .new_identifiers
                 .unwrap_or_default()
                 .into_iter()
                 .map(|req| Identifier::new(&req.key, &req.value))
                 .collect();
             ResolutionAction::Modify(identifiers, payload.new_enriched_data)
-        },
-        _ => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid action. Must be 'approve', 'reject', or 'modify'"})))),
+        }
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid action. Must be 'approve', 'reject', or 'modify'"})),
+            ))
+        }
     };
 
     match engine.resolve_pending_item(&pending_id, resolution_action) {
@@ -849,9 +1028,13 @@ async fn resolve_pending_item(
         Ok(None) => Ok(Json(ResolvePendingItemResponse {
             success: true,
             item: None,
-            message: "Pending item resolved but not created (rejected or still pending)".to_string(),
+            message: "Pending item resolved but not created (rejected or still pending)"
+                .to_string(),
         })),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to resolve pending item: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to resolve pending item: {}", e)})),
+        )),
     }
 }
 
@@ -859,25 +1042,39 @@ async fn resolve_pending_item(
 fn pending_item_to_response(pending_item: PendingItem) -> PendingItemResponse {
     PendingItemResponse {
         id: pending_item.pending_id.to_string(),
-        identifiers: pending_item.identifiers
+        identifiers: pending_item
+            .identifiers
             .into_iter()
-            .map(|id| IdentifierRequest { key: id.key, value: id.value })
+            .map(|id| IdentifierRequest {
+                key: id.key,
+                value: id.value,
+            })
             .collect(),
         enriched_data: pending_item.enriched_data,
         source_entry: pending_item.source_entry.to_string(),
         reason: format!("{:?}", pending_item.reason),
         reason_details: match &pending_item.reason {
             PendingReason::InvalidIdentifiers(details) => Some(details.clone()),
-            PendingReason::ConflictingDFIDs { identifier, conflicting_dfids, .. } => {
-                Some(format!("Identifier {}:{} maps to DFIDs: {}",
-                    identifier.key, identifier.value, conflicting_dfids.join(", ")))
-            },
+            PendingReason::ConflictingDFIDs {
+                identifier,
+                conflicting_dfids,
+                ..
+            } => Some(format!(
+                "Identifier {}:{} maps to DFIDs: {}",
+                identifier.key,
+                identifier.value,
+                conflicting_dfids.join(", ")
+            )),
             PendingReason::DataQualityIssue { details, .. } => Some(details.clone()),
             _ => None,
         },
         priority: pending_item.priority as u32,
         created_at: pending_item.created_at.timestamp(),
-        metadata: pending_item.metadata.into_iter().map(|(k, v)| (k, v.to_string())).collect(),
+        metadata: pending_item
+            .metadata
+            .into_iter()
+            .map(|(k, v)| (k, v.to_string()))
+            .collect(),
     }
 }
 
@@ -888,34 +1085,57 @@ async fn create_local_item(
 ) -> Result<Json<CreateLocalItemResponse>, (StatusCode, Json<Value>)> {
     // Create item in in-memory storage (must not hold lock across await)
     let item = {
-        let mut engine = state.items_engine.lock()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
 
         // Convert legacy identifiers
-        let identifiers: Vec<Identifier> = payload.identifiers
+        let identifiers: Vec<Identifier> = payload
+            .identifiers
             .unwrap_or_default()
             .into_iter()
             .map(|id| Identifier::new(id.key, id.value))
             .collect();
 
         // Convert enhanced identifiers
-        let enhanced_identifiers: Vec<EnhancedIdentifier> = payload.enhanced_identifiers
+        let enhanced_identifiers: Vec<EnhancedIdentifier> = payload
+            .enhanced_identifiers
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|req| {
-                match req.id_type.as_str() {
-                    "Canonical" => Some(EnhancedIdentifier::canonical(&req.namespace, &req.key, &req.value)),
-                    "Contextual" => Some(EnhancedIdentifier::contextual(&req.namespace, &req.key, &req.value)),
-                    _ => None,
-                }
+            .filter_map(|req| match req.id_type.as_str() {
+                "Canonical" => Some(EnhancedIdentifier::canonical(
+                    &req.namespace,
+                    &req.key,
+                    &req.value,
+                )),
+                "Contextual" => Some(EnhancedIdentifier::contextual(
+                    &req.namespace,
+                    &req.key,
+                    &req.value,
+                )),
+                _ => None,
             })
             .collect();
 
         // Generate source entry
         let source_entry = Uuid::new_v4();
 
-        engine.create_local_item(identifiers, enhanced_identifiers, payload.enriched_data, source_entry)
-            .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": format!("Failed to create local item: {}", e)}))))?
+        engine
+            .create_local_item(
+                identifiers,
+                enhanced_identifiers,
+                payload.enriched_data,
+                source_entry,
+            )
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to create local item: {}", e)})),
+                )
+            })?
     }; // Lock dropped here
 
     // Write-through cache: Also persist to PostgreSQL if available
@@ -953,17 +1173,26 @@ async fn merge_local_items(
     Json(payload): Json<MergeLocalItemsRequest>,
 ) -> Result<Json<MergeLocalItemsResponse>, (StatusCode, Json<Value>)> {
     // Parse master_lid
-    let master_lid = Uuid::parse_str(&payload.master_lid)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid master_lid format"}))))?;
+    let master_lid = Uuid::parse_str(&payload.master_lid).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid master_lid format"})),
+        )
+    })?;
 
     // Parse merge_lids
-    let merge_lids: Result<Vec<Uuid>, _> = payload.merge_lids
+    let merge_lids: Result<Vec<Uuid>, _> = payload
+        .merge_lids
         .iter()
         .map(|lid_str| Uuid::parse_str(lid_str))
         .collect();
 
-    let merge_lids = merge_lids
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid merge_lid format"}))))?;
+    let merge_lids = merge_lids.map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid merge_lid format"})),
+        )
+    })?;
 
     // Validate at least one item to merge
     if merge_lids.is_empty() {
@@ -976,7 +1205,7 @@ async fn merge_local_items(
     // Parse merge strategy
     use crate::types::MergeStrategy;
     let strategy = match payload.merge_strategy.as_deref() {
-        Some("append") | None => MergeStrategy::Append,  // Default
+        Some("append") | None => MergeStrategy::Append, // Default
         Some("keep_first") => MergeStrategy::KeepFirst,
         Some("overwrite") => MergeStrategy::Overwrite,
         Some(invalid) => {
@@ -993,10 +1222,15 @@ async fn merge_local_items(
 
     // Perform merge
     let master_item = {
-        let mut engine = state.items_engine.lock()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
 
-        engine.merge_local_items(&master_lid, merge_lids.clone(), strategy)
+        engine
+            .merge_local_items(&master_lid, merge_lids.clone(), strategy)
             .map_err(|e| {
                 let status_code = match e {
                     crate::items_engine::ItemsError::ItemNotFound(_) => StatusCode::NOT_FOUND,
@@ -1011,7 +1245,10 @@ async fn merge_local_items(
     // Build response
     let master_item_info = MergedItemInfo {
         dfid: master_item.dfid.clone(),
-        local_id: master_item.local_id.map(|lid| lid.to_string()).unwrap_or_else(|| "N/A".to_string()),
+        local_id: master_item
+            .local_id
+            .map(|lid| lid.to_string())
+            .unwrap_or_else(|| "N/A".to_string()),
         enriched_data: master_item.enriched_data.clone(),
         last_modified: master_item.last_modified.to_rfc3339(),
     };
@@ -1030,11 +1267,19 @@ async fn merge_local_items(
 async fn find_duplicate_local_items(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<DuplicateDetectionResponse>, (StatusCode, Json<Value>)> {
-    let mut engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let mut engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
-    let duplicate_groups_raw = engine.find_duplicate_local_items()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{}", e)}))))?;
+    let duplicate_groups_raw = engine.find_duplicate_local_items().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("{}", e)})),
+        )
+    })?;
 
     let mut total_items = 0;
     let mut items_in_duplicates = 0;
@@ -1044,16 +1289,22 @@ async fn find_duplicate_local_items(
         items_in_duplicates += items.len();
 
         // Convert items to response format
-        let items_info: Vec<DuplicateItemInfo> = items.iter().map(|item| {
-            total_items += 1;
-            DuplicateItemInfo {
-                local_id: item.local_id.map(|lid| lid.to_string()).unwrap_or_else(|| "N/A".to_string()),
-                dfid: item.dfid.clone(),
-                created: item.creation_timestamp.to_rfc3339(),
-                enriched_data: item.enriched_data.clone(),
-                identifiers_count: item.identifiers.len() + item.enhanced_identifiers.len(),
-            }
-        }).collect();
+        let items_info: Vec<DuplicateItemInfo> = items
+            .iter()
+            .map(|item| {
+                total_items += 1;
+                DuplicateItemInfo {
+                    local_id: item
+                        .local_id
+                        .map(|lid| lid.to_string())
+                        .unwrap_or_else(|| "N/A".to_string()),
+                    dfid: item.dfid.clone(),
+                    created: item.creation_timestamp.to_rfc3339(),
+                    enriched_data: item.enriched_data.clone(),
+                    identifiers_count: item.identifiers.len() + item.enhanced_identifiers.len(),
+                }
+            })
+            .collect();
 
         // Find conflicts (fields with different values)
         let mut conflicts = Vec::new();
@@ -1072,7 +1323,8 @@ async fn find_duplicate_local_items(
         }
 
         // Suggest master (oldest item)
-        let suggested_master = items.iter()
+        let suggested_master = items
+            .iter()
             .min_by_key(|item| item.creation_timestamp)
             .and_then(|item| item.local_id)
             .map(|lid| lid.to_string())
@@ -1138,13 +1390,22 @@ async fn organize_local_items(
 
     // Get duplicate groups
     let duplicate_groups_raw = {
-        let mut engine = state.items_engine.lock()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
-        engine.find_duplicate_local_items()
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{}", e)}))))?
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
+        engine.find_duplicate_local_items().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("{}", e)})),
+            )
+        })?
     };
 
-    let items_before = duplicate_groups_raw.iter()
+    let items_before = duplicate_groups_raw
+        .iter()
         .map(|(_, _, items)| items.len())
         .sum::<usize>();
 
@@ -1154,7 +1415,7 @@ async fn organize_local_items(
     // Process each duplicate group
     for (_key, _value, items) in duplicate_groups_raw {
         if items.len() < 2 {
-            continue;  // Skip groups with single item
+            continue; // Skip groups with single item
         }
 
         // Sort by creation timestamp (oldest first)
@@ -1163,14 +1424,19 @@ async fn organize_local_items(
 
         // First item is master
         let master_lid = sorted_items[0].local_id.unwrap();
-        let merge_lids: Vec<Uuid> = sorted_items[1..].iter()
+        let merge_lids: Vec<Uuid> = sorted_items[1..]
+            .iter()
             .filter_map(|item| item.local_id)
             .collect();
 
         if !dry_run {
             // Perform actual merge
-            let mut engine = state.items_engine.lock()
-                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+            let mut engine = state.items_engine.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Items engine mutex poisoned"})),
+                )
+            })?;
 
             match engine.merge_local_items(&master_lid, merge_lids.clone(), strategy.clone()) {
                 Ok(_) => {
@@ -1203,7 +1469,11 @@ async fn organize_local_items(
         }
     }
 
-    let items_after = if dry_run { items_before } else { items_before - merged_count };
+    let items_after = if dry_run {
+        items_before
+    } else {
+        items_before - merged_count
+    };
     let groups_processed = operations.len();
 
     Ok(Json(OrganizeLocalItemsResponse {
@@ -1224,44 +1494,74 @@ async fn unmerge_local_item(
     Json(payload): Json<UnmergeLocalItemRequest>,
 ) -> Result<Json<UnmergeLocalItemResponse>, (StatusCode, Json<Value>)> {
     // Parse merged_lid
-    let merged_lid = Uuid::parse_str(&payload.merged_lid)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid merged_lid format"}))))?;
+    let merged_lid = Uuid::parse_str(&payload.merged_lid).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid merged_lid format"})),
+        )
+    })?;
 
     // Get previous master before unmerge
     let previous_master = {
-        let engine = state.items_engine.lock()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+        let engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
 
-        let item = engine.get_item_by_lid(&merged_lid)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("{}", e)}))))?
-            .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Merged item not found"}))))?;
+        let item = engine
+            .get_item_by_lid(&merged_lid)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("{}", e)})),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Merged item not found"})),
+                )
+            })?;
 
         match &item.status {
             crate::types::ItemStatus::MergedInto(master) => master.clone(),
-            _ => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Item is not in merged status"})))),
+            _ => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Item is not in merged status"})),
+                ))
+            }
         }
     };
 
     // Perform unmerge
     let restored_item = {
-        let mut engine = state.items_engine.lock()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
 
-        engine.unmerge_local_item(&merged_lid)
-            .map_err(|e| {
-                let status_code = match e {
-                    crate::items_engine::ItemsError::ItemNotFound(_) => StatusCode::NOT_FOUND,
-                    crate::items_engine::ItemsError::InvalidOperation(_) => StatusCode::BAD_REQUEST,
-                    _ => StatusCode::INTERNAL_SERVER_ERROR,
-                };
-                (status_code, Json(json!({"error": format!("{}", e)})))
-            })?
+        engine.unmerge_local_item(&merged_lid).map_err(|e| {
+            let status_code = match e {
+                crate::items_engine::ItemsError::ItemNotFound(_) => StatusCode::NOT_FOUND,
+                crate::items_engine::ItemsError::InvalidOperation(_) => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status_code, Json(json!({"error": format!("{}", e)})))
+        })?
     };
 
     // Build response
     let restored_item_info = MergedItemInfo {
         dfid: restored_item.dfid.clone(),
-        local_id: restored_item.local_id.map(|lid| lid.to_string()).unwrap_or_else(|| "N/A".to_string()),
+        local_id: restored_item
+            .local_id
+            .map(|lid| lid.to_string())
+            .unwrap_or_else(|| "N/A".to_string()),
         enriched_data: restored_item.enriched_data.clone(),
         last_modified: restored_item.last_modified.to_rfc3339(),
     };
@@ -1278,8 +1578,12 @@ async fn get_lid_dfid_mapping(
     State(state): State<Arc<AppState>>,
     Path(local_id_str): Path<String>,
 ) -> Result<Json<LidDfidMappingResponse>, (StatusCode, Json<Value>)> {
-    let engine = state.items_engine.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Items engine mutex poisoned"}))))?;
+    let engine = state.items_engine.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Items engine mutex poisoned"})),
+        )
+    })?;
 
     let local_id = match Uuid::parse_str(&local_id_str) {
         Ok(uuid) => uuid,
@@ -1350,40 +1654,57 @@ async fn get_storage_history(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<StorageHistoryResponse>, (StatusCode, Json<Value>)> {
     // Get storage history from shared storage
-    let storage_guard = state.shared_storage.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Storage mutex poisoned"}))))?;
+    let storage_guard = state.shared_storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Storage mutex poisoned"})),
+        )
+    })?;
 
     match storage_guard.get_storage_history(&dfid) {
         Ok(Some(history)) => {
-            let records: Vec<StorageRecordResponse> = history.storage_records.iter().map(|record| {
-                // Extract metadata
-                let network = record.metadata.get("network")
-                    .and_then(|v| v.as_str().map(String::from));
-                let nft_mint_tx = record.metadata.get("nft_mint_tx")
-                    .and_then(|v| v.as_str().map(String::from));
-                let ipcm_update_tx = record.metadata.get("ipcm_update_tx")
-                    .and_then(|v| v.as_str().map(String::from));
-                let ipfs_cid = record.metadata.get("ipfs_cid")
-                    .and_then(|v| v.as_str().map(String::from));
-                let ipfs_pinned = record.metadata.get("ipfs_pinned")
-                    .and_then(|v| v.as_bool());
-                let nft_contract = record.metadata.get("nft_contract")
-                    .and_then(|v| v.as_str().map(String::from));
+            let records: Vec<StorageRecordResponse> = history
+                .storage_records
+                .iter()
+                .map(|record| {
+                    // Extract metadata
+                    let network = record
+                        .metadata
+                        .get("network")
+                        .and_then(|v| v.as_str().map(String::from));
+                    let nft_mint_tx = record
+                        .metadata
+                        .get("nft_mint_tx")
+                        .and_then(|v| v.as_str().map(String::from));
+                    let ipcm_update_tx = record
+                        .metadata
+                        .get("ipcm_update_tx")
+                        .and_then(|v| v.as_str().map(String::from));
+                    let ipfs_cid = record
+                        .metadata
+                        .get("ipfs_cid")
+                        .and_then(|v| v.as_str().map(String::from));
+                    let ipfs_pinned = record.metadata.get("ipfs_pinned").and_then(|v| v.as_bool());
+                    let nft_contract = record
+                        .metadata
+                        .get("nft_contract")
+                        .and_then(|v| v.as_str().map(String::from));
 
-                StorageRecordResponse {
-                    adapter_type: format!("{:?}", record.adapter_type),
-                    network,
-                    nft_mint_tx,
-                    ipcm_update_tx,
-                    ipfs_cid,
-                    ipfs_pinned,
-                    nft_contract,
-                    storage_location: format!("{:?}", record.storage_location),
-                    stored_at: record.stored_at.to_rfc3339(),
-                    triggered_by: record.triggered_by.clone(),
-                    is_active: record.is_active,
-                }
-            }).collect();
+                    StorageRecordResponse {
+                        adapter_type: format!("{:?}", record.adapter_type),
+                        network,
+                        nft_mint_tx,
+                        ipcm_update_tx,
+                        ipfs_cid,
+                        ipfs_pinned,
+                        nft_contract,
+                        storage_location: format!("{:?}", record.storage_location),
+                        stored_at: record.stored_at.to_rfc3339(),
+                        triggered_by: record.triggered_by.clone(),
+                        is_active: record.is_active,
+                    }
+                })
+                .collect();
 
             Ok(Json(StorageHistoryResponse {
                 success: true,

@@ -254,8 +254,8 @@ impl IntoResponse for DeFarmError {
         let message = self.to_string();
         let recovery_suggestions = self.get_recovery_suggestions();
 
-        let error_response = ErrorResponse::new(error_code, &message)
-            .with_recovery(recovery_suggestions);
+        let error_response =
+            ErrorResponse::new(error_code, &message).with_recovery(recovery_suggestions);
 
         (status, Json(error_response)).into_response()
     }

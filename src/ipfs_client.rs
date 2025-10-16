@@ -87,14 +87,18 @@ impl IpfsClient {
             http_client: Client::builder()
                 .timeout(Duration::from_secs(60))
                 .build()
-                .map_err(|e| IpfsError::NetworkError(format!("Failed to create HTTP client: {}", e)))?,
+                .map_err(|e| {
+                    IpfsError::NetworkError(format!("Failed to create HTTP client: {}", e))
+                })?,
         })
     }
 
     /// Create client for Pinata service
     pub fn with_pinata(api_key: String, secret: String) -> Result<Self, IpfsError> {
         if api_key.is_empty() || secret.is_empty() {
-            return Err(IpfsError::NotConfigured("Pinata API key or secret is empty".to_string()));
+            return Err(IpfsError::NotConfigured(
+                "Pinata API key or secret is empty".to_string(),
+            ));
         }
 
         Ok(Self {
@@ -102,7 +106,9 @@ impl IpfsClient {
             http_client: Client::builder()
                 .timeout(Duration::from_secs(120))
                 .build()
-                .map_err(|e| IpfsError::NetworkError(format!("Failed to create HTTP client: {}", e)))?,
+                .map_err(|e| {
+                    IpfsError::NetworkError(format!("Failed to create HTTP client: {}", e))
+                })?,
         })
     }
 
@@ -111,29 +117,25 @@ impl IpfsClient {
         let json_data = serde_json::to_string(data)?;
 
         match &self.client_type {
-            IpfsClientType::Kubo { endpoint } => {
-                self.kubo_upload(&json_data, endpoint).await
-            }
-            IpfsClientType::Pinata { api_key, secret } => {
-                self.pinata_upload_json(data, None).await
-            }
+            IpfsClientType::Kubo { endpoint } => self.kubo_upload(&json_data, endpoint).await,
+            IpfsClientType::Pinata { .. } => self.pinata_upload_json(data, None).await,
         }
     }
 
     /// Get JSON data from IPFS by CID
     pub async fn get_json<T: for<'de> Deserialize<'de>>(&self, cid: &str) -> Result<T, IpfsError> {
         let data = match &self.client_type {
-            IpfsClientType::Kubo { endpoint } => {
-                self.kubo_get(cid, endpoint).await?
-            }
+            IpfsClientType::Kubo { endpoint } => self.kubo_get(cid, endpoint).await?,
             IpfsClientType::Pinata { .. } => {
                 // Use public gateway for retrieval
-                self.get_from_gateway(cid, "https://gateway.pinata.cloud").await?
+                self.get_from_gateway(cid, "https://gateway.pinata.cloud")
+                    .await?
             }
         };
 
-        serde_json::from_str(&data)
-            .map_err(|e| IpfsError::SerializationError(format!("Failed to deserialize JSON: {}", e)))
+        serde_json::from_str(&data).map_err(|e| {
+            IpfsError::SerializationError(format!("Failed to deserialize JSON: {}", e))
+        })
     }
 
     /// Pin content (for Kubo, this is automatic; for Pinata, already pinned on upload)
@@ -145,7 +147,10 @@ impl IpfsClient {
 
                 if !response.status().is_success() {
                     let error_text = response.text().await.unwrap_or_default();
-                    return Err(IpfsError::UploadError(format!("Failed to pin: {}", error_text)));
+                    return Err(IpfsError::UploadError(format!(
+                        "Failed to pin: {}",
+                        error_text
+                    )));
                 }
 
                 Ok(())
@@ -166,7 +171,9 @@ impl IpfsClient {
             }
             IpfsClientType::Pinata { api_key, secret } => {
                 let url = "https://api.pinata.cloud/data/testAuthentication";
-                let response = self.http_client.get(url)
+                let response = self
+                    .http_client
+                    .get(url)
                     .header("pinata_api_key", api_key)
                     .header("pinata_secret_api_key", secret)
                     .send()
@@ -182,11 +189,12 @@ impl IpfsClient {
                 let url = format!("{}/api/v0/version", endpoint);
                 let response = self.http_client.post(&url).send().await?;
                 let version: serde_json::Value = response.json().await?;
-                Ok(format!("Kubo {}", version["Version"].as_str().unwrap_or("unknown")))
+                Ok(format!(
+                    "Kubo {}",
+                    version["Version"].as_str().unwrap_or("unknown")
+                ))
             }
-            IpfsClientType::Pinata { .. } => {
-                Ok("Pinata Cloud".to_string())
-            }
+            IpfsClientType::Pinata { .. } => Ok("Pinata Cloud".to_string()),
         }
     }
 
@@ -195,34 +203,43 @@ impl IpfsClient {
     async fn kubo_upload(&self, json_data: &str, endpoint: &str) -> Result<String, IpfsError> {
         let url = format!("{}/api/v0/add", endpoint);
 
-        let form = reqwest::multipart::Form::new()
-            .text("file", json_data.to_string());
+        let form = reqwest::multipart::Form::new().text("file", json_data.to_string());
 
-        let response = self.http_client.post(&url)
-            .multipart(form)
-            .send()
-            .await?;
+        let response = self.http_client.post(&url).multipart(form).send().await?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(IpfsError::UploadError(format!("Kubo upload failed: {}", error_text)));
+            return Err(IpfsError::UploadError(format!(
+                "Kubo upload failed: {}",
+                error_text
+            )));
         }
 
         let result: KuboAddResponse = response.json().await?;
         Ok(result.hash)
     }
 
-    pub async fn pinata_upload_json<T: serde::Serialize>(&self, data: &T, _name: Option<String>) -> Result<String, IpfsError> {
+    pub async fn pinata_upload_json<T: serde::Serialize>(
+        &self,
+        data: &T,
+        _name: Option<String>,
+    ) -> Result<String, IpfsError> {
         let (api_key, secret) = match &self.client_type {
             IpfsClientType::Pinata { api_key, secret } => (api_key, secret),
-            _ => return Err(IpfsError::NotConfigured("Not configured for Pinata".to_string())),
+            _ => {
+                return Err(IpfsError::NotConfigured(
+                    "Not configured for Pinata".to_string(),
+                ))
+            }
         };
 
         let url = "https://api.pinata.cloud/pinning/pinJSONToIPFS";
 
         let _json_data = serde_json::to_string(data)?;
 
-        let response = self.http_client.post(url)
+        let response = self
+            .http_client
+            .post(url)
             .header("pinata_api_key", api_key)
             .header("pinata_secret_api_key", secret)
             .header("Content-Type", "application/json")
@@ -250,7 +267,10 @@ impl IpfsClient {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(IpfsError::RetrievalError(format!("Failed to retrieve from Kubo: {}", error_text)));
+            return Err(IpfsError::RetrievalError(format!(
+                "Failed to retrieve from Kubo: {}",
+                error_text
+            )));
         }
 
         Ok(response.text().await?)
@@ -262,7 +282,10 @@ impl IpfsClient {
         let response = self.http_client.get(&url).send().await?;
 
         if !response.status().is_success() {
-            return Err(IpfsError::RetrievalError(format!("Failed to retrieve from gateway: {}", response.status())));
+            return Err(IpfsError::RetrievalError(format!(
+                "Failed to retrieve from gateway: {}",
+                response.status()
+            )));
         }
 
         Ok(response.text().await?)

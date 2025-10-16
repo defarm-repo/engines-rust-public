@@ -8,11 +8,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::{EventsEngine, InMemoryStorage, EventType, EventVisibility, Event};
 use super::shared_state::AppState;
+use crate::{Event, EventType, EventVisibility};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateEventRequest {
@@ -110,8 +110,17 @@ async fn create_event(
             // Add metadata if provided
             if let Some(metadata) = payload.metadata {
                 for (key, value) in metadata {
-                    engine.add_event_metadata(&event.event_id, [(key, value)].iter().cloned().collect())
-                        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to add metadata: {}", e)}))))?;
+                    engine
+                        .add_event_metadata(
+                            &event.event_id,
+                            [(key, value)].iter().cloned().collect(),
+                        )
+                        .map_err(|e| {
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(json!({"error": format!("Failed to add metadata: {}", e)})),
+                            )
+                        })?;
                 }
                 // Refresh event data
                 event = engine.get_event(&event.event_id)
@@ -121,7 +130,10 @@ async fn create_event(
 
             Ok(Json(event_to_response(event)))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to create event: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to create event: {}", e)})),
+        )),
     }
 }
 
@@ -133,13 +145,13 @@ async fn get_events_for_item(
 
     match engine.get_events_for_item(&dfid) {
         Ok(events) => {
-            let response: Vec<EventResponse> = events
-                .into_iter()
-                .map(event_to_response)
-                .collect();
+            let response: Vec<EventResponse> = events.into_iter().map(event_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get events: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get events: {}", e)})),
+        )),
     }
 }
 
@@ -154,13 +166,13 @@ async fn get_events_by_type(
 
     match engine.get_events_by_type(event_type) {
         Ok(events) => {
-            let response: Vec<EventResponse> = events
-                .into_iter()
-                .map(event_to_response)
-                .collect();
+            let response: Vec<EventResponse> = events.into_iter().map(event_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get events: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get events: {}", e)})),
+        )),
     }
 }
 
@@ -175,13 +187,13 @@ async fn get_events_by_visibility(
 
     match engine.get_events_by_visibility(visibility) {
         Ok(events) => {
-            let response: Vec<EventResponse> = events
-                .into_iter()
-                .map(event_to_response)
-                .collect();
+            let response: Vec<EventResponse> = events.into_iter().map(event_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get events: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get events: {}", e)})),
+        )),
     }
 }
 
@@ -193,33 +205,43 @@ async fn get_events_timeline(
 
     match (params.start_date, params.end_date) {
         (Some(start), Some(end)) => {
-            let start_dt = chrono::DateTime::from_timestamp(start, 0)
-                .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid start_date timestamp"}))))?;
-            let end_dt = chrono::DateTime::from_timestamp(end, 0)
-                .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid end_date timestamp"}))))?;
+            let start_dt = chrono::DateTime::from_timestamp(start, 0).ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid start_date timestamp"})),
+                )
+            })?;
+            let end_dt = chrono::DateTime::from_timestamp(end, 0).ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid end_date timestamp"})),
+                )
+            })?;
 
             match engine.get_events_in_time_range(start_dt, end_dt) {
                 Ok(events) => {
-                    let response: Vec<EventResponse> = events
-                        .into_iter()
-                        .map(event_to_response)
-                        .collect();
+                    let response: Vec<EventResponse> =
+                        events.into_iter().map(event_to_response).collect();
                     Ok(Json(response))
                 }
-                Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get events: {}", e)})))),
+                Err(e) => Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to get events: {}", e)})),
+                )),
             }
         }
         _ => {
             // Return all events if no time range specified
             match engine.list_all_events() {
                 Ok(events) => {
-                    let response: Vec<EventResponse> = events
-                        .into_iter()
-                        .map(event_to_response)
-                        .collect();
+                    let response: Vec<EventResponse> =
+                        events.into_iter().map(event_to_response).collect();
                     Ok(Json(response))
                 }
-                Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get events: {}", e)})))),
+                Err(e) => Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to get events: {}", e)})),
+                )),
             }
         }
     }
@@ -232,13 +254,13 @@ async fn get_public_events(
 
     match engine.get_public_events() {
         Ok(events) => {
-            let response: Vec<EventResponse> = events
-                .into_iter()
-                .map(event_to_response)
-                .collect();
+            let response: Vec<EventResponse> = events.into_iter().map(event_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get events: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get events: {}", e)})),
+        )),
     }
 }
 
@@ -249,13 +271,13 @@ async fn get_private_events(
 
     match engine.get_private_events() {
         Ok(events) => {
-            let response: Vec<EventResponse> = events
-                .into_iter()
-                .map(event_to_response)
-                .collect();
+            let response: Vec<EventResponse> = events.into_iter().map(event_to_response).collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get events: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get events: {}", e)})),
+        )),
     }
 }
 
@@ -263,15 +285,25 @@ async fn get_event(
     State(state): State<Arc<AppState>>,
     Path(event_id): Path<String>,
 ) -> Result<Json<EventResponse>, (StatusCode, Json<Value>)> {
-    let event_uuid = Uuid::parse_str(&event_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid event ID format"}))))?;
+    let event_uuid = Uuid::parse_str(&event_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid event ID format"})),
+        )
+    })?;
 
     let engine = state.events_engine.lock().unwrap();
 
     match engine.get_event(&event_uuid) {
         Ok(Some(event)) => Ok(Json(event_to_response(event))),
-        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Event not found"})))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to get event: {}", e)})))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Event not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get event: {}", e)})),
+        )),
     }
 }
 
@@ -280,13 +312,20 @@ async fn add_event_metadata(
     Path(event_id): Path<String>,
     Json(metadata): Json<HashMap<String, serde_json::Value>>,
 ) -> Result<Json<EventResponse>, (StatusCode, Json<Value>)> {
-    let event_uuid = Uuid::parse_str(&event_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid event ID format"}))))?;
+    let event_uuid = Uuid::parse_str(&event_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid event ID format"})),
+        )
+    })?;
 
     let mut engine = state.events_engine.lock().unwrap();
 
     match engine.add_event_metadata(&event_uuid, metadata) {
         Ok(event) => Ok(Json(event_to_response(event))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to add metadata: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to add metadata: {}", e)})),
+        )),
     }
 }

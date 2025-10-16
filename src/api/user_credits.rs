@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-use crate::api::shared_state::AppState;
 use crate::api::auth::Claims;
+use crate::api::shared_state::AppState;
 use crate::storage::StorageBackend;
-use crate::types::{CreditCosts};
+use crate::types::CreditCosts;
 
 // ============================================================================
 // REQUEST/RESPONSE TYPES
@@ -121,13 +121,28 @@ pub async fn get_my_credit_history(
     let storage = state.shared_storage.lock().unwrap();
     let user = storage
         .get_user_account(&user_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "User not found"})),
+            )
+        })?;
 
     // Get credit transactions
     let transactions = storage
         .get_credit_transactions(&user_id, Some(limit))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
     let transaction_responses: Vec<CreditTransactionResponse> = transactions
         .into_iter()
@@ -159,8 +174,18 @@ pub async fn get_my_operation_costs(
     let storage = state.shared_storage.lock().unwrap();
     let user = storage
         .get_user_account(&user_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "User not found"})),
+            )
+        })?;
 
     // Get credit costs for user's tier
     let credit_costs = CreditCosts::for_tier(&user.tier);
@@ -188,8 +213,18 @@ pub async fn get_my_profile(
     let storage = state.shared_storage.lock().unwrap();
     let user = storage
         .get_user_account(&user_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "User not found"})),
+            )
+        })?;
 
     let subscription = user.subscription.as_ref().map(|sub| SubscriptionResponse {
         plan_id: sub.plan_id.clone(),
@@ -236,8 +271,18 @@ pub async fn get_my_credit_balance(
     let storage = state.shared_storage.lock().unwrap();
     let user = storage
         .get_user_account(&user_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "User not found"})),
+            )
+        })?;
 
     Ok(Json(json!({
         "credits": user.credits,
@@ -256,5 +301,5 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/users/me/credits/costs", get(get_my_operation_costs))
         .route("/users/me/credits/balance", get(get_my_credit_balance))
         .route("/users/me/profile", get(get_my_profile))
-        .route("/credit/users/current", get(get_my_profile))  // Frontend compatibility alias
+        .route("/credit/users/current", get(get_my_profile)) // Frontend compatibility alias
 }

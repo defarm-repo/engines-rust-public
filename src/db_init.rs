@@ -1,18 +1,24 @@
-use crate::storage::{StorageBackend, InMemoryStorage};
+use crate::storage::{InMemoryStorage, StorageBackend};
 use crate::types::{
-    UserAccount, UserTier, AccountStatus, TierLimits, CreditTransaction, CreditTransactionType,
-    AdapterConfig, AdapterConnectionDetails, AdapterType, AuthType, ContractConfigs, ContractInfo
+    AccountStatus, AdapterConfig, AdapterConnectionDetails, AdapterType, AuthType, ContractConfigs,
+    ContractInfo, CreditTransaction, CreditTransactionType, TierLimits, UserAccount, UserTier,
 };
-use chrono::Utc;
-use uuid::Uuid;
 use bcrypt::{hash, DEFAULT_COST};
+use chrono::Utc;
 use std::collections::HashMap;
+use uuid::Uuid;
 
-pub fn initialize_default_admin(storage: &mut InMemoryStorage) -> Result<(), Box<dyn std::error::Error>> {
+pub fn initialize_default_admin(
+    storage: &mut InMemoryStorage,
+) -> Result<(), Box<dyn std::error::Error>> {
     let admin_user_id = "hen-admin-001".to_string();
 
     // Check if admin already exists
-    if storage.get_user_account(&admin_user_id).unwrap_or(None).is_some() {
+    if storage
+        .get_user_account(&admin_user_id)
+        .unwrap_or(None)
+        .is_some()
+    {
         println!("Default admin 'hen' already exists, skipping initialization");
         return Ok(());
     }
@@ -69,7 +75,9 @@ pub fn initialize_default_admin(storage: &mut InMemoryStorage) -> Result<(), Box
     Ok(())
 }
 
-pub fn initialize_sample_users(storage: &mut InMemoryStorage) -> Result<(), Box<dyn std::error::Error>> {
+pub fn initialize_sample_users(
+    storage: &mut InMemoryStorage,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("🌱 Creating sample users for development...");
 
     // Generate bcrypt hashes for all passwords (using demo123 for all development users)
@@ -167,7 +175,11 @@ pub fn initialize_sample_users(storage: &mut InMemoryStorage) -> Result<(), Box<
 
     for user in sample_users {
         // Check if user already exists
-        if storage.get_user_account(&user.user_id).unwrap_or(None).is_some() {
+        if storage
+            .get_user_account(&user.user_id)
+            .unwrap_or(None)
+            .is_some()
+        {
             println!("   - User '{}' already exists, skipping", user.username);
             continue;
         }
@@ -194,14 +206,21 @@ pub fn initialize_sample_users(storage: &mut InMemoryStorage) -> Result<(), Box<
 
         storage.record_credit_transaction(&initial_credit_transaction)?;
 
-        println!("   ✅ Created {} user: {} ({})", user.tier.as_str(), username, initial_credits);
+        println!(
+            "   ✅ Created {} user: {} ({})",
+            user.tier.as_str(),
+            username,
+            initial_credits
+        );
     }
 
     println!("✅ Sample users created successfully!");
     Ok(())
 }
 
-pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(), Box<dyn std::error::Error>> {
+pub fn initialize_production_adapters(
+    storage: &mut InMemoryStorage,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔌 Initializing production adapters...");
 
     // Read credentials from environment
@@ -245,11 +264,14 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
 
     // Stellar adapters now use native RPC integration (no CLI dependency)
     // Create Stellar Testnet + IPFS adapter config
-    if let (Some(api_key), Some(secret), Some(contract_addr)) = (pinata_api_key.clone(), pinata_secret.clone(), testnet_ipcm) {
+    if let (Some(api_key), Some(secret), Some(contract_addr)) =
+        (pinata_api_key.clone(), pinata_secret.clone(), testnet_ipcm)
+    {
         // Get testnet configuration from environment
         let testnet_secret = std::env::var("STELLAR_TESTNET_SECRET").ok();
-        let interface_address = std::env::var("DEFARM_OWNER_WALLET")
-            .unwrap_or_else(|_| "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string());
+        let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
+            "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+        });
 
         let mut custom_headers = HashMap::new();
         if let Some(secret_key) = testnet_secret {
@@ -259,7 +281,10 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
             custom_headers.insert("nft_contract".to_string(), nft_contract);
         }
         custom_headers.insert("interface_address".to_string(), interface_address);
-        custom_headers.insert("source_account_identity".to_string(), "defarm-admin-testnet".to_string());
+        custom_headers.insert(
+            "source_account_identity".to_string(),
+            "defarm-admin-testnet".to_string(),
+        );
 
         let testnet_config = AdapterConfig {
             config_id: Uuid::new_v4(),
@@ -300,9 +325,12 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
     }
 
     // Create Stellar Mainnet + IPFS adapter config
-    if let (Some(api_key), Some(secret), Some(contract_addr), Some(mainnet_key)) = (pinata_api_key, pinata_secret, mainnet_ipcm, mainnet_secret) {
-        let interface_address = std::env::var("DEFARM_OWNER_WALLET")
-            .unwrap_or_else(|_| "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string());
+    if let (Some(api_key), Some(secret), Some(contract_addr), Some(mainnet_key)) =
+        (pinata_api_key, pinata_secret, mainnet_ipcm, mainnet_secret)
+    {
+        let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
+            "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+        });
 
         let mut custom_headers = HashMap::new();
         custom_headers.insert("stellar_secret".to_string(), mainnet_key);
@@ -310,7 +338,10 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
             custom_headers.insert("nft_contract".to_string(), nft_contract);
         }
         custom_headers.insert("interface_address".to_string(), interface_address);
-        custom_headers.insert("source_account_identity".to_string(), "defarm-admin-secure-v2".to_string());
+        custom_headers.insert(
+            "source_account_identity".to_string(),
+            "defarm-admin-secure-v2".to_string(),
+        );
 
         let mainnet_config = AdapterConfig {
             config_id: Uuid::new_v4(),
@@ -361,7 +392,9 @@ pub fn initialize_production_adapters(storage: &mut InMemoryStorage) -> Result<(
     Ok(())
 }
 
-pub fn setup_development_data(storage: &mut InMemoryStorage) -> Result<(), Box<dyn std::error::Error>> {
+pub fn setup_development_data(
+    storage: &mut InMemoryStorage,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Setting up development data...");
 
     initialize_default_admin(storage)?;

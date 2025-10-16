@@ -35,6 +35,7 @@ enum ConnectionState {
     Connected,
     Connecting,
     Failed,
+    #[allow(dead_code)]
     CircuitOpen,
 }
 

@@ -5,13 +5,13 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
-use base64::{Engine as _, engine::general_purpose};
 
-use crate::{Identifier, ReceiptEngine, InMemoryStorage, ReceiptError};
+use crate::{Identifier, InMemoryStorage, ReceiptEngine, ReceiptError};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateReceiptRequest {
@@ -74,17 +74,27 @@ async fn create_receipt(
     Json(payload): Json<CreateReceiptRequest>,
 ) -> Result<Json<ReceiptResponse>, (StatusCode, Json<Value>)> {
     // Decode base64 data
-    let data = general_purpose::STANDARD.decode(&payload.data)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid base64 data"}))))?;
+    let data = general_purpose::STANDARD
+        .decode(&payload.data)
+        .map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid base64 data"})),
+            )
+        })?;
 
     // Convert identifiers
-    let identifiers: Vec<Identifier> = payload.identifiers
+    let identifiers: Vec<Identifier> = payload
+        .identifiers
         .into_iter()
         .map(|id| Identifier::new(id.key, id.value))
         .collect();
 
     if identifiers.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "At least one identifier is required"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "At least one identifier is required"})),
+        ));
     }
 
     let mut engine = state.engine.lock().unwrap();
@@ -96,19 +106,25 @@ async fn create_receipt(
                 hash: receipt.hash,
                 timestamp: receipt.timestamp.timestamp(),
                 data_size: receipt.data_size,
-                identifiers: receipt.identifiers
+                identifiers: receipt
+                    .identifiers
                     .into_iter()
-                    .map(|id| IdentifierRequest { key: id.key, value: id.value })
+                    .map(|id| IdentifierRequest {
+                        key: id.key,
+                        value: id.value,
+                    })
                     .collect(),
             };
             Ok(Json(response))
         }
-        Err(ReceiptError::NoIdentifiers) => {
-            Err((StatusCode::BAD_REQUEST, Json(json!({"error": "At least one identifier is required"}))))
-        }
-        Err(ReceiptError::StorageError(e)) => {
-            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Storage error: {}", e)}))))
-        }
+        Err(ReceiptError::NoIdentifiers) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "At least one identifier is required"})),
+        )),
+        Err(ReceiptError::StorageError(e)) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Storage error: {}", e)})),
+        )),
     }
 }
 
@@ -116,8 +132,12 @@ async fn get_receipt(
     State(state): State<Arc<ReceiptState>>,
     Path(id): Path<String>,
 ) -> Result<Json<ReceiptResponse>, (StatusCode, Json<Value>)> {
-    let receipt_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid receipt ID format"}))))?;
+    let receipt_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid receipt ID format"})),
+        )
+    })?;
 
     let engine = state.engine.lock().unwrap();
 
@@ -128,15 +148,25 @@ async fn get_receipt(
                 hash: receipt.hash,
                 timestamp: receipt.timestamp.timestamp(),
                 data_size: receipt.data_size,
-                identifiers: receipt.identifiers
+                identifiers: receipt
+                    .identifiers
                     .into_iter()
-                    .map(|id| IdentifierRequest { key: id.key, value: id.value })
+                    .map(|id| IdentifierRequest {
+                        key: id.key,
+                        value: id.value,
+                    })
                     .collect(),
             };
             Ok(Json(response))
         }
-        Ok(None) => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Receipt not found"})))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Storage error: {}", e)})))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Receipt not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Storage error: {}", e)})),
+        )),
     }
 }
 
@@ -145,15 +175,29 @@ async fn verify_receipt(
     Path(id): Path<String>,
     Json(payload): Json<Value>,
 ) -> Result<Json<VerificationResponse>, (StatusCode, Json<Value>)> {
-    let receipt_id = Uuid::parse_str(&id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid receipt ID format"}))))?;
+    let receipt_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid receipt ID format"})),
+        )
+    })?;
 
-    let data_b64 = payload.get("data")
+    let data_b64 = payload
+        .get("data")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(json!({"error": "Missing data field"}))))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Missing data field"})),
+            )
+        })?;
 
-    let data = general_purpose::STANDARD.decode(data_b64)
-        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid base64 data"}))))?;
+    let data = general_purpose::STANDARD.decode(data_b64).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid base64 data"})),
+        )
+    })?;
 
     let engine = state.engine.lock().unwrap();
 
@@ -171,10 +215,16 @@ async fn verify_receipt(
                     timestamp: receipt.timestamp.timestamp(),
                 }))
             } else {
-                Err((StatusCode::NOT_FOUND, Json(json!({"error": "Receipt not found"}))))
+                Err((
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Receipt not found"})),
+                ))
             }
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Verification error: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Verification error: {}", e)})),
+        )),
     }
 }
 
@@ -194,15 +244,22 @@ async fn search_by_identifier(
                     hash: receipt.hash,
                     timestamp: receipt.timestamp.timestamp(),
                     data_size: receipt.data_size,
-                    identifiers: receipt.identifiers
+                    identifiers: receipt
+                        .identifiers
                         .into_iter()
-                        .map(|id| IdentifierRequest { key: id.key, value: id.value })
+                        .map(|id| IdentifierRequest {
+                            key: id.key,
+                            value: id.value,
+                        })
                         .collect(),
                 })
                 .collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Search error: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Search error: {}", e)})),
+        )),
     }
 }
 
@@ -221,15 +278,22 @@ async fn search_by_key(
                     hash: receipt.hash,
                     timestamp: receipt.timestamp.timestamp(),
                     data_size: receipt.data_size,
-                    identifiers: receipt.identifiers
+                    identifiers: receipt
+                        .identifiers
                         .into_iter()
-                        .map(|id| IdentifierRequest { key: id.key, value: id.value })
+                        .map(|id| IdentifierRequest {
+                            key: id.key,
+                            value: id.value,
+                        })
                         .collect(),
                 })
                 .collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Search error: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Search error: {}", e)})),
+        )),
     }
 }
 
@@ -248,15 +312,22 @@ async fn search_by_value(
                     hash: receipt.hash,
                     timestamp: receipt.timestamp.timestamp(),
                     data_size: receipt.data_size,
-                    identifiers: receipt.identifiers
+                    identifiers: receipt
+                        .identifiers
                         .into_iter()
-                        .map(|id| IdentifierRequest { key: id.key, value: id.value })
+                        .map(|id| IdentifierRequest {
+                            key: id.key,
+                            value: id.value,
+                        })
                         .collect(),
                 })
                 .collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Search error: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Search error: {}", e)})),
+        )),
     }
 }
 
@@ -274,14 +345,21 @@ async fn list_receipts(
                     hash: receipt.hash,
                     timestamp: receipt.timestamp.timestamp(),
                     data_size: receipt.data_size,
-                    identifiers: receipt.identifiers
+                    identifiers: receipt
+                        .identifiers
                         .into_iter()
-                        .map(|id| IdentifierRequest { key: id.key, value: id.value })
+                        .map(|id| IdentifierRequest {
+                            key: id.key,
+                            value: id.value,
+                        })
                         .collect(),
                 })
                 .collect();
             Ok(Json(response))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Storage error: {}", e)})))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Storage error: {}", e)})),
+        )),
     }
 }

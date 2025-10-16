@@ -1,17 +1,17 @@
-use crate::logging::LogEntry;
 use crate::identifier_types::EnhancedIdentifier;
+use crate::logging::LogEntry;
 use crate::types::{
-    Activity, CircuitItem, Identifier, Receipt, DataLakeEntry, Item, IdentifierMapping, ConflictResolution,
-    ProcessingStatus, ItemStatus, Event, EventType, EventVisibility,
-    Circuit, CircuitOperation, ItemShare, PendingItem, PendingReason, PendingPriority,
-    AuditEvent, AuditEventType, AuditSeverity, AuditQuery,
-    SecurityIncident, ComplianceReport, AuditDashboardMetrics, SecurityIncidentSummary, ComplianceStatus,
-    CircuitType, ItemStorageHistory, StorageRecord, CircuitAdapterConfig, UserAccount, CreditTransaction, AdminAction, SystemStatistics,
-    Notification, AdapterConfig, AdapterType, AdapterTestResult, WebhookDelivery
+    Activity, AdapterConfig, AdapterTestResult, AdapterType, AdminAction, AuditDashboardMetrics,
+    AuditEvent, AuditEventType, AuditQuery, AuditSeverity, Circuit, CircuitAdapterConfig,
+    CircuitItem, CircuitOperation, CircuitType, ComplianceReport, ComplianceStatus,
+    ConflictResolution, CreditTransaction, DataLakeEntry, Event, EventType, EventVisibility,
+    Identifier, IdentifierMapping, Item, ItemShare, ItemStatus, ItemStorageHistory, Notification,
+    PendingItem, PendingPriority, PendingReason, ProcessingStatus, Receipt, SecurityIncident,
+    SecurityIncidentSummary, StorageRecord, SystemStatistics, UserAccount, WebhookDelivery,
 };
-use chrono::{DateTime, Utc};
-use aes_gcm::{Aes256Gcm, Key, Nonce};
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
+use chrono::{DateTime, Utc};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -93,7 +93,10 @@ impl EncryptionKey {
 pub trait StorageBackend {
     fn store_receipt(&mut self, receipt: &Receipt) -> Result<(), StorageError>;
     fn get_receipt(&self, id: &Uuid) -> Result<Option<Receipt>, StorageError>;
-    fn find_receipts_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Receipt>, StorageError>;
+    fn find_receipts_by_identifier(
+        &self,
+        identifier: &Identifier,
+    ) -> Result<Vec<Receipt>, StorageError>;
     fn list_receipts(&self) -> Result<Vec<Receipt>, StorageError>;
 
     fn store_log(&mut self, log: &LogEntry) -> Result<(), StorageError>;
@@ -103,7 +106,10 @@ pub trait StorageBackend {
     fn store_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError>;
     fn get_data_lake_entry(&self, entry_id: &Uuid) -> Result<Option<DataLakeEntry>, StorageError>;
     fn update_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError>;
-    fn get_data_lake_entries_by_status(&self, status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError>;
+    fn get_data_lake_entries_by_status(
+        &self,
+        status: ProcessingStatus,
+    ) -> Result<Vec<DataLakeEntry>, StorageError>;
     fn list_data_lake_entries(&self) -> Result<Vec<DataLakeEntry>, StorageError>;
 
     // Items operations
@@ -116,14 +122,27 @@ pub trait StorageBackend {
     fn delete_item(&mut self, dfid: &str) -> Result<(), StorageError>;
 
     // Identifier Mapping operations
-    fn store_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError>;
-    fn get_identifier_mappings(&self, identifier: &Identifier) -> Result<Vec<IdentifierMapping>, StorageError>;
-    fn update_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError>;
+    fn store_identifier_mapping(&mut self, mapping: &IdentifierMapping)
+        -> Result<(), StorageError>;
+    fn get_identifier_mappings(
+        &self,
+        identifier: &Identifier,
+    ) -> Result<Vec<IdentifierMapping>, StorageError>;
+    fn update_identifier_mapping(
+        &mut self,
+        mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError>;
     fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError>;
 
     // Conflict Resolution operations
-    fn store_conflict_resolution(&mut self, conflict: &ConflictResolution) -> Result<(), StorageError>;
-    fn get_conflict_resolution(&self, conflict_id: &Uuid) -> Result<Option<ConflictResolution>, StorageError>;
+    fn store_conflict_resolution(
+        &mut self,
+        conflict: &ConflictResolution,
+    ) -> Result<(), StorageError>;
+    fn get_conflict_resolution(
+        &self,
+        conflict_id: &Uuid,
+    ) -> Result<Option<ConflictResolution>, StorageError>;
     fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError>;
 
     // Event operations
@@ -133,8 +152,15 @@ pub trait StorageBackend {
     fn list_events(&self) -> Result<Vec<Event>, StorageError>;
     fn get_events_by_dfid(&self, dfid: &str) -> Result<Vec<Event>, StorageError>;
     fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, StorageError>;
-    fn get_events_by_visibility(&self, visibility: EventVisibility) -> Result<Vec<Event>, StorageError>;
-    fn get_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<Event>, StorageError>;
+    fn get_events_by_visibility(
+        &self,
+        visibility: EventVisibility,
+    ) -> Result<Vec<Event>, StorageError>;
+    fn get_events_in_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<Event>, StorageError>;
 
     // Circuit operations
     fn store_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError>;
@@ -144,10 +170,20 @@ pub trait StorageBackend {
     fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, StorageError>;
 
     // Circuit Operation operations
-    fn store_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError>;
-    fn get_circuit_operation(&self, operation_id: &Uuid) -> Result<Option<CircuitOperation>, StorageError>;
-    fn update_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError>;
-    fn get_circuit_operations(&self, circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, StorageError>;
+    fn store_circuit_operation(&mut self, operation: &CircuitOperation)
+        -> Result<(), StorageError>;
+    fn get_circuit_operation(
+        &self,
+        operation_id: &Uuid,
+    ) -> Result<Option<CircuitOperation>, StorageError>;
+    fn update_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError>;
+    fn get_circuit_operations(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitOperation>, StorageError>;
 
     // Item Share operations
     fn store_item_share(&mut self, share: &ItemShare) -> Result<(), StorageError>;
@@ -174,65 +210,135 @@ pub trait StorageBackend {
     fn query_audit_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError>;
     fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError>;
     fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError>;
-    fn get_audit_events_by_type(&self, event_type: AuditEventType) -> Result<Vec<AuditEvent>, StorageError>;
-    fn get_audit_events_by_severity(&self, severity: AuditSeverity) -> Result<Vec<AuditEvent>, StorageError>;
-    fn get_audit_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<AuditEvent>, StorageError>;
+    fn get_audit_events_by_type(
+        &self,
+        event_type: AuditEventType,
+    ) -> Result<Vec<AuditEvent>, StorageError>;
+    fn get_audit_events_by_severity(
+        &self,
+        severity: AuditSeverity,
+    ) -> Result<Vec<AuditEvent>, StorageError>;
+    fn get_audit_events_in_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<AuditEvent>, StorageError>;
     fn sync_audit_events(&mut self, events: Vec<AuditEvent>) -> Result<(), StorageError>;
 
     // Security Incident operations
     fn store_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError>;
-    fn get_security_incident(&self, incident_id: &Uuid) -> Result<Option<SecurityIncident>, StorageError>;
-    fn update_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError>;
+    fn get_security_incident(
+        &self,
+        incident_id: &Uuid,
+    ) -> Result<Option<SecurityIncident>, StorageError>;
+    fn update_security_incident(&mut self, incident: &SecurityIncident)
+        -> Result<(), StorageError>;
     fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError>;
-    fn get_incidents_by_severity(&self, severity: AuditSeverity) -> Result<Vec<SecurityIncident>, StorageError>;
+    fn get_incidents_by_severity(
+        &self,
+        severity: AuditSeverity,
+    ) -> Result<Vec<SecurityIncident>, StorageError>;
     fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError>;
-    fn get_incidents_by_assignee(&self, assignee: &str) -> Result<Vec<SecurityIncident>, StorageError>;
+    fn get_incidents_by_assignee(
+        &self,
+        assignee: &str,
+    ) -> Result<Vec<SecurityIncident>, StorageError>;
 
     // Compliance Report operations
     fn store_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError>;
-    fn get_compliance_report(&self, report_id: &Uuid) -> Result<Option<ComplianceReport>, StorageError>;
+    fn get_compliance_report(
+        &self,
+        report_id: &Uuid,
+    ) -> Result<Option<ComplianceReport>, StorageError>;
     fn update_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError>;
     fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError>;
-    fn get_reports_by_type(&self, report_type: &str) -> Result<Vec<ComplianceReport>, StorageError>;
+    fn get_reports_by_type(&self, report_type: &str)
+        -> Result<Vec<ComplianceReport>, StorageError>;
     fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError>;
 
     // Audit Dashboard operations
     fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError>;
-    fn get_event_count_by_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<u64, StorageError>;
+    fn get_event_count_by_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<u64, StorageError>;
 
     // Pending Items operations
     fn store_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError>;
     fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError>;
     fn list_pending_items(&self) -> Result<Vec<PendingItem>, StorageError>;
-    fn get_pending_items_by_reason(&self, reason_type: &str) -> Result<Vec<PendingItem>, StorageError>;
+    fn get_pending_items_by_reason(
+        &self,
+        reason_type: &str,
+    ) -> Result<Vec<PendingItem>, StorageError>;
     fn get_pending_items_by_user(&self, user_id: &str) -> Result<Vec<PendingItem>, StorageError>;
-    fn get_pending_items_by_workspace(&self, workspace_id: &str) -> Result<Vec<PendingItem>, StorageError>;
-    fn get_pending_items_by_priority(&self, priority: PendingPriority) -> Result<Vec<PendingItem>, StorageError>;
+    fn get_pending_items_by_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<PendingItem>, StorageError>;
+    fn get_pending_items_by_priority(
+        &self,
+        priority: PendingPriority,
+    ) -> Result<Vec<PendingItem>, StorageError>;
     fn update_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError>;
     fn delete_pending_item(&mut self, pending_id: &Uuid) -> Result<(), StorageError>;
     fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError>;
 
     // ZK Proof operations
-    fn store_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError>;
-    fn get_zk_proof(&self, proof_id: &Uuid) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError>;
-    fn update_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError>;
-    fn query_zk_proofs(&self, query: &crate::api::zk_proofs::ZkProofQuery) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn store_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError>;
+    fn get_zk_proof(
+        &self,
+        proof_id: &Uuid,
+    ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn update_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError>;
+    fn query_zk_proofs(
+        &self,
+        query: &crate::api::zk_proofs::ZkProofQuery,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
     fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
-    fn get_zk_proofs_by_user(&self, user_id: &str) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
-    fn get_zk_proofs_by_circuit_type(&self, circuit_type: CircuitType) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
-    fn get_zk_proofs_by_status(&self, status: crate::zk_proof_engine::ProofStatus) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
-    fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError>;
+    fn get_zk_proofs_by_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn get_zk_proofs_by_circuit_type(
+        &self,
+        circuit_type: CircuitType,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn get_zk_proofs_by_status(
+        &self,
+        status: crate::zk_proof_engine::ProofStatus,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError>;
+    fn get_zk_proof_statistics(
+        &self,
+    ) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError>;
     fn delete_zk_proof(&mut self, proof_id: &Uuid) -> Result<(), StorageError>;
 
     // Storage History operations
     fn store_storage_history(&mut self, history: &ItemStorageHistory) -> Result<(), StorageError>;
     fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError>;
-    fn add_storage_record(&mut self, dfid: &str, record: StorageRecord) -> Result<(), StorageError>;
+    fn add_storage_record(&mut self, dfid: &str, record: StorageRecord)
+        -> Result<(), StorageError>;
 
     // Circuit Adapter Configuration operations
-    fn store_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError>;
-    fn get_circuit_adapter_config(&self, circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError>;
-    fn update_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError>;
+    fn store_circuit_adapter_config(
+        &mut self,
+        config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError>;
+    fn get_circuit_adapter_config(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Option<CircuitAdapterConfig>, StorageError>;
+    fn update_circuit_adapter_config(
+        &mut self,
+        config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError>;
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError>;
 
     // User Account operations
@@ -245,15 +351,35 @@ pub trait StorageBackend {
     fn delete_user_account(&mut self, user_id: &str) -> Result<(), StorageError>;
 
     // Credit Transaction operations
-    fn record_credit_transaction(&mut self, transaction: &CreditTransaction) -> Result<(), StorageError>;
-    fn get_credit_transaction(&self, transaction_id: &str) -> Result<Option<CreditTransaction>, StorageError>;
-    fn get_credit_transactions(&self, user_id: &str, limit: Option<usize>) -> Result<Vec<CreditTransaction>, StorageError>;
-    fn get_credit_transactions_by_operation(&self, operation_type: &str) -> Result<Vec<CreditTransaction>, StorageError>;
+    fn record_credit_transaction(
+        &mut self,
+        transaction: &CreditTransaction,
+    ) -> Result<(), StorageError>;
+    fn get_credit_transaction(
+        &self,
+        transaction_id: &str,
+    ) -> Result<Option<CreditTransaction>, StorageError>;
+    fn get_credit_transactions(
+        &self,
+        user_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<CreditTransaction>, StorageError>;
+    fn get_credit_transactions_by_operation(
+        &self,
+        operation_type: &str,
+    ) -> Result<Vec<CreditTransaction>, StorageError>;
 
     // Admin Action operations
     fn record_admin_action(&mut self, action: &AdminAction) -> Result<(), StorageError>;
-    fn get_admin_actions(&self, admin_id: Option<&str>, limit: Option<usize>) -> Result<Vec<AdminAction>, StorageError>;
-    fn get_admin_actions_by_type(&self, action_type: &str) -> Result<Vec<AdminAction>, StorageError>;
+    fn get_admin_actions(
+        &self,
+        admin_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<AdminAction>, StorageError>;
+    fn get_admin_actions_by_type(
+        &self,
+        action_type: &str,
+    ) -> Result<Vec<AdminAction>, StorageError>;
 
     // System Statistics operations
     fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError>;
@@ -261,8 +387,15 @@ pub trait StorageBackend {
 
     // Notification operations
     fn store_notification(&mut self, notification: &Notification) -> Result<(), StorageError>;
-    fn get_notification(&self, notification_id: &str) -> Result<Option<Notification>, StorageError>;
-    fn get_user_notifications(&self, user_id: &str, since: Option<DateTime<Utc>>, limit: Option<usize>, unread_only: bool) -> Result<Vec<Notification>, StorageError>;
+    fn get_notification(&self, notification_id: &str)
+        -> Result<Option<Notification>, StorageError>;
+    fn get_user_notifications(
+        &self,
+        user_id: &str,
+        since: Option<DateTime<Utc>>,
+        limit: Option<usize>,
+        unread_only: bool,
+    ) -> Result<Vec<Notification>, StorageError>;
     fn update_notification(&mut self, notification: &Notification) -> Result<(), StorageError>;
     fn delete_notification(&mut self, notification_id: &str) -> Result<(), StorageError>;
     fn mark_all_notifications_read(&mut self, user_id: &str) -> Result<usize, StorageError>;
@@ -275,31 +408,67 @@ pub trait StorageBackend {
     fn delete_adapter_config(&mut self, config_id: &Uuid) -> Result<(), StorageError>;
     fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError>;
     fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError>;
-    fn get_adapter_configs_by_type(&self, adapter_type: &AdapterType) -> Result<Vec<AdapterConfig>, StorageError>;
+    fn get_adapter_configs_by_type(
+        &self,
+        adapter_type: &AdapterType,
+    ) -> Result<Vec<AdapterConfig>, StorageError>;
     fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError>;
     fn set_default_adapter(&mut self, config_id: &Uuid) -> Result<(), StorageError>;
-    fn store_adapter_test_result(&mut self, result: &AdapterTestResult) -> Result<(), StorageError>;
-    fn get_adapter_test_result(&self, config_id: &Uuid) -> Result<Option<AdapterTestResult>, StorageError>;
+    fn store_adapter_test_result(&mut self, result: &AdapterTestResult)
+        -> Result<(), StorageError>;
+    fn get_adapter_test_result(
+        &self,
+        config_id: &Uuid,
+    ) -> Result<Option<AdapterTestResult>, StorageError>;
 
     // LID ↔ DFID mapping operations
     fn store_lid_dfid_mapping(&mut self, lid: &Uuid, dfid: &str) -> Result<(), StorageError>;
     fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError>;
 
     // Canonical identifier lookups (optimized)
-    fn get_dfid_by_canonical(&self, namespace: &str, registry: &str, value: &str) -> Result<Option<String>, StorageError>;
+    fn get_dfid_by_canonical(
+        &self,
+        namespace: &str,
+        registry: &str,
+        value: &str,
+    ) -> Result<Option<String>, StorageError>;
 
     // Fingerprint mappings
-    fn store_fingerprint_mapping(&mut self, fingerprint: &str, dfid: &str, circuit_id: &Uuid) -> Result<(), StorageError>;
-    fn get_dfid_by_fingerprint(&self, fingerprint: &str, circuit_id: &Uuid) -> Result<Option<String>, StorageError>;
+    fn store_fingerprint_mapping(
+        &mut self,
+        fingerprint: &str,
+        dfid: &str,
+        circuit_id: &Uuid,
+    ) -> Result<(), StorageError>;
+    fn get_dfid_by_fingerprint(
+        &self,
+        fingerprint: &str,
+        circuit_id: &Uuid,
+    ) -> Result<Option<String>, StorageError>;
 
     // Enhanced identifier mappings
-    fn store_enhanced_identifier_mapping(&mut self, identifier: &EnhancedIdentifier, dfid: &str) -> Result<(), StorageError>;
+    fn store_enhanced_identifier_mapping(
+        &mut self,
+        identifier: &EnhancedIdentifier,
+        dfid: &str,
+    ) -> Result<(), StorageError>;
 
     // Webhook delivery operations
     fn store_webhook_delivery(&mut self, delivery: &WebhookDelivery) -> Result<(), StorageError>;
-    fn get_webhook_delivery(&self, delivery_id: &Uuid) -> Result<Option<WebhookDelivery>, StorageError>;
-    fn get_webhook_deliveries_by_circuit(&self, circuit_id: &Uuid, limit: Option<usize>) -> Result<Vec<WebhookDelivery>, StorageError>;
-    fn get_webhook_deliveries_by_webhook(&self, webhook_id: &Uuid, limit: Option<usize>) -> Result<Vec<WebhookDelivery>, StorageError>;
+    fn get_webhook_delivery(
+        &self,
+        delivery_id: &Uuid,
+    ) -> Result<Option<WebhookDelivery>, StorageError>;
+    fn get_webhook_deliveries_by_circuit(
+        &self,
+        circuit_id: &Uuid,
+        limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError>;
+    fn get_webhook_deliveries_by_webhook(
+        &self,
+        webhook_id: &Uuid,
+        limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError>;
 }
 
 pub struct InMemoryStorage {
@@ -329,10 +498,11 @@ pub struct InMemoryStorage {
     circuit_adapter_configs: HashMap<Uuid, CircuitAdapterConfig>,
     user_accounts: HashMap<String, UserAccount>,
     user_accounts_by_username: HashMap<String, String>, // username -> user_id
-    user_accounts_by_email: HashMap<String, String>, // email -> user_id
+    user_accounts_by_email: HashMap<String, String>,    // email -> user_id
     credit_transactions: HashMap<String, CreditTransaction>,
     credit_transactions_by_user: HashMap<String, Vec<String>>, // user_id -> transaction_ids
     admin_actions: HashMap<String, AdminAction>,
+    #[allow(dead_code)]
     system_statistics: Option<SystemStatistics>,
     notifications: HashMap<String, Notification>,
     notifications_by_user: HashMap<String, Vec<String>>, // user_id -> notification_ids
@@ -403,7 +573,10 @@ impl StorageBackend for InMemoryStorage {
         Ok(self.receipts.get(id).cloned())
     }
 
-    fn find_receipts_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Receipt>, StorageError> {
+    fn find_receipts_by_identifier(
+        &self,
+        identifier: &Identifier,
+    ) -> Result<Vec<Receipt>, StorageError> {
         if let Some(receipt_ids) = self.identifier_index.get(identifier) {
             Ok(receipt_ids
                 .iter()
@@ -442,10 +615,16 @@ impl StorageBackend for InMemoryStorage {
         Ok(())
     }
 
-    fn get_data_lake_entries_by_status(&self, status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError> {
-        Ok(self.data_lake_entries
+    fn get_data_lake_entries_by_status(
+        &self,
+        status: ProcessingStatus,
+    ) -> Result<Vec<DataLakeEntry>, StorageError> {
+        Ok(self
+            .data_lake_entries
             .values()
-            .filter(|entry| std::mem::discriminant(&entry.status) == std::mem::discriminant(&status))
+            .filter(|entry| {
+                std::mem::discriminant(&entry.status) == std::mem::discriminant(&status)
+            })
             .cloned()
             .collect())
     }
@@ -474,7 +653,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
-        Ok(self.items
+        Ok(self
+            .items
             .values()
             .filter(|item| item.identifiers.contains(identifier))
             .cloned()
@@ -482,7 +662,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError> {
-        Ok(self.items
+        Ok(self
+            .items
             .values()
             .filter(|item| std::mem::discriminant(&item.status) == std::mem::discriminant(&status))
             .cloned()
@@ -495,7 +676,10 @@ impl StorageBackend for InMemoryStorage {
     }
 
     // Identifier Mapping operations
-    fn store_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
+    fn store_identifier_mapping(
+        &mut self,
+        mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
         self.identifier_mappings
             .entry(mapping.identifier.clone())
             .or_insert_with(Vec::new)
@@ -503,14 +687,21 @@ impl StorageBackend for InMemoryStorage {
         Ok(())
     }
 
-    fn get_identifier_mappings(&self, identifier: &Identifier) -> Result<Vec<IdentifierMapping>, StorageError> {
-        Ok(self.identifier_mappings
+    fn get_identifier_mappings(
+        &self,
+        identifier: &Identifier,
+    ) -> Result<Vec<IdentifierMapping>, StorageError> {
+        Ok(self
+            .identifier_mappings
             .get(identifier)
             .cloned()
             .unwrap_or_default())
     }
 
-    fn update_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
+    fn update_identifier_mapping(
+        &mut self,
+        mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
         if let Some(mappings) = self.identifier_mappings.get_mut(&mapping.identifier) {
             for existing_mapping in mappings.iter_mut() {
                 if existing_mapping.dfid == mapping.dfid {
@@ -520,13 +711,15 @@ impl StorageBackend for InMemoryStorage {
             }
             mappings.push(mapping.clone());
         } else {
-            self.identifier_mappings.insert(mapping.identifier.clone(), vec![mapping.clone()]);
+            self.identifier_mappings
+                .insert(mapping.identifier.clone(), vec![mapping.clone()]);
         }
         Ok(())
     }
 
     fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError> {
-        Ok(self.identifier_mappings
+        Ok(self
+            .identifier_mappings
             .values()
             .flat_map(|mappings| mappings.iter())
             .cloned()
@@ -534,17 +727,25 @@ impl StorageBackend for InMemoryStorage {
     }
 
     // Conflict Resolution operations
-    fn store_conflict_resolution(&mut self, conflict: &ConflictResolution) -> Result<(), StorageError> {
-        self.conflicts.insert(conflict.conflict_id, conflict.clone());
+    fn store_conflict_resolution(
+        &mut self,
+        conflict: &ConflictResolution,
+    ) -> Result<(), StorageError> {
+        self.conflicts
+            .insert(conflict.conflict_id, conflict.clone());
         Ok(())
     }
 
-    fn get_conflict_resolution(&self, conflict_id: &Uuid) -> Result<Option<ConflictResolution>, StorageError> {
+    fn get_conflict_resolution(
+        &self,
+        conflict_id: &Uuid,
+    ) -> Result<Option<ConflictResolution>, StorageError> {
         Ok(self.conflicts.get(conflict_id).cloned())
     }
 
     fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError> {
-        Ok(self.conflicts
+        Ok(self
+            .conflicts
             .values()
             .filter(|conflict| conflict.requires_manual_review)
             .cloned()
@@ -571,7 +772,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_events_by_dfid(&self, dfid: &str) -> Result<Vec<Event>, StorageError> {
-        Ok(self.events
+        Ok(self
+            .events
             .values()
             .filter(|event| event.dfid == dfid)
             .cloned()
@@ -579,23 +781,37 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, StorageError> {
-        Ok(self.events
+        Ok(self
+            .events
             .values()
-            .filter(|event| std::mem::discriminant(&event.event_type) == std::mem::discriminant(&event_type))
+            .filter(|event| {
+                std::mem::discriminant(&event.event_type) == std::mem::discriminant(&event_type)
+            })
             .cloned()
             .collect())
     }
 
-    fn get_events_by_visibility(&self, visibility: EventVisibility) -> Result<Vec<Event>, StorageError> {
-        Ok(self.events
+    fn get_events_by_visibility(
+        &self,
+        visibility: EventVisibility,
+    ) -> Result<Vec<Event>, StorageError> {
+        Ok(self
+            .events
             .values()
-            .filter(|event| std::mem::discriminant(&event.visibility) == std::mem::discriminant(&visibility))
+            .filter(|event| {
+                std::mem::discriminant(&event.visibility) == std::mem::discriminant(&visibility)
+            })
             .cloned()
             .collect())
     }
 
-    fn get_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<Event>, StorageError> {
-        Ok(self.events
+    fn get_events_in_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<Event>, StorageError> {
+        Ok(self
+            .events
             .values()
             .filter(|event| event.timestamp >= start && event.timestamp <= end)
             .cloned()
@@ -608,7 +824,8 @@ impl StorageBackend for InMemoryStorage {
 
         // Also store the adapter_config if present
         if let Some(ref adapter_config) = circuit.adapter_config {
-            self.circuit_adapter_configs.insert(circuit.circuit_id, adapter_config.clone());
+            self.circuit_adapter_configs
+                .insert(circuit.circuit_id, adapter_config.clone());
         }
 
         Ok(())
@@ -623,7 +840,8 @@ impl StorageBackend for InMemoryStorage {
 
         // Also update the adapter_config if present
         if let Some(ref adapter_config) = circuit.adapter_config {
-            self.circuit_adapter_configs.insert(circuit.circuit_id, adapter_config.clone());
+            self.circuit_adapter_configs
+                .insert(circuit.circuit_id, adapter_config.clone());
         }
 
         Ok(())
@@ -634,7 +852,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, StorageError> {
-        Ok(self.circuits
+        Ok(self
+            .circuits
             .values()
             .filter(|circuit| circuit.get_member(member_id).is_some())
             .cloned()
@@ -642,22 +861,37 @@ impl StorageBackend for InMemoryStorage {
     }
 
     // Circuit Operation operations
-    fn store_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError> {
-        self.circuit_operations.insert(operation.operation_id, operation.clone());
+    fn store_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
+        self.circuit_operations
+            .insert(operation.operation_id, operation.clone());
         Ok(())
     }
 
-    fn get_circuit_operation(&self, operation_id: &Uuid) -> Result<Option<CircuitOperation>, StorageError> {
+    fn get_circuit_operation(
+        &self,
+        operation_id: &Uuid,
+    ) -> Result<Option<CircuitOperation>, StorageError> {
         Ok(self.circuit_operations.get(operation_id).cloned())
     }
 
-    fn update_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError> {
-        self.circuit_operations.insert(operation.operation_id, operation.clone());
+    fn update_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
+        self.circuit_operations
+            .insert(operation.operation_id, operation.clone());
         Ok(())
     }
 
-    fn get_circuit_operations(&self, circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, StorageError> {
-        Ok(self.circuit_operations
+    fn get_circuit_operations(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitOperation>, StorageError> {
+        Ok(self
+            .circuit_operations
             .values()
             .filter(|operation| operation.circuit_id == *circuit_id)
             .cloned()
@@ -666,7 +900,8 @@ impl StorageBackend for InMemoryStorage {
 
     // Item Share operations
     fn store_item_share(&mut self, share: &ItemShare) -> Result<(), StorageError> {
-        self.item_shares.insert(share.share_id.clone(), share.clone());
+        self.item_shares
+            .insert(share.share_id.clone(), share.clone());
         Ok(())
     }
 
@@ -675,7 +910,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_shares_for_user(&self, user_id: &str) -> Result<Vec<ItemShare>, StorageError> {
-        Ok(self.item_shares
+        Ok(self
+            .item_shares
             .values()
             .filter(|share| share.recipient_user_id == user_id)
             .cloned()
@@ -683,7 +919,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_shares_for_item(&self, dfid: &str) -> Result<Vec<ItemShare>, StorageError> {
-        Ok(self.item_shares
+        Ok(self
+            .item_shares
             .values()
             .filter(|share| share.dfid == dfid)
             .cloned()
@@ -691,7 +928,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn is_item_shared_with_user(&self, dfid: &str, user_id: &str) -> Result<bool, StorageError> {
-        Ok(self.item_shares
+        Ok(self
+            .item_shares
             .values()
             .any(|share| share.dfid == dfid && share.recipient_user_id == user_id))
     }
@@ -702,12 +940,14 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn store_activity(&mut self, activity: &Activity) -> Result<(), StorageError> {
-        self.activities.insert(activity.activity_id.clone(), activity.clone());
+        self.activities
+            .insert(activity.activity_id.clone(), activity.clone());
         Ok(())
     }
 
     fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, StorageError> {
-        Ok(self.activities
+        Ok(self
+            .activities
             .values()
             .filter(|activity| activity.user_id == user_id)
             .cloned()
@@ -715,7 +955,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
-        Ok(self.activities
+        Ok(self
+            .activities
             .values()
             .filter(|activity| activity.circuit_id == *circuit_id)
             .cloned()
@@ -733,7 +974,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
-        Ok(self.circuit_items
+        Ok(self
+            .circuit_items
             .values()
             .filter(|item| item.circuit_id == *circuit_id)
             .cloned()
@@ -760,21 +1002,27 @@ impl StorageBackend for InMemoryStorage {
         Ok(self.pending_items.values().cloned().collect())
     }
 
-    fn get_pending_items_by_reason(&self, reason_type: &str) -> Result<Vec<PendingItem>, StorageError> {
-        let items = self.pending_items
+    fn get_pending_items_by_reason(
+        &self,
+        reason_type: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
+        let items = self
+            .pending_items
             .values()
-            .filter(|item| {
-                match &item.reason {
-                    PendingReason::NoIdentifiers => reason_type == "NoIdentifiers",
-                    PendingReason::InvalidIdentifiers(_) => reason_type == "InvalidIdentifiers",
-                    PendingReason::ConflictingDFIDs { .. } => reason_type == "ConflictingDFIDs",
-                    PendingReason::IdentifierMappingConflict { .. } => reason_type == "IdentifierMappingConflict",
-                    PendingReason::DataQualityIssue { .. } => reason_type == "DataQualityIssue",
-                    PendingReason::ProcessingError(_) => reason_type == "ProcessingError",
-                    PendingReason::ValidationError(_) => reason_type == "ValidationError",
-                    PendingReason::DuplicateDetectionAmbiguous { .. } => reason_type == "DuplicateDetectionAmbiguous",
-                    PendingReason::CrossSystemConflict { .. } => reason_type == "CrossSystemConflict",
+            .filter(|item| match &item.reason {
+                PendingReason::NoIdentifiers => reason_type == "NoIdentifiers",
+                PendingReason::InvalidIdentifiers(_) => reason_type == "InvalidIdentifiers",
+                PendingReason::ConflictingDFIDs { .. } => reason_type == "ConflictingDFIDs",
+                PendingReason::IdentifierMappingConflict { .. } => {
+                    reason_type == "IdentifierMappingConflict"
                 }
+                PendingReason::DataQualityIssue { .. } => reason_type == "DataQualityIssue",
+                PendingReason::ProcessingError(_) => reason_type == "ProcessingError",
+                PendingReason::ValidationError(_) => reason_type == "ValidationError",
+                PendingReason::DuplicateDetectionAmbiguous { .. } => {
+                    reason_type == "DuplicateDetectionAmbiguous"
+                }
+                PendingReason::CrossSystemConflict { .. } => reason_type == "CrossSystemConflict",
             })
             .cloned()
             .collect();
@@ -782,7 +1030,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_pending_items_by_user(&self, user_id: &str) -> Result<Vec<PendingItem>, StorageError> {
-        let items = self.pending_items
+        let items = self
+            .pending_items
             .values()
             .filter(|item| item.user_id.as_ref().map_or(false, |id| id == user_id))
             .cloned()
@@ -790,19 +1039,33 @@ impl StorageBackend for InMemoryStorage {
         Ok(items)
     }
 
-    fn get_pending_items_by_workspace(&self, workspace_id: &str) -> Result<Vec<PendingItem>, StorageError> {
-        let items = self.pending_items
+    fn get_pending_items_by_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
+        let items = self
+            .pending_items
             .values()
-            .filter(|item| item.workspace_id.as_ref().map_or(false, |id| id == workspace_id))
+            .filter(|item| {
+                item.workspace_id
+                    .as_ref()
+                    .map_or(false, |id| id == workspace_id)
+            })
             .cloned()
             .collect();
         Ok(items)
     }
 
-    fn get_pending_items_by_priority(&self, priority: PendingPriority) -> Result<Vec<PendingItem>, StorageError> {
-        let items = self.pending_items
+    fn get_pending_items_by_priority(
+        &self,
+        priority: PendingPriority,
+    ) -> Result<Vec<PendingItem>, StorageError> {
+        let items = self
+            .pending_items
             .values()
-            .filter(|item| std::mem::discriminant(&item.priority) == std::mem::discriminant(&priority))
+            .filter(|item| {
+                std::mem::discriminant(&item.priority) == std::mem::discriminant(&priority)
+            })
             .cloned()
             .collect();
         Ok(items)
@@ -819,7 +1082,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
-        let items = self.pending_items
+        let items = self
+            .pending_items
             .values()
             .filter(|item| item.manual_review_required)
             .cloned()
@@ -846,7 +1110,11 @@ impl StorageBackend for InMemoryStorage {
         }
 
         if let Some(event_types) = &query.event_types {
-            events.retain(|e| event_types.iter().any(|t| std::mem::discriminant(t) == std::mem::discriminant(&e.event_type)));
+            events.retain(|e| {
+                event_types
+                    .iter()
+                    .any(|t| std::mem::discriminant(t) == std::mem::discriminant(&e.event_type))
+            });
         }
 
         if let Some(actions) = &query.actions {
@@ -858,11 +1126,19 @@ impl StorageBackend for InMemoryStorage {
         }
 
         if let Some(outcomes) = &query.outcomes {
-            events.retain(|e| outcomes.iter().any(|o| std::mem::discriminant(o) == std::mem::discriminant(&e.outcome)));
+            events.retain(|e| {
+                outcomes
+                    .iter()
+                    .any(|o| std::mem::discriminant(o) == std::mem::discriminant(&e.outcome))
+            });
         }
 
         if let Some(severities) = &query.severities {
-            events.retain(|e| severities.iter().any(|s| std::mem::discriminant(s) == std::mem::discriminant(&e.severity)));
+            events.retain(|e| {
+                severities
+                    .iter()
+                    .any(|s| std::mem::discriminant(s) == std::mem::discriminant(&e.severity))
+            });
         }
 
         if let Some(start_date) = query.start_date {
@@ -926,31 +1202,49 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError> {
-        Ok(self.audit_events
+        Ok(self
+            .audit_events
             .values()
             .filter(|event| event.user_id == user_id)
             .cloned()
             .collect())
     }
 
-    fn get_audit_events_by_type(&self, event_type: AuditEventType) -> Result<Vec<AuditEvent>, StorageError> {
-        Ok(self.audit_events
+    fn get_audit_events_by_type(
+        &self,
+        event_type: AuditEventType,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(self
+            .audit_events
             .values()
-            .filter(|event| std::mem::discriminant(&event.event_type) == std::mem::discriminant(&event_type))
+            .filter(|event| {
+                std::mem::discriminant(&event.event_type) == std::mem::discriminant(&event_type)
+            })
             .cloned()
             .collect())
     }
 
-    fn get_audit_events_by_severity(&self, severity: AuditSeverity) -> Result<Vec<AuditEvent>, StorageError> {
-        Ok(self.audit_events
+    fn get_audit_events_by_severity(
+        &self,
+        severity: AuditSeverity,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(self
+            .audit_events
             .values()
-            .filter(|event| std::mem::discriminant(&event.severity) == std::mem::discriminant(&severity))
+            .filter(|event| {
+                std::mem::discriminant(&event.severity) == std::mem::discriminant(&severity)
+            })
             .cloned()
             .collect())
     }
 
-    fn get_audit_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<AuditEvent>, StorageError> {
-        Ok(self.audit_events
+    fn get_audit_events_in_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
+        Ok(self
+            .audit_events
             .values()
             .filter(|event| event.timestamp >= start && event.timestamp <= end)
             .cloned()
@@ -966,16 +1260,24 @@ impl StorageBackend for InMemoryStorage {
 
     // Security Incident operations
     fn store_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError> {
-        self.security_incidents.insert(incident.incident_id, incident.clone());
+        self.security_incidents
+            .insert(incident.incident_id, incident.clone());
         Ok(())
     }
 
-    fn get_security_incident(&self, incident_id: &Uuid) -> Result<Option<SecurityIncident>, StorageError> {
+    fn get_security_incident(
+        &self,
+        incident_id: &Uuid,
+    ) -> Result<Option<SecurityIncident>, StorageError> {
         Ok(self.security_incidents.get(incident_id).cloned())
     }
 
-    fn update_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError> {
-        self.security_incidents.insert(incident.incident_id, incident.clone());
+    fn update_security_incident(
+        &mut self,
+        incident: &SecurityIncident,
+    ) -> Result<(), StorageError> {
+        self.security_incidents
+            .insert(incident.incident_id, incident.clone());
         Ok(())
     }
 
@@ -983,42 +1285,68 @@ impl StorageBackend for InMemoryStorage {
         Ok(self.security_incidents.values().cloned().collect())
     }
 
-    fn get_incidents_by_severity(&self, severity: AuditSeverity) -> Result<Vec<SecurityIncident>, StorageError> {
-        Ok(self.security_incidents
+    fn get_incidents_by_severity(
+        &self,
+        severity: AuditSeverity,
+    ) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(self
+            .security_incidents
             .values()
-            .filter(|incident| std::mem::discriminant(&incident.severity) == std::mem::discriminant(&severity))
+            .filter(|incident| {
+                std::mem::discriminant(&incident.severity) == std::mem::discriminant(&severity)
+            })
             .cloned()
             .collect())
     }
 
     fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
-        Ok(self.security_incidents
+        Ok(self
+            .security_incidents
             .values()
-            .filter(|incident| matches!(incident.status, crate::types::IncidentStatus::Open | crate::types::IncidentStatus::InProgress))
+            .filter(|incident| {
+                matches!(
+                    incident.status,
+                    crate::types::IncidentStatus::Open | crate::types::IncidentStatus::InProgress
+                )
+            })
             .cloned()
             .collect())
     }
 
-    fn get_incidents_by_assignee(&self, assignee: &str) -> Result<Vec<SecurityIncident>, StorageError> {
-        Ok(self.security_incidents
+    fn get_incidents_by_assignee(
+        &self,
+        assignee: &str,
+    ) -> Result<Vec<SecurityIncident>, StorageError> {
+        Ok(self
+            .security_incidents
             .values()
-            .filter(|incident| incident.assigned_to.as_ref().map_or(false, |a| a == assignee))
+            .filter(|incident| {
+                incident
+                    .assigned_to
+                    .as_ref()
+                    .map_or(false, |a| a == assignee)
+            })
             .cloned()
             .collect())
     }
 
     // Compliance Report operations
     fn store_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
-        self.compliance_reports.insert(report.report_id, report.clone());
+        self.compliance_reports
+            .insert(report.report_id, report.clone());
         Ok(())
     }
 
-    fn get_compliance_report(&self, report_id: &Uuid) -> Result<Option<ComplianceReport>, StorageError> {
+    fn get_compliance_report(
+        &self,
+        report_id: &Uuid,
+    ) -> Result<Option<ComplianceReport>, StorageError> {
         Ok(self.compliance_reports.get(report_id).cloned())
     }
 
     fn update_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
-        self.compliance_reports.insert(report.report_id, report.clone());
+        self.compliance_reports
+            .insert(report.report_id, report.clone());
         Ok(())
     }
 
@@ -1026,28 +1354,40 @@ impl StorageBackend for InMemoryStorage {
         Ok(self.compliance_reports.values().cloned().collect())
     }
 
-    fn get_reports_by_type(&self, report_type: &str) -> Result<Vec<ComplianceReport>, StorageError> {
-        Ok(self.compliance_reports
+    fn get_reports_by_type(
+        &self,
+        report_type: &str,
+    ) -> Result<Vec<ComplianceReport>, StorageError> {
+        Ok(self
+            .compliance_reports
             .values()
-            .filter(|report| {
-                match &report.report_type {
-                    crate::types::ComplianceReportType::GdprDataSubject => report_type == "gdpr-data-subject",
-                    crate::types::ComplianceReportType::CcpaConsumer => report_type == "ccpa-consumer",
-                    crate::types::ComplianceReportType::SoxFinancial => report_type == "sox-financial",
-                    crate::types::ComplianceReportType::AuditTrail => report_type == "audit-trail",
-                    crate::types::ComplianceReportType::SecurityIncident => report_type == "security-incident",
-                    crate::types::ComplianceReportType::FoodSafety => report_type == "food-safety",
-                    crate::types::ComplianceReportType::GDPR => report_type == "gdpr",
+            .filter(|report| match &report.report_type {
+                crate::types::ComplianceReportType::GdprDataSubject => {
+                    report_type == "gdpr-data-subject"
                 }
+                crate::types::ComplianceReportType::CcpaConsumer => report_type == "ccpa-consumer",
+                crate::types::ComplianceReportType::SoxFinancial => report_type == "sox-financial",
+                crate::types::ComplianceReportType::AuditTrail => report_type == "audit-trail",
+                crate::types::ComplianceReportType::SecurityIncident => {
+                    report_type == "security-incident"
+                }
+                crate::types::ComplianceReportType::FoodSafety => report_type == "food-safety",
+                crate::types::ComplianceReportType::GDPR => report_type == "gdpr",
             })
             .cloned()
             .collect())
     }
 
     fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
-        Ok(self.compliance_reports
+        Ok(self
+            .compliance_reports
             .values()
-            .filter(|report| matches!(report.status, crate::types::ReportStatus::Pending | crate::types::ReportStatus::Generating))
+            .filter(|report| {
+                matches!(
+                    report.status,
+                    crate::types::ReportStatus::Pending | crate::types::ReportStatus::Generating
+                )
+            })
             .cloned()
             .collect())
     }
@@ -1060,41 +1400,50 @@ impl StorageBackend for InMemoryStorage {
         let seven_days_ago = now - chrono::Duration::days(7);
 
         let total_events = self.audit_events.len() as u64;
-        let events_last_24h = self.audit_events
+        let events_last_24h = self
+            .audit_events
             .values()
             .filter(|e| e.timestamp >= twenty_four_hours_ago)
             .count() as u64;
-        let events_last_7d = self.audit_events
+        let events_last_7d = self
+            .audit_events
             .values()
             .filter(|e| e.timestamp >= seven_days_ago)
             .count() as u64;
 
-        let open_incidents = self.security_incidents
+        let open_incidents = self
+            .security_incidents
             .values()
             .filter(|i| matches!(i.status, IncidentStatus::Open | IncidentStatus::InProgress))
             .count() as u64;
-        let critical_incidents = self.security_incidents
+        let critical_incidents = self
+            .security_incidents
             .values()
             .filter(|i| matches!(i.severity, AuditSeverity::Critical))
             .count() as u64;
-        let resolved_incidents = self.security_incidents
+        let resolved_incidents = self
+            .security_incidents
             .values()
             .filter(|i| matches!(i.status, IncidentStatus::Resolved | IncidentStatus::Closed))
             .count() as u64;
 
-        let gdpr_events = self.audit_events
+        let gdpr_events = self
+            .audit_events
             .values()
             .filter(|e| e.compliance.gdpr.unwrap_or(false))
             .count() as u64;
-        let ccpa_events = self.audit_events
+        let ccpa_events = self
+            .audit_events
             .values()
             .filter(|e| e.compliance.ccpa.unwrap_or(false))
             .count() as u64;
-        let hipaa_events = self.audit_events
+        let hipaa_events = self
+            .audit_events
             .values()
             .filter(|e| e.compliance.hipaa.unwrap_or(false))
             .count() as u64;
-        let sox_events = self.audit_events
+        let sox_events = self
+            .audit_events
             .values()
             .filter(|e| e.compliance.sox.unwrap_or(false))
             .count() as u64;
@@ -1102,7 +1451,9 @@ impl StorageBackend for InMemoryStorage {
         // Calculate user risk profiles
         let mut user_event_counts = HashMap::new();
         for event in self.audit_events.values() {
-            *user_event_counts.entry(event.user_id.clone()).or_insert(0u64) += 1;
+            *user_event_counts
+                .entry(event.user_id.clone())
+                .or_insert(0u64) += 1;
         }
 
         let mut top_users: Vec<UserRiskProfile> = user_event_counts
@@ -1118,18 +1469,20 @@ impl StorageBackend for InMemoryStorage {
             })
             .collect();
 
-        top_users.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap_or(std::cmp::Ordering::Equal));
+        top_users.sort_by(|a, b| {
+            b.risk_score
+                .partial_cmp(&a.risk_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         top_users.truncate(10); // Top 10 users
 
         // Generate some basic anomalies (placeholder implementation)
-        let anomalies = vec![
-            SecurityAnomaly {
-                anomaly_type: "unusual_access_pattern".to_string(),
-                description: "Detected unusual access patterns in last 24 hours".to_string(),
-                severity: AuditSeverity::Medium,
-                detected_at: now,
-            }
-        ];
+        let anomalies = vec![SecurityAnomaly {
+            anomaly_type: "unusual_access_pattern".to_string(),
+            description: "Detected unusual access patterns in last 24 hours".to_string(),
+            severity: AuditSeverity::Medium,
+            detected_at: now,
+        }];
 
         Ok(AuditDashboardMetrics {
             total_events,
@@ -1151,8 +1504,13 @@ impl StorageBackend for InMemoryStorage {
         })
     }
 
-    fn get_event_count_by_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<u64, StorageError> {
-        let count = self.audit_events
+    fn get_event_count_by_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<u64, StorageError> {
+        let count = self
+            .audit_events
             .values()
             .filter(|event| event.timestamp >= start && event.timestamp <= end)
             .count() as u64;
@@ -1160,22 +1518,35 @@ impl StorageBackend for InMemoryStorage {
     }
 
     // ZK Proof operations
-    fn store_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+    fn store_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
         self.zk_proofs.insert(proof.proof_id, proof.clone());
         Ok(())
     }
 
-    fn get_zk_proof(&self, proof_id: &Uuid) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
+    fn get_zk_proof(
+        &self,
+        proof_id: &Uuid,
+    ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
         Ok(self.zk_proofs.get(proof_id).cloned())
     }
 
-    fn update_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+    fn update_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
         self.zk_proofs.insert(proof.proof_id, proof.clone());
         Ok(())
     }
 
-    fn query_zk_proofs(&self, query: &crate::api::zk_proofs::ZkProofQuery) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut proofs: Vec<crate::zk_proof_engine::ZkProof> = self.zk_proofs.values().cloned().collect();
+    fn query_zk_proofs(
+        &self,
+        query: &crate::api::zk_proofs::ZkProofQuery,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        let mut proofs: Vec<crate::zk_proof_engine::ZkProof> =
+            self.zk_proofs.values().cloned().collect();
 
         // Apply filters
         if let Some(prover_id) = &query.prover_id {
@@ -1183,11 +1554,19 @@ impl StorageBackend for InMemoryStorage {
         }
 
         if let Some(circuit_types) = &query.circuit_types {
-            proofs.retain(|p| circuit_types.iter().any(|t| std::mem::discriminant(t) == std::mem::discriminant(&p.circuit_type)));
+            proofs.retain(|p| {
+                circuit_types
+                    .iter()
+                    .any(|t| std::mem::discriminant(t) == std::mem::discriminant(&p.circuit_type))
+            });
         }
 
         if let Some(statuses) = &query.statuses {
-            proofs.retain(|p| statuses.iter().any(|s| std::mem::discriminant(s) == std::mem::discriminant(&p.status)));
+            proofs.retain(|p| {
+                statuses
+                    .iter()
+                    .any(|s| std::mem::discriminant(s) == std::mem::discriminant(&p.status))
+            });
         }
 
         if let Some(start_date) = query.start_date {
@@ -1214,41 +1593,62 @@ impl StorageBackend for InMemoryStorage {
         Ok(self.zk_proofs.values().cloned().collect())
     }
 
-    fn get_zk_proofs_by_user(&self, user_id: &str) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        Ok(self.zk_proofs
+    fn get_zk_proofs_by_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(self
+            .zk_proofs
             .values()
             .filter(|proof| proof.prover_id == user_id)
             .cloned()
             .collect())
     }
 
-    fn get_zk_proofs_by_circuit_type(&self, circuit_type: CircuitType) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        Ok(self.zk_proofs
+    fn get_zk_proofs_by_circuit_type(
+        &self,
+        circuit_type: CircuitType,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(self
+            .zk_proofs
             .values()
-            .filter(|proof| std::mem::discriminant(&proof.circuit_type) == std::mem::discriminant(&circuit_type))
+            .filter(|proof| {
+                std::mem::discriminant(&proof.circuit_type) == std::mem::discriminant(&circuit_type)
+            })
             .cloned()
             .collect())
     }
 
-    fn get_zk_proofs_by_status(&self, status: crate::zk_proof_engine::ProofStatus) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        Ok(self.zk_proofs
+    fn get_zk_proofs_by_status(
+        &self,
+        status: crate::zk_proof_engine::ProofStatus,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        Ok(self
+            .zk_proofs
             .values()
-            .filter(|proof| std::mem::discriminant(&proof.status) == std::mem::discriminant(&status))
+            .filter(|proof| {
+                std::mem::discriminant(&proof.status) == std::mem::discriminant(&status)
+            })
             .cloned()
             .collect())
     }
 
-    fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
+    fn get_zk_proof_statistics(
+        &self,
+    ) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
         let total_proofs = self.zk_proofs.len() as u64;
-        let verified_proofs = self.zk_proofs
+        let verified_proofs = self
+            .zk_proofs
             .values()
             .filter(|p| matches!(p.status, crate::zk_proof_engine::ProofStatus::Verified))
             .count() as u64;
-        let failed_proofs = self.zk_proofs
+        let failed_proofs = self
+            .zk_proofs
             .values()
             .filter(|p| matches!(p.status, crate::zk_proof_engine::ProofStatus::Failed))
             .count() as u64;
-        let pending_proofs = self.zk_proofs
+        let pending_proofs = self
+            .zk_proofs
             .values()
             .filter(|p| matches!(p.status, crate::zk_proof_engine::ProofStatus::Pending))
             .count() as u64;
@@ -1282,7 +1682,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn store_storage_history(&mut self, history: &ItemStorageHistory) -> Result<(), StorageError> {
-        self.storage_histories.insert(history.dfid.clone(), history.clone());
+        self.storage_histories
+            .insert(history.dfid.clone(), history.clone());
         Ok(())
     }
 
@@ -1290,7 +1691,11 @@ impl StorageBackend for InMemoryStorage {
         Ok(self.storage_histories.get(dfid).cloned())
     }
 
-    fn add_storage_record(&mut self, dfid: &str, record: StorageRecord) -> Result<(), StorageError> {
+    fn add_storage_record(
+        &mut self,
+        dfid: &str,
+        record: StorageRecord,
+    ) -> Result<(), StorageError> {
         if let Some(history) = self.storage_histories.get_mut(dfid) {
             history.storage_records.push(record);
             history.updated_at = chrono::Utc::now();
@@ -1307,17 +1712,28 @@ impl StorageBackend for InMemoryStorage {
         Ok(())
     }
 
-    fn store_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError> {
-        self.circuit_adapter_configs.insert(config.circuit_id, config.clone());
+    fn store_circuit_adapter_config(
+        &mut self,
+        config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
+        self.circuit_adapter_configs
+            .insert(config.circuit_id, config.clone());
         Ok(())
     }
 
-    fn get_circuit_adapter_config(&self, circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError> {
+    fn get_circuit_adapter_config(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Option<CircuitAdapterConfig>, StorageError> {
         Ok(self.circuit_adapter_configs.get(circuit_id).cloned())
     }
 
-    fn update_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError> {
-        self.circuit_adapter_configs.insert(config.circuit_id, config.clone());
+    fn update_circuit_adapter_config(
+        &mut self,
+        config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
+        self.circuit_adapter_configs
+            .insert(config.circuit_id, config.clone());
         Ok(())
     }
 
@@ -1329,20 +1745,29 @@ impl StorageBackend for InMemoryStorage {
     fn store_user_account(&mut self, user: &UserAccount) -> Result<(), StorageError> {
         // Check for duplicate username
         if self.user_accounts_by_username.contains_key(&user.username) {
-            return Err(StorageError::AlreadyExists(format!("Username '{}' already exists", user.username)));
+            return Err(StorageError::AlreadyExists(format!(
+                "Username '{}' already exists",
+                user.username
+            )));
         }
 
         // Check for duplicate email
         if self.user_accounts_by_email.contains_key(&user.email) {
-            return Err(StorageError::AlreadyExists(format!("Email '{}' already exists", user.email)));
+            return Err(StorageError::AlreadyExists(format!(
+                "Email '{}' already exists",
+                user.email
+            )));
         }
 
         // Store user account
-        self.user_accounts.insert(user.user_id.clone(), user.clone());
+        self.user_accounts
+            .insert(user.user_id.clone(), user.clone());
 
         // Update indices
-        self.user_accounts_by_username.insert(user.username.clone(), user.user_id.clone());
-        self.user_accounts_by_email.insert(user.email.clone(), user.user_id.clone());
+        self.user_accounts_by_username
+            .insert(user.username.clone(), user.user_id.clone());
+        self.user_accounts_by_email
+            .insert(user.email.clone(), user.user_id.clone());
 
         Ok(())
     }
@@ -1381,10 +1806,14 @@ impl StorageBackend for InMemoryStorage {
 
                 // Check new username isn't taken
                 if self.user_accounts_by_username.contains_key(&user.username) {
-                    return Err(StorageError::AlreadyExists(format!("Username '{}' already exists", user.username)));
+                    return Err(StorageError::AlreadyExists(format!(
+                        "Username '{}' already exists",
+                        user.username
+                    )));
                 }
 
-                self.user_accounts_by_username.insert(user.username.clone(), user.user_id.clone());
+                self.user_accounts_by_username
+                    .insert(user.username.clone(), user.user_id.clone());
             }
 
             // Update email index if changed
@@ -1393,15 +1822,20 @@ impl StorageBackend for InMemoryStorage {
 
                 // Check new email isn't taken
                 if self.user_accounts_by_email.contains_key(&user.email) {
-                    return Err(StorageError::AlreadyExists(format!("Email '{}' already exists", user.email)));
+                    return Err(StorageError::AlreadyExists(format!(
+                        "Email '{}' already exists",
+                        user.email
+                    )));
                 }
 
-                self.user_accounts_by_email.insert(user.email.clone(), user.user_id.clone());
+                self.user_accounts_by_email
+                    .insert(user.email.clone(), user.user_id.clone());
             }
         }
 
         // Update user account
-        self.user_accounts.insert(user.user_id.clone(), user.clone());
+        self.user_accounts
+            .insert(user.user_id.clone(), user.clone());
         Ok(())
     }
 
@@ -1421,9 +1855,13 @@ impl StorageBackend for InMemoryStorage {
     }
 
     // Credit Transaction operations
-    fn record_credit_transaction(&mut self, transaction: &CreditTransaction) -> Result<(), StorageError> {
+    fn record_credit_transaction(
+        &mut self,
+        transaction: &CreditTransaction,
+    ) -> Result<(), StorageError> {
         // Store the transaction
-        self.credit_transactions.insert(transaction.transaction_id.clone(), transaction.clone());
+        self.credit_transactions
+            .insert(transaction.transaction_id.clone(), transaction.clone());
 
         // Add to user's transaction list
         self.credit_transactions_by_user
@@ -1434,12 +1872,20 @@ impl StorageBackend for InMemoryStorage {
         Ok(())
     }
 
-    fn get_credit_transaction(&self, transaction_id: &str) -> Result<Option<CreditTransaction>, StorageError> {
+    fn get_credit_transaction(
+        &self,
+        transaction_id: &str,
+    ) -> Result<Option<CreditTransaction>, StorageError> {
         Ok(self.credit_transactions.get(transaction_id).cloned())
     }
 
-    fn get_credit_transactions(&self, user_id: &str, limit: Option<usize>) -> Result<Vec<CreditTransaction>, StorageError> {
-        let transaction_ids = self.credit_transactions_by_user
+    fn get_credit_transactions(
+        &self,
+        user_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<CreditTransaction>, StorageError> {
+        let transaction_ids = self
+            .credit_transactions_by_user
             .get(user_id)
             .cloned()
             .unwrap_or_default();
@@ -1461,8 +1907,12 @@ impl StorageBackend for InMemoryStorage {
         Ok(transactions)
     }
 
-    fn get_credit_transactions_by_operation(&self, operation_type: &str) -> Result<Vec<CreditTransaction>, StorageError> {
-        Ok(self.credit_transactions
+    fn get_credit_transactions_by_operation(
+        &self,
+        operation_type: &str,
+    ) -> Result<Vec<CreditTransaction>, StorageError> {
+        Ok(self
+            .credit_transactions
             .values()
             .filter(|t| t.operation_type.as_deref() == Some(operation_type))
             .cloned()
@@ -1471,11 +1921,16 @@ impl StorageBackend for InMemoryStorage {
 
     // Admin Action operations
     fn record_admin_action(&mut self, action: &AdminAction) -> Result<(), StorageError> {
-        self.admin_actions.insert(action.action_id.clone(), action.clone());
+        self.admin_actions
+            .insert(action.action_id.clone(), action.clone());
         Ok(())
     }
 
-    fn get_admin_actions(&self, admin_id: Option<&str>, limit: Option<usize>) -> Result<Vec<AdminAction>, StorageError> {
+    fn get_admin_actions(
+        &self,
+        admin_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<AdminAction>, StorageError> {
         let mut actions: Vec<AdminAction> = if let Some(admin_id) = admin_id {
             self.admin_actions
                 .values()
@@ -1497,8 +1952,12 @@ impl StorageBackend for InMemoryStorage {
         Ok(actions)
     }
 
-    fn get_admin_actions_by_type(&self, action_type: &str) -> Result<Vec<AdminAction>, StorageError> {
-        Ok(self.admin_actions
+    fn get_admin_actions_by_type(
+        &self,
+        action_type: &str,
+    ) -> Result<Vec<AdminAction>, StorageError> {
+        Ok(self
+            .admin_actions
             .values()
             .filter(|a| format!("{:?}", a.action_type) == action_type)
             .cloned()
@@ -1522,12 +1981,15 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn update_system_statistics(&mut self, _stats: &SystemStatistics) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("System statistics operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "System statistics operations not yet implemented".to_string(),
+        ))
     }
 
     // Notification operations
     fn store_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
-        self.notifications.insert(notification.id.clone(), notification.clone());
+        self.notifications
+            .insert(notification.id.clone(), notification.clone());
         self.notifications_by_user
             .entry(notification.user_id.clone())
             .or_insert_with(Vec::new)
@@ -1535,7 +1997,10 @@ impl StorageBackend for InMemoryStorage {
         Ok(())
     }
 
-    fn get_notification(&self, notification_id: &str) -> Result<Option<Notification>, StorageError> {
+    fn get_notification(
+        &self,
+        notification_id: &str,
+    ) -> Result<Option<Notification>, StorageError> {
         Ok(self.notifications.get(notification_id).cloned())
     }
 
@@ -1583,7 +2048,8 @@ impl StorageBackend for InMemoryStorage {
 
     fn update_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
         if self.notifications.contains_key(&notification.id) {
-            self.notifications.insert(notification.id.clone(), notification.clone());
+            self.notifications
+                .insert(notification.id.clone(), notification.clone());
             Ok(())
         } else {
             Err(StorageError::NotFound)
@@ -1593,7 +2059,9 @@ impl StorageBackend for InMemoryStorage {
     fn delete_notification(&mut self, notification_id: &str) -> Result<(), StorageError> {
         if let Some(notification) = self.notifications.remove(notification_id) {
             // Also remove from user's notification list
-            if let Some(user_notifications) = self.notifications_by_user.get_mut(&notification.user_id) {
+            if let Some(user_notifications) =
+                self.notifications_by_user.get_mut(&notification.user_id)
+            {
                 user_notifications.retain(|id| id != notification_id);
             }
             Ok(())
@@ -1620,7 +2088,8 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError> {
-        let count = self.notifications_by_user
+        let count = self
+            .notifications_by_user
             .get(user_id)
             .map(|ids| {
                 ids.iter()
@@ -1635,7 +2104,8 @@ impl StorageBackend for InMemoryStorage {
 
     // Adapter Configuration Management operations
     fn store_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
-        self.adapter_configs.insert(config.config_id, config.clone());
+        self.adapter_configs
+            .insert(config.config_id, config.clone());
         Ok(())
     }
 
@@ -1646,7 +2116,8 @@ impl StorageBackend for InMemoryStorage {
     fn update_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
         let mut updated_config = config.clone();
         updated_config.updated_at = Utc::now();
-        self.adapter_configs.insert(updated_config.config_id, updated_config);
+        self.adapter_configs
+            .insert(updated_config.config_id, updated_config);
         Ok(())
     }
 
@@ -1661,21 +2132,32 @@ impl StorageBackend for InMemoryStorage {
     }
 
     fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        Ok(self.adapter_configs.values()
+        Ok(self
+            .adapter_configs
+            .values()
             .filter(|c| c.is_active)
             .cloned()
             .collect())
     }
 
-    fn get_adapter_configs_by_type(&self, adapter_type: &AdapterType) -> Result<Vec<AdapterConfig>, StorageError> {
-        Ok(self.adapter_configs.values()
-            .filter(|c| std::mem::discriminant(&c.adapter_type) == std::mem::discriminant(adapter_type))
+    fn get_adapter_configs_by_type(
+        &self,
+        adapter_type: &AdapterType,
+    ) -> Result<Vec<AdapterConfig>, StorageError> {
+        Ok(self
+            .adapter_configs
+            .values()
+            .filter(|c| {
+                std::mem::discriminant(&c.adapter_type) == std::mem::discriminant(adapter_type)
+            })
             .cloned()
             .collect())
     }
 
     fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
-        Ok(self.adapter_configs.values()
+        Ok(self
+            .adapter_configs
+            .values()
             .find(|c| c.is_default)
             .cloned())
     }
@@ -1696,7 +2178,10 @@ impl StorageBackend for InMemoryStorage {
         }
     }
 
-    fn store_adapter_test_result(&mut self, result: &AdapterTestResult) -> Result<(), StorageError> {
+    fn store_adapter_test_result(
+        &mut self,
+        result: &AdapterTestResult,
+    ) -> Result<(), StorageError> {
         // Update the adapter config's last_tested_at and test_status
         if let Some(config) = self.adapter_configs.get_mut(&result.config_id) {
             config.last_tested_at = Some(result.tested_at);
@@ -1704,11 +2189,15 @@ impl StorageBackend for InMemoryStorage {
             config.updated_at = Utc::now();
         }
 
-        self.adapter_test_results.insert(result.config_id, result.clone());
+        self.adapter_test_results
+            .insert(result.config_id, result.clone());
         Ok(())
     }
 
-    fn get_adapter_test_result(&self, config_id: &Uuid) -> Result<Option<AdapterTestResult>, StorageError> {
+    fn get_adapter_test_result(
+        &self,
+        config_id: &Uuid,
+    ) -> Result<Option<AdapterTestResult>, StorageError> {
         Ok(self.adapter_test_results.get(config_id).cloned())
     }
 
@@ -1723,23 +2212,45 @@ impl StorageBackend for InMemoryStorage {
     }
 
     // Canonical identifier lookups (optimized)
-    fn get_dfid_by_canonical(&self, namespace: &str, registry: &str, value: &str) -> Result<Option<String>, StorageError> {
+    fn get_dfid_by_canonical(
+        &self,
+        namespace: &str,
+        registry: &str,
+        value: &str,
+    ) -> Result<Option<String>, StorageError> {
         let key = format!("{}:{}:{}", namespace, registry, value);
         Ok(self.canonical_index.get(&key).cloned())
     }
 
     // Fingerprint mappings
-    fn store_fingerprint_mapping(&mut self, fingerprint: &str, dfid: &str, circuit_id: &Uuid) -> Result<(), StorageError> {
-        self.fingerprint_map.insert((fingerprint.to_string(), *circuit_id), dfid.to_string());
+    fn store_fingerprint_mapping(
+        &mut self,
+        fingerprint: &str,
+        dfid: &str,
+        circuit_id: &Uuid,
+    ) -> Result<(), StorageError> {
+        self.fingerprint_map
+            .insert((fingerprint.to_string(), *circuit_id), dfid.to_string());
         Ok(())
     }
 
-    fn get_dfid_by_fingerprint(&self, fingerprint: &str, circuit_id: &Uuid) -> Result<Option<String>, StorageError> {
-        Ok(self.fingerprint_map.get(&(fingerprint.to_string(), *circuit_id)).cloned())
+    fn get_dfid_by_fingerprint(
+        &self,
+        fingerprint: &str,
+        circuit_id: &Uuid,
+    ) -> Result<Option<String>, StorageError> {
+        Ok(self
+            .fingerprint_map
+            .get(&(fingerprint.to_string(), *circuit_id))
+            .cloned())
     }
 
     // Enhanced identifier mappings
-    fn store_enhanced_identifier_mapping(&mut self, identifier: &EnhancedIdentifier, dfid: &str) -> Result<(), StorageError> {
+    fn store_enhanced_identifier_mapping(
+        &mut self,
+        identifier: &EnhancedIdentifier,
+        dfid: &str,
+    ) -> Result<(), StorageError> {
         if identifier.is_canonical() {
             let key = identifier.unique_key();
             self.canonical_index.insert(key, dfid.to_string());
@@ -1749,7 +2260,8 @@ impl StorageBackend for InMemoryStorage {
 
     fn store_webhook_delivery(&mut self, delivery: &WebhookDelivery) -> Result<(), StorageError> {
         // Store delivery
-        self.webhook_deliveries.insert(delivery.id, delivery.clone());
+        self.webhook_deliveries
+            .insert(delivery.id, delivery.clone());
 
         // Index by circuit
         self.webhook_deliveries_by_circuit
@@ -1766,11 +2278,18 @@ impl StorageBackend for InMemoryStorage {
         Ok(())
     }
 
-    fn get_webhook_delivery(&self, delivery_id: &Uuid) -> Result<Option<WebhookDelivery>, StorageError> {
+    fn get_webhook_delivery(
+        &self,
+        delivery_id: &Uuid,
+    ) -> Result<Option<WebhookDelivery>, StorageError> {
         Ok(self.webhook_deliveries.get(delivery_id).cloned())
     }
 
-    fn get_webhook_deliveries_by_circuit(&self, circuit_id: &Uuid, limit: Option<usize>) -> Result<Vec<WebhookDelivery>, StorageError> {
+    fn get_webhook_deliveries_by_circuit(
+        &self,
+        circuit_id: &Uuid,
+        limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError> {
         let delivery_ids = self.webhook_deliveries_by_circuit.get(circuit_id);
 
         if let Some(ids) = delivery_ids {
@@ -1792,7 +2311,11 @@ impl StorageBackend for InMemoryStorage {
         }
     }
 
-    fn get_webhook_deliveries_by_webhook(&self, webhook_id: &Uuid, limit: Option<usize>) -> Result<Vec<WebhookDelivery>, StorageError> {
+    fn get_webhook_deliveries_by_webhook(
+        &self,
+        webhook_id: &Uuid,
+        limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError> {
         let delivery_ids = self.webhook_deliveries_by_webhook.get(webhook_id);
 
         if let Some(ids) = delivery_ids {
@@ -1846,7 +2369,8 @@ impl EncryptedFileStorage {
             OsRng.fill_bytes(&mut nonce_bytes);
             let nonce = Nonce::from_slice(&nonce_bytes);
 
-            let ciphertext = cipher.encrypt(nonce, data)
+            let ciphertext = cipher
+                .encrypt(nonce, data)
                 .map_err(|e| StorageError::EncryptionError(format!("Encryption failed: {}", e)))?;
 
             Ok(EncryptedData {
@@ -1866,7 +2390,8 @@ impl EncryptedFileStorage {
             let cipher = Aes256Gcm::new(key.as_aes_key());
             let nonce = Nonce::from_slice(&encrypted.nonce);
 
-            cipher.decrypt(nonce, encrypted.data.as_ref())
+            cipher
+                .decrypt(nonce, encrypted.data.as_ref())
                 .map_err(|e| StorageError::EncryptionError(format!("Decryption failed: {}", e)))
         } else {
             Ok(encrypted.data.clone())
@@ -1913,7 +2438,10 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(Some(receipt))
     }
 
-    fn find_receipts_by_identifier(&self, _identifier: &Identifier) -> Result<Vec<Receipt>, StorageError> {
+    fn find_receipts_by_identifier(
+        &self,
+        _identifier: &Identifier,
+    ) -> Result<Vec<Receipt>, StorageError> {
         let receipts = self.list_receipts()?;
         Ok(receipts
             .into_iter()
@@ -1983,7 +2511,9 @@ impl StorageBackend for EncryptedFileStorage {
     // In a real implementation, these would be properly encrypted and stored to files
 
     fn store_data_lake_entry(&mut self, _entry: &DataLakeEntry) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Data lake operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Data lake operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn get_data_lake_entry(&self, _entry_id: &Uuid) -> Result<Option<DataLakeEntry>, StorageError> {
@@ -1991,10 +2521,15 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_data_lake_entry(&mut self, _entry: &DataLakeEntry) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Data lake operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Data lake operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
-    fn get_data_lake_entries_by_status(&self, _status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError> {
+    fn get_data_lake_entries_by_status(
+        &self,
+        _status: ProcessingStatus,
+    ) -> Result<Vec<DataLakeEntry>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -2003,7 +2538,9 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn store_item(&mut self, _item: &Item) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Item operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Item operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn get_item_by_dfid(&self, _dfid: &str) -> Result<Option<Item>, StorageError> {
@@ -2011,14 +2548,19 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_item(&mut self, _item: &Item) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Item operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Item operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn list_items(&self) -> Result<Vec<Item>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn find_items_by_identifier(&self, _identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
+    fn find_items_by_identifier(
+        &self,
+        _identifier: &Identifier,
+    ) -> Result<Vec<Item>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -2030,27 +2572,51 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(())
     }
 
-    fn store_identifier_mapping(&mut self, _mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Identifier mapping operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn store_identifier_mapping(
+        &mut self,
+        _mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::IoError(
+            "Identifier mapping operations not yet implemented for EncryptedFileStorage"
+                .to_string(),
+        ))
     }
 
-    fn get_identifier_mappings(&self, _identifier: &Identifier) -> Result<Vec<IdentifierMapping>, StorageError> {
+    fn get_identifier_mappings(
+        &self,
+        _identifier: &Identifier,
+    ) -> Result<Vec<IdentifierMapping>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn update_identifier_mapping(&mut self, _mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Identifier mapping operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn update_identifier_mapping(
+        &mut self,
+        _mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::IoError(
+            "Identifier mapping operations not yet implemented for EncryptedFileStorage"
+                .to_string(),
+        ))
     }
 
     fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn store_conflict_resolution(&mut self, _conflict: &ConflictResolution) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Conflict resolution operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn store_conflict_resolution(
+        &mut self,
+        _conflict: &ConflictResolution,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::IoError(
+            "Conflict resolution operations not yet implemented for EncryptedFileStorage"
+                .to_string(),
+        ))
     }
 
-    fn get_conflict_resolution(&self, _conflict_id: &Uuid) -> Result<Option<ConflictResolution>, StorageError> {
+    fn get_conflict_resolution(
+        &self,
+        _conflict_id: &Uuid,
+    ) -> Result<Option<ConflictResolution>, StorageError> {
         Ok(None)
     }
 
@@ -2060,7 +2626,9 @@ impl StorageBackend for EncryptedFileStorage {
 
     // Event operations - placeholder implementations
     fn store_event(&mut self, _event: &Event) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Event operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Event operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn get_event(&self, _event_id: &Uuid) -> Result<Option<Event>, StorageError> {
@@ -2068,7 +2636,9 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_event(&mut self, _event: &Event) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Event operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Event operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn list_events(&self) -> Result<Vec<Event>, StorageError> {
@@ -2083,17 +2653,26 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(Vec::new())
     }
 
-    fn get_events_by_visibility(&self, _visibility: EventVisibility) -> Result<Vec<Event>, StorageError> {
+    fn get_events_by_visibility(
+        &self,
+        _visibility: EventVisibility,
+    ) -> Result<Vec<Event>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_events_in_time_range(&self, _start: DateTime<Utc>, _end: DateTime<Utc>) -> Result<Vec<Event>, StorageError> {
+    fn get_events_in_time_range(
+        &self,
+        _start: DateTime<Utc>,
+        _end: DateTime<Utc>,
+    ) -> Result<Vec<Event>, StorageError> {
         Ok(Vec::new())
     }
 
     // Circuit operations - placeholder implementations
     fn store_circuit(&mut self, _circuit: &Circuit) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Circuit operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Circuit operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn get_circuit(&self, _circuit_id: &Uuid) -> Result<Option<Circuit>, StorageError> {
@@ -2101,7 +2680,9 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_circuit(&mut self, _circuit: &Circuit) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Circuit operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Circuit operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn list_circuits(&self) -> Result<Vec<Circuit>, StorageError> {
@@ -2113,25 +2694,43 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     // Circuit Operation operations - placeholder implementations
-    fn store_circuit_operation(&mut self, _operation: &CircuitOperation) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Circuit operation operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn store_circuit_operation(
+        &mut self,
+        _operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::IoError(
+            "Circuit operation operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
-    fn get_circuit_operation(&self, _operation_id: &Uuid) -> Result<Option<CircuitOperation>, StorageError> {
+    fn get_circuit_operation(
+        &self,
+        _operation_id: &Uuid,
+    ) -> Result<Option<CircuitOperation>, StorageError> {
         Ok(None)
     }
 
-    fn update_circuit_operation(&mut self, _operation: &CircuitOperation) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Circuit operation operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn update_circuit_operation(
+        &mut self,
+        _operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::IoError(
+            "Circuit operation operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
-    fn get_circuit_operations(&self, _circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, StorageError> {
+    fn get_circuit_operations(
+        &self,
+        _circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitOperation>, StorageError> {
         Ok(Vec::new())
     }
 
     // Item Share operations - Not implemented for EncryptedFileStorage yet
     fn store_item_share(&mut self, _share: &ItemShare) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Item share operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Item share operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn get_item_share(&self, _share_id: &str) -> Result<Option<ItemShare>, StorageError> {
@@ -2162,7 +2761,10 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(vec![])
     }
 
-    fn get_activities_for_circuit(&self, _circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
+    fn get_activities_for_circuit(
+        &self,
+        _circuit_id: &Uuid,
+    ) -> Result<Vec<Activity>, StorageError> {
         Ok(vec![])
     }
 
@@ -2184,7 +2786,9 @@ impl StorageBackend for EncryptedFileStorage {
 
     // Pending Items operations - placeholder implementations
     fn store_pending_item(&mut self, _item: &PendingItem) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Pending item operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Pending item operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn get_pending_item(&self, _pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError> {
@@ -2195,7 +2799,10 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(Vec::new())
     }
 
-    fn get_pending_items_by_reason(&self, _reason_type: &str) -> Result<Vec<PendingItem>, StorageError> {
+    fn get_pending_items_by_reason(
+        &self,
+        _reason_type: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -2203,20 +2810,30 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(Vec::new())
     }
 
-    fn get_pending_items_by_workspace(&self, _workspace_id: &str) -> Result<Vec<PendingItem>, StorageError> {
+    fn get_pending_items_by_workspace(
+        &self,
+        _workspace_id: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_pending_items_by_priority(&self, _priority: PendingPriority) -> Result<Vec<PendingItem>, StorageError> {
+    fn get_pending_items_by_priority(
+        &self,
+        _priority: PendingPriority,
+    ) -> Result<Vec<PendingItem>, StorageError> {
         Ok(Vec::new())
     }
 
     fn update_pending_item(&mut self, _item: &PendingItem) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Pending item operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Pending item operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn delete_pending_item(&mut self, _pending_id: &Uuid) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Pending item operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Pending item operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
@@ -2225,7 +2842,9 @@ impl StorageBackend for EncryptedFileStorage {
 
     // Audit methods - not yet implemented for EncryptedFileStorage
     fn store_audit_event(&mut self, _event: &AuditEvent) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Audit operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Audit operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn get_audit_event(&self, _event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
@@ -2244,15 +2863,25 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(Vec::new())
     }
 
-    fn get_audit_events_by_type(&self, _event_type: AuditEventType) -> Result<Vec<AuditEvent>, StorageError> {
+    fn get_audit_events_by_type(
+        &self,
+        _event_type: AuditEventType,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_audit_events_by_severity(&self, _severity: AuditSeverity) -> Result<Vec<AuditEvent>, StorageError> {
+    fn get_audit_events_by_severity(
+        &self,
+        _severity: AuditSeverity,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_audit_events_in_time_range(&self, _start: DateTime<Utc>, _end: DateTime<Utc>) -> Result<Vec<AuditEvent>, StorageError> {
+    fn get_audit_events_in_time_range(
+        &self,
+        _start: DateTime<Utc>,
+        _end: DateTime<Utc>,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -2260,23 +2889,39 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(())
     }
 
-    fn store_security_incident(&mut self, _incident: &SecurityIncident) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Security incident operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn store_security_incident(
+        &mut self,
+        _incident: &SecurityIncident,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::IoError(
+            "Security incident operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
-    fn get_security_incident(&self, _incident_id: &Uuid) -> Result<Option<SecurityIncident>, StorageError> {
+    fn get_security_incident(
+        &self,
+        _incident_id: &Uuid,
+    ) -> Result<Option<SecurityIncident>, StorageError> {
         Ok(None)
     }
 
-    fn update_security_incident(&mut self, _incident: &SecurityIncident) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Security incident operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn update_security_incident(
+        &mut self,
+        _incident: &SecurityIncident,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::IoError(
+            "Security incident operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_incidents_by_severity(&self, _severity: AuditSeverity) -> Result<Vec<SecurityIncident>, StorageError> {
+    fn get_incidents_by_severity(
+        &self,
+        _severity: AuditSeverity,
+    ) -> Result<Vec<SecurityIncident>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -2284,27 +2929,40 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(Vec::new())
     }
 
-    fn get_incidents_by_assignee(&self, _assignee: &str) -> Result<Vec<SecurityIncident>, StorageError> {
+    fn get_incidents_by_assignee(
+        &self,
+        _assignee: &str,
+    ) -> Result<Vec<SecurityIncident>, StorageError> {
         Ok(Vec::new())
     }
 
     fn store_compliance_report(&mut self, _report: &ComplianceReport) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Compliance report operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Compliance report operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
-    fn get_compliance_report(&self, _report_id: &Uuid) -> Result<Option<ComplianceReport>, StorageError> {
+    fn get_compliance_report(
+        &self,
+        _report_id: &Uuid,
+    ) -> Result<Option<ComplianceReport>, StorageError> {
         Ok(None)
     }
 
     fn update_compliance_report(&mut self, _report: &ComplianceReport) -> Result<(), StorageError> {
-        Err(StorageError::IoError("Compliance report operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::IoError(
+            "Compliance report operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_reports_by_type(&self, _report_type: &str) -> Result<Vec<ComplianceReport>, StorageError> {
+    fn get_reports_by_type(
+        &self,
+        _report_type: &str,
+    ) -> Result<Vec<ComplianceReport>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -2333,24 +2991,44 @@ impl StorageBackend for EncryptedFileStorage {
         })
     }
 
-    fn get_event_count_by_time_range(&self, _start: DateTime<Utc>, _end: DateTime<Utc>) -> Result<u64, StorageError> {
+    fn get_event_count_by_time_range(
+        &self,
+        _start: DateTime<Utc>,
+        _end: DateTime<Utc>,
+    ) -> Result<u64, StorageError> {
         Ok(0)
     }
 
     // ZK Proof operations - placeholder implementations
-    fn store_zk_proof(&mut self, _proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
-        Err(StorageError::IoError("ZK proof operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn store_zk_proof(
+        &mut self,
+        _proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::IoError(
+            "ZK proof operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
-    fn get_zk_proof(&self, _proof_id: &Uuid) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
+    fn get_zk_proof(
+        &self,
+        _proof_id: &Uuid,
+    ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
         Ok(None)
     }
 
-    fn update_zk_proof(&mut self, _proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
-        Err(StorageError::IoError("ZK proof operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn update_zk_proof(
+        &mut self,
+        _proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::IoError(
+            "ZK proof operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
-    fn query_zk_proofs(&self, _query: &crate::api::zk_proofs::ZkProofQuery) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+    fn query_zk_proofs(
+        &self,
+        _query: &crate::api::zk_proofs::ZkProofQuery,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -2358,19 +3036,30 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(Vec::new())
     }
 
-    fn get_zk_proofs_by_user(&self, _user_id: &str) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+    fn get_zk_proofs_by_user(
+        &self,
+        _user_id: &str,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_zk_proofs_by_circuit_type(&self, _circuit_type: CircuitType) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+    fn get_zk_proofs_by_circuit_type(
+        &self,
+        _circuit_type: CircuitType,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_zk_proofs_by_status(&self, _status: crate::zk_proof_engine::ProofStatus) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+    fn get_zk_proofs_by_status(
+        &self,
+        _status: crate::zk_proof_engine::ProofStatus,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
+    fn get_zk_proof_statistics(
+        &self,
+    ) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
         Ok(crate::api::zk_proofs::ZkProofStatistics {
             total_proofs: 0,
             verified_proofs: 0,
@@ -2385,27 +3074,50 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn store_storage_history(&mut self, _history: &ItemStorageHistory) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Storage history operations not yet implemented for EncryptedFileStorage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Storage history operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
     fn get_storage_history(&self, _dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
         Ok(None)
     }
 
-    fn add_storage_record(&mut self, _dfid: &str, _record: StorageRecord) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Storage history operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn add_storage_record(
+        &mut self,
+        _dfid: &str,
+        _record: StorageRecord,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Storage history operations not yet implemented for EncryptedFileStorage".to_string(),
+        ))
     }
 
-    fn store_circuit_adapter_config(&mut self, _config: &CircuitAdapterConfig) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Circuit adapter config operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn store_circuit_adapter_config(
+        &mut self,
+        _config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Circuit adapter config operations not yet implemented for EncryptedFileStorage"
+                .to_string(),
+        ))
     }
 
-    fn get_circuit_adapter_config(&self, _circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError> {
+    fn get_circuit_adapter_config(
+        &self,
+        _circuit_id: &Uuid,
+    ) -> Result<Option<CircuitAdapterConfig>, StorageError> {
         Ok(None)
     }
 
-    fn update_circuit_adapter_config(&mut self, _config: &CircuitAdapterConfig) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Circuit adapter config operations not yet implemented for EncryptedFileStorage".to_string()))
+    fn update_circuit_adapter_config(
+        &mut self,
+        _config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Circuit adapter config operations not yet implemented for EncryptedFileStorage"
+                .to_string(),
+        ))
     }
 
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
@@ -2414,7 +3126,9 @@ impl StorageBackend for EncryptedFileStorage {
 
     // User Account operations (stub implementations for now)
     fn store_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "User account operations not yet implemented".to_string(),
+        ))
     }
 
     fn get_user_account(&self, _user_id: &str) -> Result<Option<UserAccount>, StorageError> {
@@ -2430,7 +3144,9 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "User account operations not yet implemented".to_string(),
+        ))
     }
 
     fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
@@ -2438,36 +3154,62 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn delete_user_account(&mut self, _user_id: &str) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "User account operations not yet implemented".to_string(),
+        ))
     }
 
     // Credit Transaction operations (stub implementations for now)
-    fn record_credit_transaction(&mut self, _transaction: &CreditTransaction) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Credit transaction operations not yet implemented".to_string()))
+    fn record_credit_transaction(
+        &mut self,
+        _transaction: &CreditTransaction,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Credit transaction operations not yet implemented".to_string(),
+        ))
     }
 
-    fn get_credit_transaction(&self, _transaction_id: &str) -> Result<Option<CreditTransaction>, StorageError> {
+    fn get_credit_transaction(
+        &self,
+        _transaction_id: &str,
+    ) -> Result<Option<CreditTransaction>, StorageError> {
         Ok(None)
     }
 
-    fn get_credit_transactions(&self, _user_id: &str, _limit: Option<usize>) -> Result<Vec<CreditTransaction>, StorageError> {
+    fn get_credit_transactions(
+        &self,
+        _user_id: &str,
+        _limit: Option<usize>,
+    ) -> Result<Vec<CreditTransaction>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_credit_transactions_by_operation(&self, _operation_type: &str) -> Result<Vec<CreditTransaction>, StorageError> {
+    fn get_credit_transactions_by_operation(
+        &self,
+        _operation_type: &str,
+    ) -> Result<Vec<CreditTransaction>, StorageError> {
         Ok(Vec::new())
     }
 
     // Admin Action operations (stub implementations for now)
     fn record_admin_action(&mut self, _action: &AdminAction) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Admin action operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "Admin action operations not yet implemented".to_string(),
+        ))
     }
 
-    fn get_admin_actions(&self, _admin_id: Option<&str>, _limit: Option<usize>) -> Result<Vec<AdminAction>, StorageError> {
+    fn get_admin_actions(
+        &self,
+        _admin_id: Option<&str>,
+        _limit: Option<usize>,
+    ) -> Result<Vec<AdminAction>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_admin_actions_by_type(&self, _action_type: &str) -> Result<Vec<AdminAction>, StorageError> {
+    fn get_admin_actions_by_type(
+        &self,
+        _action_type: &str,
+    ) -> Result<Vec<AdminAction>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -2488,126 +3230,231 @@ impl StorageBackend for EncryptedFileStorage {
     }
 
     fn update_system_statistics(&mut self, _stats: &SystemStatistics) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("System statistics operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "System statistics operations not yet implemented".to_string(),
+        ))
     }
 
     // Notification operations - not implemented for file storage yet
     fn store_notification(&mut self, _notification: &Notification) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Notification operations not yet implemented for file storage".to_string(),
+        ))
     }
 
-    fn get_notification(&self, _notification_id: &str) -> Result<Option<Notification>, StorageError> {
-        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+    fn get_notification(
+        &self,
+        _notification_id: &str,
+    ) -> Result<Option<Notification>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Notification operations not yet implemented for file storage".to_string(),
+        ))
     }
 
-    fn get_user_notifications(&self, _user_id: &str, _since: Option<DateTime<Utc>>, _limit: Option<usize>, _unread_only: bool) -> Result<Vec<Notification>, StorageError> {
-        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+    fn get_user_notifications(
+        &self,
+        _user_id: &str,
+        _since: Option<DateTime<Utc>>,
+        _limit: Option<usize>,
+        _unread_only: bool,
+    ) -> Result<Vec<Notification>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Notification operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn update_notification(&mut self, _notification: &Notification) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Notification operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn delete_notification(&mut self, _notification_id: &str) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Notification operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn mark_all_notifications_read(&mut self, _user_id: &str) -> Result<usize, StorageError> {
-        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Notification operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn get_unread_notification_count(&self, _user_id: &str) -> Result<usize, StorageError> {
-        Err(StorageError::NotImplemented("Notification operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Notification operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     // Adapter Configuration Management operations - not implemented for file storage yet
     fn store_adapter_config(&mut self, _config: &AdapterConfig) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn get_adapter_config(&self, _config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn update_adapter_config(&mut self, _config: &AdapterConfig) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn delete_adapter_config(&mut self, _config_id: &Uuid) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
-    fn get_adapter_configs_by_type(&self, _adapter_type: &AdapterType) -> Result<Vec<AdapterConfig>, StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    fn get_adapter_configs_by_type(
+        &self,
+        _adapter_type: &AdapterType,
+    ) -> Result<Vec<AdapterConfig>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn set_default_adapter(&mut self, _config_id: &Uuid) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
-    fn store_adapter_test_result(&mut self, _result: &AdapterTestResult) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    fn store_adapter_test_result(
+        &mut self,
+        _result: &AdapterTestResult,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
-    fn get_adapter_test_result(&self, _config_id: &Uuid) -> Result<Option<AdapterTestResult>, StorageError> {
-        Err(StorageError::NotImplemented("Adapter config operations not yet implemented for file storage".to_string()))
+    fn get_adapter_test_result(
+        &self,
+        _config_id: &Uuid,
+    ) -> Result<Option<AdapterTestResult>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Adapter config operations not yet implemented for file storage".to_string(),
+        ))
     }
 
     // LID ↔ DFID mapping operations - not implemented for file storage yet
     fn store_lid_dfid_mapping(&mut self, _lid: &Uuid, _dfid: &str) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("LID-DFID mapping not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "LID-DFID mapping not yet implemented for file storage".to_string(),
+        ))
     }
 
     fn get_dfid_by_lid(&self, _lid: &Uuid) -> Result<Option<String>, StorageError> {
-        Err(StorageError::NotImplemented("LID-DFID mapping not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "LID-DFID mapping not yet implemented for file storage".to_string(),
+        ))
     }
 
     // Canonical identifier lookups - not implemented for file storage yet
-    fn get_dfid_by_canonical(&self, _namespace: &str, _registry: &str, _value: &str) -> Result<Option<String>, StorageError> {
-        Err(StorageError::NotImplemented("Canonical lookup not yet implemented for file storage".to_string()))
+    fn get_dfid_by_canonical(
+        &self,
+        _namespace: &str,
+        _registry: &str,
+        _value: &str,
+    ) -> Result<Option<String>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Canonical lookup not yet implemented for file storage".to_string(),
+        ))
     }
 
     // Fingerprint mappings - not implemented for file storage yet
-    fn store_fingerprint_mapping(&mut self, _fingerprint: &str, _dfid: &str, _circuit_id: &Uuid) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Fingerprint mapping not yet implemented for file storage".to_string()))
+    fn store_fingerprint_mapping(
+        &mut self,
+        _fingerprint: &str,
+        _dfid: &str,
+        _circuit_id: &Uuid,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Fingerprint mapping not yet implemented for file storage".to_string(),
+        ))
     }
 
-    fn get_dfid_by_fingerprint(&self, _fingerprint: &str, _circuit_id: &Uuid) -> Result<Option<String>, StorageError> {
-        Err(StorageError::NotImplemented("Fingerprint lookup not yet implemented for file storage".to_string()))
+    fn get_dfid_by_fingerprint(
+        &self,
+        _fingerprint: &str,
+        _circuit_id: &Uuid,
+    ) -> Result<Option<String>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Fingerprint lookup not yet implemented for file storage".to_string(),
+        ))
     }
 
     // Enhanced identifier mappings - not implemented for file storage yet
-    fn store_enhanced_identifier_mapping(&mut self, _identifier: &EnhancedIdentifier, _dfid: &str) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Enhanced identifier mapping not yet implemented for file storage".to_string()))
+    fn store_enhanced_identifier_mapping(
+        &mut self,
+        _identifier: &EnhancedIdentifier,
+        _dfid: &str,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Enhanced identifier mapping not yet implemented for file storage".to_string(),
+        ))
     }
 
     // Webhook delivery operations - not implemented for file storage yet
     fn store_webhook_delivery(&mut self, _delivery: &WebhookDelivery) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Webhook delivery operations not yet implemented for file storage".to_string()))
+        Err(StorageError::NotImplemented(
+            "Webhook delivery operations not yet implemented for file storage".to_string(),
+        ))
     }
 
-    fn get_webhook_delivery(&self, _delivery_id: &Uuid) -> Result<Option<WebhookDelivery>, StorageError> {
-        Err(StorageError::NotImplemented("Webhook delivery operations not yet implemented for file storage".to_string()))
+    fn get_webhook_delivery(
+        &self,
+        _delivery_id: &Uuid,
+    ) -> Result<Option<WebhookDelivery>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Webhook delivery operations not yet implemented for file storage".to_string(),
+        ))
     }
 
-    fn get_webhook_deliveries_by_circuit(&self, _circuit_id: &Uuid, _limit: Option<usize>) -> Result<Vec<WebhookDelivery>, StorageError> {
-        Err(StorageError::NotImplemented("Webhook delivery operations not yet implemented for file storage".to_string()))
+    fn get_webhook_deliveries_by_circuit(
+        &self,
+        _circuit_id: &Uuid,
+        _limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Webhook delivery operations not yet implemented for file storage".to_string(),
+        ))
     }
 
-    fn get_webhook_deliveries_by_webhook(&self, _webhook_id: &Uuid, _limit: Option<usize>) -> Result<Vec<WebhookDelivery>, StorageError> {
-        Err(StorageError::NotImplemented("Webhook delivery operations not yet implemented for file storage".to_string()))
+    fn get_webhook_deliveries_by_webhook(
+        &self,
+        _webhook_id: &Uuid,
+        _limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Webhook delivery operations not yet implemented for file storage".to_string(),
+        ))
     }
 }
 
@@ -2615,439 +3462,766 @@ impl StorageBackend for EncryptedFileStorage {
 // This enables shared storage across multiple engines
 impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
     fn store_receipt(&mut self, receipt: &Receipt) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_receipt(receipt)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_receipt(receipt)
     }
 
     fn get_receipt(&self, id: &Uuid) -> Result<Option<Receipt>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_receipt(id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_receipt(id)
     }
 
-    fn find_receipts_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Receipt>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.find_receipts_by_identifier(identifier)
+    fn find_receipts_by_identifier(
+        &self,
+        identifier: &Identifier,
+    ) -> Result<Vec<Receipt>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .find_receipts_by_identifier(identifier)
     }
 
     fn list_receipts(&self) -> Result<Vec<Receipt>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_receipts()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_receipts()
     }
 
     fn store_log(&mut self, log: &LogEntry) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_log(log)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_log(log)
     }
 
     fn get_logs(&self) -> Result<Vec<LogEntry>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_logs()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_logs()
     }
 
     fn store_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_data_lake_entry(entry)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_data_lake_entry(entry)
     }
 
     fn get_data_lake_entry(&self, entry_id: &Uuid) -> Result<Option<DataLakeEntry>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_data_lake_entry(entry_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_data_lake_entry(entry_id)
     }
 
     fn update_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_data_lake_entry(entry)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_data_lake_entry(entry)
     }
 
-    fn get_data_lake_entries_by_status(&self, status: ProcessingStatus) -> Result<Vec<DataLakeEntry>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_data_lake_entries_by_status(status)
+    fn get_data_lake_entries_by_status(
+        &self,
+        status: ProcessingStatus,
+    ) -> Result<Vec<DataLakeEntry>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_data_lake_entries_by_status(status)
     }
 
     fn list_data_lake_entries(&self) -> Result<Vec<DataLakeEntry>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_data_lake_entries()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_data_lake_entries()
     }
 
     fn store_item(&mut self, item: &Item) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_item(item)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_item(item)
     }
 
     fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_item_by_dfid(dfid)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_item_by_dfid(dfid)
     }
 
     fn update_item(&mut self, item: &Item) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_item(item)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_item(item)
     }
 
     fn list_items(&self) -> Result<Vec<Item>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_items()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_items()
     }
 
     fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.find_items_by_identifier(identifier)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .find_items_by_identifier(identifier)
     }
 
     fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.find_items_by_status(status)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .find_items_by_status(status)
     }
 
     fn delete_item(&mut self, dfid: &str) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.delete_item(dfid)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_item(dfid)
     }
 
-    fn store_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_identifier_mapping(mapping)
+    fn store_identifier_mapping(
+        &mut self,
+        mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_identifier_mapping(mapping)
     }
 
-    fn get_identifier_mappings(&self, from_id: &Identifier) -> Result<Vec<IdentifierMapping>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_identifier_mappings(from_id)
+    fn get_identifier_mappings(
+        &self,
+        from_id: &Identifier,
+    ) -> Result<Vec<IdentifierMapping>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_identifier_mappings(from_id)
     }
 
-    fn update_identifier_mapping(&mut self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_identifier_mapping(mapping)
+    fn update_identifier_mapping(
+        &mut self,
+        mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_identifier_mapping(mapping)
     }
 
     fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_identifier_mappings()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_identifier_mappings()
     }
 
-    fn store_conflict_resolution(&mut self, resolution: &ConflictResolution) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_conflict_resolution(resolution)
+    fn store_conflict_resolution(
+        &mut self,
+        resolution: &ConflictResolution,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_conflict_resolution(resolution)
     }
 
-    fn get_conflict_resolution(&self, conflict_id: &Uuid) -> Result<Option<ConflictResolution>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_conflict_resolution(conflict_id)
+    fn get_conflict_resolution(
+        &self,
+        conflict_id: &Uuid,
+    ) -> Result<Option<ConflictResolution>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_conflict_resolution(conflict_id)
     }
 
     fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_pending_conflicts()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_conflicts()
     }
 
     fn store_event(&mut self, event: &Event) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_event(event)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_event(event)
     }
 
     fn get_event(&self, id: &Uuid) -> Result<Option<Event>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_event(id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_event(id)
     }
 
     fn list_events(&self) -> Result<Vec<Event>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_events()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_events()
     }
 
     fn update_event(&mut self, event: &Event) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_event(event)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_event(event)
     }
 
     fn get_events_by_dfid(&self, dfid: &str) -> Result<Vec<Event>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_events_by_dfid(dfid)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_by_dfid(dfid)
     }
 
     fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_events_by_type(event_type)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_by_type(event_type)
     }
 
-    fn get_events_by_visibility(&self, visibility: EventVisibility) -> Result<Vec<Event>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_events_by_visibility(visibility)
+    fn get_events_by_visibility(
+        &self,
+        visibility: EventVisibility,
+    ) -> Result<Vec<Event>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_by_visibility(visibility)
     }
 
-    fn get_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<Event>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_events_in_time_range(start, end)
+    fn get_events_in_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<Event>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_in_time_range(start, end)
     }
 
     fn store_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_circuit(circuit)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_circuit(circuit)
     }
 
     fn get_circuit(&self, id: &Uuid) -> Result<Option<Circuit>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_circuit(id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit(id)
     }
 
     fn update_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_circuit(circuit)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_circuit(circuit)
     }
 
     fn list_circuits(&self) -> Result<Vec<Circuit>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_circuits()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_circuits()
     }
 
     fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_circuits_for_member(member_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuits_for_member(member_id)
     }
 
-    fn store_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_circuit_operation(operation)
+    fn store_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_circuit_operation(operation)
     }
 
     fn get_circuit_operation(&self, id: &Uuid) -> Result<Option<CircuitOperation>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_circuit_operation(id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit_operation(id)
     }
 
-    fn update_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_circuit_operation(operation)
+    fn update_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_circuit_operation(operation)
     }
 
-    fn get_circuit_operations(&self, circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_circuit_operations(circuit_id)
+    fn get_circuit_operations(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitOperation>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit_operations(circuit_id)
     }
-
 
     fn store_activity(&mut self, activity: &Activity) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_activity(activity)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_activity(activity)
     }
 
     fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_activities_for_user(user_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_activities_for_user(user_id)
     }
 
     fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_activities_for_circuit(circuit_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_activities_for_circuit(circuit_id)
     }
 
     fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_all_activities()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_all_activities()
     }
 
     fn store_item_share(&mut self, share: &ItemShare) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_item_share(share)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_item_share(share)
     }
 
     fn get_shares_for_item(&self, dfid: &str) -> Result<Vec<ItemShare>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_shares_for_item(dfid)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_shares_for_item(dfid)
     }
 
     fn get_shares_for_user(&self, user_id: &str) -> Result<Vec<ItemShare>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_shares_for_user(user_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_shares_for_user(user_id)
     }
 
     fn is_item_shared_with_user(&self, dfid: &str, user_id: &str) -> Result<bool, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.is_item_shared_with_user(dfid, user_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .is_item_shared_with_user(dfid, user_id)
     }
 
     fn store_circuit_item(&mut self, circuit_item: &CircuitItem) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_circuit_item(circuit_item)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_circuit_item(circuit_item)
     }
 
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_circuit_items(circuit_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit_items(circuit_id)
     }
 
     fn get_item_share(&self, share_id: &str) -> Result<Option<ItemShare>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_item_share(share_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_item_share(share_id)
     }
 
     fn delete_item_share(&mut self, share_id: &str) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.delete_item_share(share_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_item_share(share_id)
     }
 
     fn remove_circuit_item(&mut self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.remove_circuit_item(circuit_id, dfid)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .remove_circuit_item(circuit_id, dfid)
     }
 
     // Pending Items operations - delegate to underlying InMemoryStorage
     fn store_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_pending_item(item)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_pending_item(item)
     }
 
     fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_pending_item(pending_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_item(pending_id)
     }
 
     fn list_pending_items(&self) -> Result<Vec<PendingItem>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_pending_items()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_pending_items()
     }
 
-    fn get_pending_items_by_reason(&self, reason_type: &str) -> Result<Vec<PendingItem>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_pending_items_by_reason(reason_type)
+    fn get_pending_items_by_reason(
+        &self,
+        reason_type: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_by_reason(reason_type)
     }
 
     fn get_pending_items_by_user(&self, user_id: &str) -> Result<Vec<PendingItem>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_pending_items_by_user(user_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_by_user(user_id)
     }
 
-    fn get_pending_items_by_workspace(&self, workspace_id: &str) -> Result<Vec<PendingItem>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_pending_items_by_workspace(workspace_id)
+    fn get_pending_items_by_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_by_workspace(workspace_id)
     }
 
-    fn get_pending_items_by_priority(&self, priority: PendingPriority) -> Result<Vec<PendingItem>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_pending_items_by_priority(priority)
+    fn get_pending_items_by_priority(
+        &self,
+        priority: PendingPriority,
+    ) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_by_priority(priority)
     }
 
     fn update_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_pending_item(item)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_pending_item(item)
     }
 
     fn delete_pending_item(&mut self, pending_id: &Uuid) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.delete_pending_item(pending_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_pending_item(pending_id)
     }
 
     fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_pending_items_requiring_manual_review()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_requiring_manual_review()
     }
 
     // Audit Event operations - delegate to underlying InMemoryStorage
     fn store_audit_event(&mut self, event: &AuditEvent) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_audit_event(event)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_audit_event(event)
     }
 
     fn get_audit_event(&self, event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_audit_event(event_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_event(event_id)
     }
 
     fn query_audit_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.query_audit_events(query)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .query_audit_events(query)
     }
 
     fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_audit_events()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_audit_events()
     }
 
     fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_audit_events_by_user(user_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_events_by_user(user_id)
     }
 
-    fn get_audit_events_by_type(&self, event_type: AuditEventType) -> Result<Vec<AuditEvent>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_audit_events_by_type(event_type)
+    fn get_audit_events_by_type(
+        &self,
+        event_type: AuditEventType,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_events_by_type(event_type)
     }
 
-    fn get_audit_events_by_severity(&self, severity: AuditSeverity) -> Result<Vec<AuditEvent>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_audit_events_by_severity(severity)
+    fn get_audit_events_by_severity(
+        &self,
+        severity: AuditSeverity,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_events_by_severity(severity)
     }
 
-    fn get_audit_events_in_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<AuditEvent>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_audit_events_in_time_range(start, end)
+    fn get_audit_events_in_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_events_in_time_range(start, end)
     }
 
     fn sync_audit_events(&mut self, events: Vec<AuditEvent>) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.sync_audit_events(events)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .sync_audit_events(events)
     }
 
     // Security Incident operations - delegate to underlying InMemoryStorage
     fn store_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_security_incident(incident)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_security_incident(incident)
     }
 
-    fn get_security_incident(&self, incident_id: &Uuid) -> Result<Option<SecurityIncident>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_security_incident(incident_id)
+    fn get_security_incident(
+        &self,
+        incident_id: &Uuid,
+    ) -> Result<Option<SecurityIncident>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_security_incident(incident_id)
     }
 
-    fn update_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_security_incident(incident)
+    fn update_security_incident(
+        &mut self,
+        incident: &SecurityIncident,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_security_incident(incident)
     }
 
     fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_security_incidents()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_security_incidents()
     }
 
-    fn get_incidents_by_severity(&self, severity: AuditSeverity) -> Result<Vec<SecurityIncident>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_incidents_by_severity(severity)
+    fn get_incidents_by_severity(
+        &self,
+        severity: AuditSeverity,
+    ) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_incidents_by_severity(severity)
     }
 
     fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_open_incidents()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_open_incidents()
     }
 
-    fn get_incidents_by_assignee(&self, assignee: &str) -> Result<Vec<SecurityIncident>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_incidents_by_assignee(assignee)
+    fn get_incidents_by_assignee(
+        &self,
+        assignee: &str,
+    ) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_incidents_by_assignee(assignee)
     }
 
     // Compliance Report operations - delegate to underlying InMemoryStorage
     fn store_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_compliance_report(report)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_compliance_report(report)
     }
 
-    fn get_compliance_report(&self, report_id: &Uuid) -> Result<Option<ComplianceReport>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_compliance_report(report_id)
+    fn get_compliance_report(
+        &self,
+        report_id: &Uuid,
+    ) -> Result<Option<ComplianceReport>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_compliance_report(report_id)
     }
 
     fn update_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_compliance_report(report)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_compliance_report(report)
     }
 
     fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_compliance_reports()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_compliance_reports()
     }
 
-    fn get_reports_by_type(&self, report_type: &str) -> Result<Vec<ComplianceReport>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_reports_by_type(report_type)
+    fn get_reports_by_type(
+        &self,
+        report_type: &str,
+    ) -> Result<Vec<ComplianceReport>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_reports_by_type(report_type)
     }
 
     fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_pending_reports()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_reports()
     }
 
     // Audit Dashboard operations - delegate to underlying InMemoryStorage
     fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_audit_dashboard_metrics()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_dashboard_metrics()
     }
 
-    fn get_event_count_by_time_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<u64, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_event_count_by_time_range(start, end)
+    fn get_event_count_by_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<u64, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_event_count_by_time_range(start, end)
     }
 
     // ZK Proof operations - delegate to underlying InMemoryStorage
-    fn store_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_zk_proof(proof)
+    fn store_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_zk_proof(proof)
     }
 
-    fn get_zk_proof(&self, proof_id: &Uuid) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_zk_proof(proof_id)
+    fn get_zk_proof(
+        &self,
+        proof_id: &Uuid,
+    ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proof(proof_id)
     }
 
-    fn update_zk_proof(&mut self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_zk_proof(proof)
+    fn update_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_zk_proof(proof)
     }
 
-    fn query_zk_proofs(&self, query: &crate::api::zk_proofs::ZkProofQuery) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.query_zk_proofs(query)
+    fn query_zk_proofs(
+        &self,
+        query: &crate::api::zk_proofs::ZkProofQuery,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .query_zk_proofs(query)
     }
 
     fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_zk_proofs()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_zk_proofs()
     }
 
-    fn get_zk_proofs_by_user(&self, user_id: &str) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_zk_proofs_by_user(user_id)
+    fn get_zk_proofs_by_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proofs_by_user(user_id)
     }
 
-    fn get_zk_proofs_by_circuit_type(&self, circuit_type: CircuitType) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_zk_proofs_by_circuit_type(circuit_type)
+    fn get_zk_proofs_by_circuit_type(
+        &self,
+        circuit_type: CircuitType,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proofs_by_circuit_type(circuit_type)
     }
 
-    fn get_zk_proofs_by_status(&self, status: crate::zk_proof_engine::ProofStatus) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_zk_proofs_by_status(status)
+    fn get_zk_proofs_by_status(
+        &self,
+        status: crate::zk_proof_engine::ProofStatus,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proofs_by_status(status)
     }
 
-    fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_zk_proof_statistics()
+    fn get_zk_proof_statistics(
+        &self,
+    ) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proof_statistics()
     }
 
     fn delete_zk_proof(&mut self, proof_id: &Uuid) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.delete_zk_proof(proof_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_zk_proof(proof_id)
     }
 
     fn store_storage_history(&mut self, history: &ItemStorageHistory) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_storage_history(history)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_storage_history(history)
     }
 
     fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_storage_history(dfid)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_storage_history(dfid)
     }
 
-    fn add_storage_record(&mut self, dfid: &str, record: StorageRecord) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.add_storage_record(dfid, record)
+    fn add_storage_record(
+        &mut self,
+        dfid: &str,
+        record: StorageRecord,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .add_storage_record(dfid, record)
     }
 
-    fn store_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_circuit_adapter_config(config)
+    fn store_circuit_adapter_config(
+        &mut self,
+        config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_circuit_adapter_config(config)
     }
 
-    fn get_circuit_adapter_config(&self, circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_circuit_adapter_config(circuit_id)
+    fn get_circuit_adapter_config(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Option<CircuitAdapterConfig>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit_adapter_config(circuit_id)
     }
 
-    fn update_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_circuit_adapter_config(config)
+    fn update_circuit_adapter_config(
+        &mut self,
+        config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_circuit_adapter_config(config)
     }
 
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_circuit_adapter_configs()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_circuit_adapter_configs()
     }
 
     // User Account operations (stub implementations for now)
     fn store_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "User account operations not yet implemented".to_string(),
+        ))
     }
 
     fn get_user_account(&self, _user_id: &str) -> Result<Option<UserAccount>, StorageError> {
@@ -3063,7 +4237,9 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
     }
 
     fn update_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "User account operations not yet implemented".to_string(),
+        ))
     }
 
     fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
@@ -3071,36 +4247,62 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
     }
 
     fn delete_user_account(&mut self, _user_id: &str) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("User account operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "User account operations not yet implemented".to_string(),
+        ))
     }
 
     // Credit Transaction operations (stub implementations for now)
-    fn record_credit_transaction(&mut self, _transaction: &CreditTransaction) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Credit transaction operations not yet implemented".to_string()))
+    fn record_credit_transaction(
+        &mut self,
+        _transaction: &CreditTransaction,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Credit transaction operations not yet implemented".to_string(),
+        ))
     }
 
-    fn get_credit_transaction(&self, _transaction_id: &str) -> Result<Option<CreditTransaction>, StorageError> {
+    fn get_credit_transaction(
+        &self,
+        _transaction_id: &str,
+    ) -> Result<Option<CreditTransaction>, StorageError> {
         Ok(None)
     }
 
-    fn get_credit_transactions(&self, _user_id: &str, _limit: Option<usize>) -> Result<Vec<CreditTransaction>, StorageError> {
+    fn get_credit_transactions(
+        &self,
+        _user_id: &str,
+        _limit: Option<usize>,
+    ) -> Result<Vec<CreditTransaction>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_credit_transactions_by_operation(&self, _operation_type: &str) -> Result<Vec<CreditTransaction>, StorageError> {
+    fn get_credit_transactions_by_operation(
+        &self,
+        _operation_type: &str,
+    ) -> Result<Vec<CreditTransaction>, StorageError> {
         Ok(Vec::new())
     }
 
     // Admin Action operations (stub implementations for now)
     fn record_admin_action(&mut self, _action: &AdminAction) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("Admin action operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "Admin action operations not yet implemented".to_string(),
+        ))
     }
 
-    fn get_admin_actions(&self, _admin_id: Option<&str>, _limit: Option<usize>) -> Result<Vec<AdminAction>, StorageError> {
+    fn get_admin_actions(
+        &self,
+        _admin_id: Option<&str>,
+        _limit: Option<usize>,
+    ) -> Result<Vec<AdminAction>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_admin_actions_by_type(&self, _action_type: &str) -> Result<Vec<AdminAction>, StorageError> {
+    fn get_admin_actions_by_type(
+        &self,
+        _action_type: &str,
+    ) -> Result<Vec<AdminAction>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -3121,126 +4323,230 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
     }
 
     fn update_system_statistics(&mut self, _stats: &SystemStatistics) -> Result<(), StorageError> {
-        Err(StorageError::NotImplemented("System statistics operations not yet implemented".to_string()))
+        Err(StorageError::NotImplemented(
+            "System statistics operations not yet implemented".to_string(),
+        ))
     }
 
     // Notification operations - delegate to inner storage
     fn store_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_notification(notification)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_notification(notification)
     }
 
-    fn get_notification(&self, notification_id: &str) -> Result<Option<Notification>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_notification(notification_id)
+    fn get_notification(
+        &self,
+        notification_id: &str,
+    ) -> Result<Option<Notification>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_notification(notification_id)
     }
 
-    fn get_user_notifications(&self, user_id: &str, since: Option<DateTime<Utc>>, limit: Option<usize>, unread_only: bool) -> Result<Vec<Notification>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_user_notifications(user_id, since, limit, unread_only)
+    fn get_user_notifications(
+        &self,
+        user_id: &str,
+        since: Option<DateTime<Utc>>,
+        limit: Option<usize>,
+        unread_only: bool,
+    ) -> Result<Vec<Notification>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_user_notifications(user_id, since, limit, unread_only)
     }
 
     fn update_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_notification(notification)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_notification(notification)
     }
 
     fn delete_notification(&mut self, notification_id: &str) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.delete_notification(notification_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_notification(notification_id)
     }
 
     fn mark_all_notifications_read(&mut self, user_id: &str) -> Result<usize, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.mark_all_notifications_read(user_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .mark_all_notifications_read(user_id)
     }
 
     fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_unread_notification_count(user_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_unread_notification_count(user_id)
     }
 
     // Adapter Configuration Management operations
     fn store_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_adapter_config(config)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_adapter_config(config)
     }
 
     fn get_adapter_config(&self, config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_adapter_config(config_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_adapter_config(config_id)
     }
 
     fn update_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.update_adapter_config(config)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_adapter_config(config)
     }
 
     fn delete_adapter_config(&mut self, config_id: &Uuid) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.delete_adapter_config(config_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_adapter_config(config_id)
     }
 
     fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_adapter_configs()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_adapter_configs()
     }
 
     fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.list_active_adapter_configs()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_active_adapter_configs()
     }
 
-    fn get_adapter_configs_by_type(&self, adapter_type: &AdapterType) -> Result<Vec<AdapterConfig>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_adapter_configs_by_type(adapter_type)
+    fn get_adapter_configs_by_type(
+        &self,
+        adapter_type: &AdapterType,
+    ) -> Result<Vec<AdapterConfig>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_adapter_configs_by_type(adapter_type)
     }
 
     fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_default_adapter_config()
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_default_adapter_config()
     }
 
     fn set_default_adapter(&mut self, config_id: &Uuid) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.set_default_adapter(config_id)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .set_default_adapter(config_id)
     }
 
-    fn store_adapter_test_result(&mut self, result: &AdapterTestResult) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_adapter_test_result(result)
+    fn store_adapter_test_result(
+        &mut self,
+        result: &AdapterTestResult,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_adapter_test_result(result)
     }
 
-    fn get_adapter_test_result(&self, config_id: &Uuid) -> Result<Option<AdapterTestResult>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_adapter_test_result(config_id)
+    fn get_adapter_test_result(
+        &self,
+        config_id: &Uuid,
+    ) -> Result<Option<AdapterTestResult>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_adapter_test_result(config_id)
     }
 
     // LID ↔ DFID mapping operations
     fn store_lid_dfid_mapping(&mut self, lid: &Uuid, dfid: &str) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_lid_dfid_mapping(lid, dfid)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_lid_dfid_mapping(lid, dfid)
     }
 
     fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_dfid_by_lid(lid)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_dfid_by_lid(lid)
     }
 
     // Canonical identifier lookups
-    fn get_dfid_by_canonical(&self, namespace: &str, registry: &str, value: &str) -> Result<Option<String>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_dfid_by_canonical(namespace, registry, value)
+    fn get_dfid_by_canonical(
+        &self,
+        namespace: &str,
+        registry: &str,
+        value: &str,
+    ) -> Result<Option<String>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_dfid_by_canonical(namespace, registry, value)
     }
 
     // Fingerprint mappings
-    fn store_fingerprint_mapping(&mut self, fingerprint: &str, dfid: &str, circuit_id: &Uuid) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_fingerprint_mapping(fingerprint, dfid, circuit_id)
+    fn store_fingerprint_mapping(
+        &mut self,
+        fingerprint: &str,
+        dfid: &str,
+        circuit_id: &Uuid,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_fingerprint_mapping(fingerprint, dfid, circuit_id)
     }
 
-    fn get_dfid_by_fingerprint(&self, fingerprint: &str, circuit_id: &Uuid) -> Result<Option<String>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_dfid_by_fingerprint(fingerprint, circuit_id)
+    fn get_dfid_by_fingerprint(
+        &self,
+        fingerprint: &str,
+        circuit_id: &Uuid,
+    ) -> Result<Option<String>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_dfid_by_fingerprint(fingerprint, circuit_id)
     }
 
     // Enhanced identifier mappings
-    fn store_enhanced_identifier_mapping(&mut self, identifier: &EnhancedIdentifier, dfid: &str) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_enhanced_identifier_mapping(identifier, dfid)
+    fn store_enhanced_identifier_mapping(
+        &mut self,
+        identifier: &EnhancedIdentifier,
+        dfid: &str,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_enhanced_identifier_mapping(identifier, dfid)
     }
 
     // Webhook delivery operations
     fn store_webhook_delivery(&mut self, delivery: &WebhookDelivery) -> Result<(), StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.store_webhook_delivery(delivery)
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_webhook_delivery(delivery)
     }
 
-    fn get_webhook_delivery(&self, delivery_id: &Uuid) -> Result<Option<WebhookDelivery>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_webhook_delivery(delivery_id)
+    fn get_webhook_delivery(
+        &self,
+        delivery_id: &Uuid,
+    ) -> Result<Option<WebhookDelivery>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_webhook_delivery(delivery_id)
     }
 
-    fn get_webhook_deliveries_by_circuit(&self, circuit_id: &Uuid, limit: Option<usize>) -> Result<Vec<WebhookDelivery>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_webhook_deliveries_by_circuit(circuit_id, limit)
+    fn get_webhook_deliveries_by_circuit(
+        &self,
+        circuit_id: &Uuid,
+        limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_webhook_deliveries_by_circuit(circuit_id, limit)
     }
 
-    fn get_webhook_deliveries_by_webhook(&self, webhook_id: &Uuid, limit: Option<usize>) -> Result<Vec<WebhookDelivery>, StorageError> {
-        self.lock().map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?.get_webhook_deliveries_by_webhook(webhook_id, limit)
+    fn get_webhook_deliveries_by_webhook(
+        &self,
+        webhook_id: &Uuid,
+        limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_webhook_deliveries_by_webhook(webhook_id, limit)
     }
 }
-

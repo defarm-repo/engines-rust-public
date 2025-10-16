@@ -1,9 +1,9 @@
+use crate::logging::LoggingEngine;
 use crate::storage::StorageBackend;
 use crate::types::{
-    WebhookConfig, WebhookDelivery, WebhookPayload, DeliveryStatus, PostActionTrigger,
+    DeliveryStatus, PostActionTrigger, WebhookConfig, WebhookDelivery, WebhookPayload,
 };
-use crate::logging::LoggingEngine;
-use crate::webhook_delivery_worker::{WebhookDeliveryQueue, DeliveryTask};
+use crate::webhook_delivery_worker::{DeliveryTask, WebhookDeliveryQueue};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -59,19 +59,26 @@ impl<S: StorageBackend> WebhookEngine<S> {
         trigger_event: PostActionTrigger,
         payload: WebhookPayload,
     ) -> Result<Vec<Uuid>, WebhookError> {
-        self.logger.info(
-            "webhook_engine",
-            "webhook_trigger",
-            &format!("Triggering webhooks for circuit {} event {:?}", circuit_id, trigger_event)
-        )
-        .with_context("circuit_id", circuit_id.to_string())
-        .with_context("trigger_event", trigger_event.as_str());
+        self.logger
+            .info(
+                "webhook_engine",
+                "webhook_trigger",
+                &format!(
+                    "Triggering webhooks for circuit {} event {:?}",
+                    circuit_id, trigger_event
+                ),
+            )
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("trigger_event", trigger_event.as_str());
 
         // Get circuit post-action settings
         let webhooks = {
-            let storage = self.storage.lock()
-            .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
-            let circuit = storage.get_circuit(circuit_id)
+            let storage = self
+                .storage
+                .lock()
+                .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
+            let circuit = storage
+                .get_circuit(circuit_id)
                 .map_err(|e| WebhookError::StorageError(e.to_string()))?
                 .ok_or_else(|| WebhookError::ConfigurationError("Circuit not found".to_string()))?;
 
@@ -86,13 +93,18 @@ impl<S: StorageBackend> WebhookEngine<S> {
                 self.logger.info(
                     "webhook_engine",
                     "webhook_skip",
-                    &format!("Trigger event {:?} not configured for circuit", trigger_event)
+                    &format!(
+                        "Trigger event {:?} not configured for circuit",
+                        trigger_event
+                    ),
                 );
                 return Ok(vec![]);
             }
 
             // Get enabled webhooks
-            post_settings.webhooks.into_iter()
+            post_settings
+                .webhooks
+                .into_iter()
                 .filter(|w| w.enabled)
                 .collect::<Vec<_>>()
         };
@@ -105,22 +117,20 @@ impl<S: StorageBackend> WebhookEngine<S> {
 
         // Create deliveries for each webhook
         for webhook in webhooks {
-            let delivery_id = self.create_delivery(
-                &webhook,
-                *circuit_id,
-                trigger_event,
-                payload.clone(),
-            ).await?;
+            let delivery_id = self
+                .create_delivery(&webhook, *circuit_id, trigger_event, payload.clone())
+                .await?;
 
             delivery_ids.push(delivery_id);
         }
 
-        self.logger.info(
-            "webhook_engine",
-            "webhooks_triggered",
-            &format!("Created {} webhook deliveries", delivery_ids.len())
-        )
-        .with_context("count", delivery_ids.len().to_string());
+        self.logger
+            .info(
+                "webhook_engine",
+                "webhooks_triggered",
+                &format!("Created {} webhook deliveries", delivery_ids.len()),
+            )
+            .with_context("count", delivery_ids.len().to_string());
 
         Ok(delivery_ids)
     }
@@ -134,22 +144,22 @@ impl<S: StorageBackend> WebhookEngine<S> {
         payload: WebhookPayload,
     ) -> Result<Uuid, WebhookError> {
         // Serialize payload
-        let payload_value = serde_json::to_value(&payload)
-            .map_err(|e| WebhookError::DeliveryError(format!("Failed to serialize payload: {}", e)))?;
+        let payload_value = serde_json::to_value(&payload).map_err(|e| {
+            WebhookError::DeliveryError(format!("Failed to serialize payload: {}", e))
+        })?;
 
         // Create delivery record
-        let mut delivery = WebhookDelivery::new(
-            webhook.id,
-            circuit_id,
-            trigger_event,
-            payload_value.clone(),
-        );
+        let mut delivery =
+            WebhookDelivery::new(webhook.id, circuit_id, trigger_event, payload_value.clone());
 
         // Store delivery
         {
-            let mut storage = self.storage.lock()
-            .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
-            storage.store_webhook_delivery(&delivery)
+            let mut storage = self
+                .storage
+                .lock()
+                .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
+            storage
+                .store_webhook_delivery(&delivery)
                 .map_err(|e| WebhookError::StorageError(e.to_string()))?;
         }
 
@@ -167,7 +177,7 @@ impl<S: StorageBackend> WebhookEngine<S> {
                 self.logger.error(
                     "webhook_engine",
                     "enqueue_failed",
-                    &format!("Failed to enqueue webhook delivery: {}", e)
+                    &format!("Failed to enqueue webhook delivery: {}", e),
                 );
                 // Update delivery status to failed
                 if let Ok(mut storage) = self.storage.lock() {
@@ -179,14 +189,14 @@ impl<S: StorageBackend> WebhookEngine<S> {
                 self.logger.info(
                     "webhook_engine",
                     "delivery_enqueued",
-                    &format!("Webhook delivery enqueued: {}", delivery_id)
+                    &format!("Webhook delivery enqueued: {}", delivery_id),
                 );
             }
         } else {
             self.logger.warn(
                 "webhook_engine",
                 "no_delivery_queue",
-                "Webhook delivery queue not configured - delivery will not be processed"
+                "Webhook delivery queue not configured - delivery will not be processed",
             );
         }
 
@@ -199,9 +209,12 @@ impl<S: StorageBackend> WebhookEngine<S> {
         circuit_id: &Uuid,
         limit: Option<usize>,
     ) -> Result<Vec<WebhookDelivery>, WebhookError> {
-        let storage = self.storage.lock()
+        let storage = self
+            .storage
+            .lock()
             .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
-        storage.get_webhook_deliveries_by_circuit(circuit_id, limit)
+        storage
+            .get_webhook_deliveries_by_circuit(circuit_id, limit)
             .map_err(|e| WebhookError::StorageError(e.to_string()))
     }
 
@@ -210,9 +223,12 @@ impl<S: StorageBackend> WebhookEngine<S> {
         &self,
         delivery_id: &Uuid,
     ) -> Result<Option<WebhookDelivery>, WebhookError> {
-        let storage = self.storage.lock()
+        let storage = self
+            .storage
+            .lock()
             .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
-        storage.get_webhook_delivery(delivery_id)
+        storage
+            .get_webhook_delivery(delivery_id)
             .map_err(|e| WebhookError::StorageError(e.to_string()))
     }
 
@@ -237,7 +253,10 @@ impl<S: StorageBackend> WebhookEngine<S> {
             }
 
             // Check for private IP ranges (simple check)
-            if host.starts_with("192.168.") || host.starts_with("10.") || host.starts_with("172.16.") {
+            if host.starts_with("192.168.")
+                || host.starts_with("10.")
+                || host.starts_with("172.16.")
+            {
                 return Err(WebhookError::ValidationError(
                     "Private IP addresses are not allowed".to_string(),
                 ));

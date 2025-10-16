@@ -2,7 +2,7 @@ use axum::{
     http::StatusCode,
     middleware,
     response::Json,
-    routing::{get, post},
+    routing::get,
     Router,
 };
 use serde_json::{json, Value};
@@ -789,23 +789,3 @@ async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usi
     Ok(adapter_count)
 }
 
-/// Sync current in-memory data to PostgreSQL
-async fn sync_to_postgres(pg: &PostgresPersistence, app_state: &AppState) -> Result<(), String> {
-    // Sync users
-    let users: Vec<String> = {
-        let _storage = app_state
-            .shared_storage
-            .lock()
-            .map_err(|e| format!("Failed to lock storage: {}", e))?;
-
-        // Get all users from storage
-        // Note: This assumes storage has a method to list all users
-        // If not, we'll just sync the ones we created in setup_development_data
-        Vec::new() // Placeholder - will be populated by actual user list
-    };
-
-    // For now, just log - full sync implementation would go here
-    tracing::debug!("📤 Syncing {} users to PostgreSQL", users.len());
-
-    Ok(())
-}

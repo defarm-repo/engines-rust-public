@@ -42,8 +42,9 @@ impl DfidEngine {
             return false;
         }
 
-        if !timestamp_str.chars().all(|c| c.is_ascii_digit()) ||
-           !sequence_str.chars().all(|c| c.is_ascii_digit()) {
+        if !timestamp_str.chars().all(|c| c.is_ascii_digit())
+            || !sequence_str.chars().all(|c| c.is_ascii_digit())
+        {
             return false;
         }
 
@@ -112,7 +113,7 @@ pub struct DfidMetadata {
 
 impl DfidMetadata {
     pub fn creation_date(&self) -> Option<DateTime<Utc>> {
-        use chrono::{TimeZone, NaiveDate};
+        use chrono::{NaiveDate, TimeZone};
 
         let naive_date = NaiveDate::from_ymd_opt(self.year, self.month, self.day)?;
         Some(Utc.from_utc_datetime(&naive_date.and_hms_opt(0, 0, 0)?))
@@ -230,6 +231,8 @@ mod tests {
 
         assert!(engine.extract_metadata("invalid-dfid").is_none());
         assert!(engine.extract_metadata("DFID-invalid-000001-ABC").is_none());
-        assert!(engine.extract_metadata("DFID-20240926-invalid-ABC").is_none());
+        assert!(engine
+            .extract_metadata("DFID-20240926-invalid-ABC")
+            .is_none());
     }
 }
