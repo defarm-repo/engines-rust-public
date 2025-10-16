@@ -105,14 +105,17 @@ fn test_dockerfile_builds_successfully() {
 
 #[test]
 fn test_dockerfile_exists() {
-    let dockerfile_exists = std::path::Path::new("Dockerfile").exists();
-    assert!(dockerfile_exists, "Dockerfile not found in project root");
+    let dockerfile_exists = std::path::Path::new("config/Dockerfile").exists();
+    assert!(
+        dockerfile_exists,
+        "Dockerfile not found in config/ directory"
+    );
 }
 
 #[test]
 fn test_dockerfile_has_libsodium_in_builder() {
     let dockerfile_content =
-        std::fs::read_to_string("Dockerfile").expect("Failed to read Dockerfile");
+        std::fs::read_to_string("config/Dockerfile").expect("Failed to read Dockerfile");
 
     // Check builder stage has libsodium-dev
     assert!(
@@ -132,7 +135,7 @@ fn test_dockerfile_has_libsodium_in_builder() {
 #[test]
 fn test_dockerfile_has_libsodium_in_runtime() {
     let dockerfile_content =
-        std::fs::read_to_string("Dockerfile").expect("Failed to read Dockerfile");
+        std::fs::read_to_string("config/Dockerfile").expect("Failed to read Dockerfile");
 
     // Check runtime stage has libsodium23 (runtime library)
     assert!(
@@ -146,7 +149,7 @@ fn test_dockerfile_has_libsodium_in_runtime() {
 #[test]
 fn test_dockerfile_multistage_build() {
     let dockerfile_content =
-        std::fs::read_to_string("Dockerfile").expect("Failed to read Dockerfile");
+        std::fs::read_to_string("config/Dockerfile").expect("Failed to read Dockerfile");
 
     // Verify it's a multi-stage build
     assert!(
@@ -187,7 +190,7 @@ mod dockerfile_validation {
     #[test]
     fn test_no_root_user_in_runtime() {
         let dockerfile_content =
-            std::fs::read_to_string("Dockerfile").expect("Failed to read Dockerfile");
+            std::fs::read_to_string("config/Dockerfile").expect("Failed to read Dockerfile");
 
         // Security: Should not run as root
         assert!(
@@ -201,7 +204,7 @@ mod dockerfile_validation {
     #[test]
     fn test_expose_port_documented() {
         let dockerfile_content =
-            std::fs::read_to_string("Dockerfile").expect("Failed to read Dockerfile");
+            std::fs::read_to_string("config/Dockerfile").expect("Failed to read Dockerfile");
 
         // Should document the exposed port
         assert!(
@@ -215,7 +218,7 @@ mod dockerfile_validation {
     #[test]
     fn test_apt_cache_cleanup() {
         let dockerfile_content =
-            std::fs::read_to_string("Dockerfile").expect("Failed to read Dockerfile");
+            std::fs::read_to_string("config/Dockerfile").expect("Failed to read Dockerfile");
 
         // Should clean up apt cache to reduce image size
         assert!(

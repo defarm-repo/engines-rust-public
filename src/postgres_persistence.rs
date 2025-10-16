@@ -216,7 +216,7 @@ impl PostgresPersistence {
             .map_err(|e| format!("Failed to get connection for migration: {e}"))?;
 
         // Read migration file
-        let migration_sql = include_str!("../migrations/V1__initial_schema.sql");
+        let migration_sql = include_str!("../config/migrations/V1__initial_schema.sql");
 
         // Execute migration with timeout
         match timeout(Duration::from_secs(30), client.batch_execute(migration_sql)).await {

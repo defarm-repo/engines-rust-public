@@ -381,6 +381,158 @@ fn test_documentation_file_sizes() {
 }
 
 // ===========================================================================
+// Script Organization
+// ===========================================================================
+
+#[test]
+fn test_no_shell_scripts_in_root() {
+    println!("\n🔧 Checking for shell scripts in root...");
+
+    let mut scripts_in_root = vec![];
+
+    for entry in fs::read_dir(".")
+        .expect("Should read current directory")
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("sh") {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                scripts_in_root.push(name.to_string());
+            }
+        }
+    }
+
+    if scripts_in_root.is_empty() {
+        println!("   ✅ No shell scripts in root - properly organized!");
+    } else {
+        println!(
+            "   ❌ Found {} shell script(s) in root:",
+            scripts_in_root.len()
+        );
+        for script in &scripts_in_root {
+            println!("      - {script}");
+        }
+    }
+
+    assert!(
+        scripts_in_root.is_empty(),
+        "Shell scripts found in root directory. Please organize into /scripts directory:\n\
+         /scripts/deployment/ - Deployment scripts (deploy.sh, health-check.sh, etc.)\n\
+         /scripts/testing/    - Test scripts (test-*.sh)\n\
+         /scripts/setup/      - Setup scripts (setup-*.sh)\n\
+         Found: {scripts_in_root:?}"
+    );
+}
+
+#[test]
+fn test_config_files_organized() {
+    println!("\n📦 Checking for config files in root...");
+
+    let misplaced_files = vec![
+        ("Dockerfile", "config/"),
+        ("docker-compose.yml", "config/"),
+        ("railway.json", "config/"),
+    ];
+
+    let mut found_misplaced = vec![];
+
+    for (filename, suggested_location) in &misplaced_files {
+        if Path::new(filename).exists() {
+            found_misplaced.push(format!("{filename} → {suggested_location}"));
+        }
+    }
+
+    if found_misplaced.is_empty() {
+        println!("   ✅ All config files properly organized!");
+    } else {
+        println!("   ❌ Found misplaced config files:");
+        for file in &found_misplaced {
+            println!("      - {file}");
+        }
+    }
+
+    assert!(
+        found_misplaced.is_empty(),
+        "Config files found in root. Please move to /config directory:\n\
+         Dockerfile, docker-compose.yml, railway.json → config/\n\
+         migrations/, nginx/ → config/\n\
+         Found: {found_misplaced:?}"
+    );
+}
+
+#[test]
+fn test_root_directory_cleanliness() {
+    println!("\n🧹 Checking root directory cleanliness...");
+
+    let allowed_files = vec![
+        // Rust project files
+        "Cargo.toml",
+        "Cargo.lock",
+        // Git and environment
+        ".gitignore",
+        ".env.example",
+        // Documentation
+        "CLAUDE.md",
+        "README.md",
+        "LICENSE.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+    ];
+
+    let allowed_dirs = vec![
+        "src", "tests", "examples", "docs", "scripts", "config", "target", ".git", ".cargo",
+    ];
+
+    let mut misplaced = vec![];
+
+    for entry in fs::read_dir(".")
+        .expect("Should read current directory")
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            // Skip hidden files (except .gitignore and .env.example)
+            if name.starts_with('.') && !allowed_files.contains(&name) {
+                continue;
+            }
+
+            if path.is_file() && !allowed_files.contains(&name) {
+                misplaced.push(name.to_string());
+            } else if path.is_dir() && !allowed_dirs.contains(&name) {
+                misplaced.push(format!("{name}/"));
+            }
+        }
+    }
+
+    if misplaced.is_empty() {
+        println!("   ✅ Root directory is clean and well-organized!");
+    } else {
+        println!(
+            "   ⚠️  Found {} unexpected file(s)/dir(s) in root:",
+            misplaced.len()
+        );
+        for item in &misplaced {
+            println!("      - {item}");
+        }
+        println!("\n   💡 Organization guidelines:");
+        println!("      - Shell scripts → /scripts/");
+        println!("      - Config files → /config/");
+        println!("      - Documentation → /docs/");
+        println!("      - Test data → /tests/");
+    }
+
+    // This is a warning, not a hard failure - allows for some flexibility
+    if !misplaced.is_empty() {
+        println!("\n   ℹ️  Root directory should only contain:");
+        println!(
+            "      Files: Cargo.toml, Cargo.lock, .gitignore, .env.example, CLAUDE.md, README.md"
+        );
+        println!("      Dirs:  src/, tests/, examples/, docs/, scripts/, config/, target/, .git/");
+    }
+}
+
+// ===========================================================================
 // Summary Test
 // ===========================================================================
 
@@ -400,6 +552,9 @@ fn test_summary_docs_structure() {
     println!("✅ Changelog existence verified");
     println!("✅ Security policy checked");
     println!("✅ Documentation file sizes validated");
-    println!("\n📚 Documentation structure audit complete!");
+    println!("✅ Shell script organization enforced");
+    println!("✅ Config file organization validated");
+    println!("✅ Root directory cleanliness checked");
+    println!("\n📚 Documentation and file organization audit complete!");
     println!("═══════════════════════════════════════════════════════════\n");
 }
