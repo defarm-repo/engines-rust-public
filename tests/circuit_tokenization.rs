@@ -15,8 +15,10 @@ async fn test_canonical_identifier_deduplication() {
     let (mut engine, _storage) = new_engine();
 
     // Create circuit with SISBOV requirement
-    let mut alias_config = CircuitAliasConfig::default();
-    alias_config.required_canonical = vec!["sisbov".to_string()];
+    let alias_config = CircuitAliasConfig {
+        required_canonical: vec!["sisbov".to_string()],
+        ..Default::default()
+    };
 
     let circuit = engine
         .create_circuit_with_namespace(
@@ -69,9 +71,11 @@ async fn test_fingerprint_deduplication() {
     let (mut engine, _storage) = new_engine();
 
     // Create circuit with fingerprint enabled
-    let mut alias_config = CircuitAliasConfig::default();
-    alias_config.use_fingerprint = true;
-    alias_config.required_contextual = vec!["lote".to_string(), "safra".to_string()];
+    let alias_config = CircuitAliasConfig {
+        use_fingerprint: true,
+        required_contextual: vec!["lote".to_string(), "safra".to_string()],
+        ..Default::default()
+    };
 
     let circuit = engine
         .create_circuit_with_namespace(
@@ -123,8 +127,10 @@ async fn test_namespace_validation() {
     let (mut engine, _storage) = new_engine();
 
     // Create circuit restricted to bovino namespace
-    let mut alias_config = CircuitAliasConfig::default();
-    alias_config.allowed_namespaces = Some(vec!["bovino".to_string()]);
+    let alias_config = CircuitAliasConfig {
+        allowed_namespaces: Some(vec!["bovino".to_string()]),
+        ..Default::default()
+    };
 
     let circuit = engine
         .create_circuit_with_namespace(
@@ -164,8 +170,10 @@ async fn test_auto_namespace_application() {
     let (mut engine, storage) = new_engine();
 
     // Create circuit with auto-apply namespace
-    let mut alias_config = CircuitAliasConfig::default();
-    alias_config.auto_apply_namespace = true;
+    let alias_config = CircuitAliasConfig {
+        auto_apply_namespace: true,
+        ..Default::default()
+    };
 
     let circuit = engine
         .create_circuit_with_namespace(

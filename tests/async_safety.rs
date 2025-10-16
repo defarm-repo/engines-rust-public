@@ -22,6 +22,7 @@ use tokio::time::timeout;
 use uuid::Uuid;
 
 // Helper to create test engines
+#[allow(clippy::type_complexity)]
 fn create_test_engines() -> (
     CircuitsEngine<InMemoryStorage>,
     ItemsEngine<Arc<Mutex<InMemoryStorage>>>,

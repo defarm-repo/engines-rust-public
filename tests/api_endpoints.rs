@@ -8,6 +8,7 @@ use defarm_engine::{
 use std::sync::{Arc, Mutex};
 
 // Helper to create test engines
+#[allow(clippy::type_complexity)]
 fn create_test_engines() -> (
     CircuitsEngine<InMemoryStorage>,
     ItemsEngine<Arc<Mutex<InMemoryStorage>>>,

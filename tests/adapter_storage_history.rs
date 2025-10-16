@@ -188,7 +188,7 @@ fn test_storage_history_manager_initialization() {
 
     // Verify manager is created successfully
     // This validates the basic structure is in place
-    assert!(true, "StorageHistoryManager should initialize successfully");
+    // If we get here without panicking, the test passed
 }
 
 #[test]

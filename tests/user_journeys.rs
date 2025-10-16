@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 // Test helper to create engines
+#[allow(clippy::type_complexity)]
 fn create_test_engines() -> (
     CircuitsEngine<InMemoryStorage>,
     ItemsEngine<Arc<Mutex<InMemoryStorage>>>,
@@ -359,6 +360,7 @@ async fn journey_unauthorized_user_cannot_push_to_circuit() {
 // ============================================================================
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn journey_item_lifecycle_local_to_tokenized() {
     println!("\n📦 JOURNEY 5: Item Lifecycle");
     println!("─────────────────────────────────────────────────────────────");
