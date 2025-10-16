@@ -93,8 +93,15 @@ fn test_excessive_markdown_files_in_root() {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                // README, LICENSE, CHANGELOG are ok in root
-                if name != "README.md" && name != "LICENSE.md" && name != "CHANGELOG.md" {
+                // README, LICENSE, CHANGELOG, CLAUDE, CONTRIBUTING are ok in root
+                let allowed_files = [
+                    "README.md",
+                    "LICENSE.md",
+                    "CHANGELOG.md",
+                    "CLAUDE.md",
+                    "CONTRIBUTING.md",
+                ];
+                if !allowed_files.contains(&name) {
                     md_files_in_root.push(name.to_string());
                 }
             }
@@ -102,23 +109,30 @@ fn test_excessive_markdown_files_in_root() {
     }
 
     let count = md_files_in_root.len();
-    println!("   📄 Found {count} non-standard .md files in root:");
 
-    for file in &md_files_in_root {
-        println!("      - {file}");
+    if count > 0 {
+        println!("   📄 Found {count} non-standard .md files in root:");
+        for file in &md_files_in_root {
+            println!("      - {file}");
+        }
     }
 
-    if count > 10 {
-        println!("   ⚠️  Consider organizing docs into /docs directory");
-        println!("   📝 Recommended structure:");
-        println!("      /docs/architecture/");
-        println!("      /docs/deployment/");
-        println!("      /docs/testing/");
-        println!("      /docs/troubleshooting/");
-    } else if count > 0 {
-        println!("   ℹ️  {count} documentation files in root (acceptable)");
+    // Enforce strict limit: max 5 extra markdown files in root
+    assert!(
+        count <= 5,
+        "Too many markdown files in root directory ({count}). Maximum allowed: 5 extra files.\n\
+         Please organize documentation into /docs directory structure:\n\
+           /docs/deployment/  - Deployment guides\n\
+           /docs/development/ - Development and testing guides\n\
+           /docs/api/         - API documentation\n\
+           /docs/archived/    - Old status reports and resolved issues\n\
+         Only these files should remain in root: README.md, LICENSE.md, CHANGELOG.md, CLAUDE.md, CONTRIBUTING.md"
+    );
+
+    if count == 0 {
+        println!("   ✅ No excessive markdown files in root - documentation is well organized!");
     } else {
-        println!("   ✅ No excessive markdown files in root");
+        println!("   ⚠️  {count} extra documentation file(s) in root (limit: 5)");
     }
 }
 
