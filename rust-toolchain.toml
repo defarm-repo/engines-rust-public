@@ -1,0 +1,5 @@
+[toolchain]
+# Require Rust 1.88.0 or later for edition 2024 support
+# This is needed for base64ct 1.8.0 and other dependencies using edition 2024
+channel = "1.88.0"
+profile = "minimal"

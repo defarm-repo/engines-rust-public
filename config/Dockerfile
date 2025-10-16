@@ -5,7 +5,7 @@
 # ============================================================================
 # Use Rust 1.88+ for edition 2024 support (required by base64ct 1.8.0 dependency)
 # Edition 2024 feature is stabilized in Rust 1.88.0
-FROM rust:latest as builder
+FROM rust:1.88-bookworm as builder
 
 WORKDIR /app
 
@@ -19,8 +19,8 @@ RUN apt-get update && apt-get install -y \
 
 # Stellar SDK integration - no CLI needed (native Rust)
 
-# Copy dependency manifests
-COPY Cargo.toml Cargo.lock ./
+# Copy dependency manifests and rust-toolchain to ensure correct version
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 
 # Create dummy main to cache dependencies
 RUN mkdir src && \
