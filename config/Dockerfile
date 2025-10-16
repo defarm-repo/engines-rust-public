@@ -3,8 +3,9 @@
 # ============================================================================
 # Stage 1: Builder
 # ============================================================================
-# Use explicit Rust 1.90 (Stellar CLI 23.1.4 requires rustc 1.89.0+)
-FROM rust:1.90-bookworm as builder
+# Use Rust 1.88+ for edition 2024 support (required by base64ct 1.8.0 dependency)
+# Edition 2024 feature is stabilized in Rust 1.88.0
+FROM rust:latest as builder
 
 WORKDIR /app
 
