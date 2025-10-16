@@ -1,0 +1,13 @@
+# Railway deployment configuration
+# Force Railway to use our custom Dockerfile instead of Railpack auto-detection
+
+[build]
+# Use custom Dockerfile (Railpack auto-detection disabled)
+builder = "DOCKERFILE"
+dockerfilePath = "config/Dockerfile"
+
+[deploy]
+# Railway sets PORT dynamically via environment variable
+startCommand = "/app/defarm-api"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
