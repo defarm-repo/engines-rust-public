@@ -5,7 +5,6 @@ mod tests {
     use crate::types::{
         AuditDashboardMetrics, ComplianceStatus, SecurityIncidentSummary, UserRiskProfile,
     };
-    
 
     #[test]
     fn test_audit_metrics_serialization() {

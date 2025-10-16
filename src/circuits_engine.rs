@@ -274,6 +274,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(circuit)
     }
 
+    #[allow(clippy::await_holding_lock)]
     pub async fn push_item_to_circuit(
         &mut self,
         dfid: &str,
@@ -486,6 +487,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
     }
 
     // NEW: Push with LID (tokenization in circuit)
+    #[allow(clippy::await_holding_lock)]
     pub async fn push_local_item_to_circuit(
         &mut self,
         local_id: &Uuid,
@@ -2078,9 +2080,10 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         circuit_id: &Uuid,
     ) -> Result<Option<crate::types::PublicCircuitInfo>, CircuitsError> {
         let (mut public_info, show_encrypted_events) = {
-            let storage = self.storage.lock().map_err(|e| {
-                CircuitsError::StorageError(format!("Storage mutex poisoned: {e}"))
-            })?;
+            let storage = self
+                .storage
+                .lock()
+                .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
 
             let circuit = storage
                 .get_circuit(circuit_id)
@@ -2324,6 +2327,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
     }
 
     /// Trigger webhooks for post-action events (completely optional for circuit owner)
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::await_holding_refcell_ref)]
     async fn trigger_post_action_webhooks(
         &mut self,
         circuit: &Circuit,

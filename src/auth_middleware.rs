@@ -82,9 +82,5 @@ fn extract_jwt_token(request: &Request) -> Option<String> {
     let auth_header = request.headers().get("Authorization")?.to_str().ok()?;
 
     // Support "Bearer <token>" format
-    if auth_header.starts_with("Bearer ") {
-        Some(auth_header[7..].to_string())
-    } else {
-        None
-    }
+    auth_header.strip_prefix("Bearer ").map(|s| s.to_string())
 }

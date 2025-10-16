@@ -541,6 +541,7 @@ fn lock_circuits_engine<'a>(
     })
 }
 
+#[allow(clippy::type_complexity)]
 fn lock_items_engine<'a>(
     state: &'a Arc<AppState>,
 ) -> Result<MutexGuard<'a, ItemsEngine<Arc<Mutex<InMemoryStorage>>>>, (StatusCode, Json<Value>)> {
@@ -1190,15 +1191,15 @@ async fn list_circuits(
             // Apply permission-based filtering
             if let Some(user_id) = &params.user_id {
                 circuits.retain(|circuit| {
-                        // Include circuits where user is a member
-                        let is_member = circuit.is_member(user_id);
+                    // Include circuits where user is a member
+                    let is_member = circuit.is_member(user_id);
 
-                        // Include public circuits if requested
-                        let is_public = params.include_public.unwrap_or(true)
-                            && circuit.permissions.allow_public_visibility;
+                    // Include public circuits if requested
+                    let is_public = params.include_public.unwrap_or(true)
+                        && circuit.permissions.allow_public_visibility;
 
-                        is_member || is_public
-                    });
+                    is_member || is_public
+                });
             } else if !params.include_public.unwrap_or(false) {
                 // If no user_id provided and not requesting public, return empty list for security
                 circuits = Vec::new();
@@ -1210,8 +1211,8 @@ async fn list_circuits(
             // Apply status filter
             if let Some(status_str) = &params.status {
                 circuits.retain(|circuit| {
-                        format!("{:?}", circuit.status).to_lowercase() == status_str.to_lowercase()
-                    });
+                    format!("{:?}", circuit.status).to_lowercase() == status_str.to_lowercase()
+                });
             }
 
             let response: Vec<CircuitResponse> =

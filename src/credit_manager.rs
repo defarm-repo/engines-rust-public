@@ -134,6 +134,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         storage.get_credit_transactions(user_id, limit)
     }
 
+    #[allow(clippy::await_holding_lock)]
     pub async fn refund_operation(
         &self,
         user_id: &str,
@@ -249,6 +250,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         Ok(usage)
     }
 
+    #[allow(clippy::await_holding_lock)]
     pub async fn auto_refill_credits(&self, user_id: &str) -> Result<bool, StorageError> {
         let storage = self
             .storage

@@ -247,6 +247,7 @@ impl<S: StorageBackend> AdapterManager<S> {
     }
 
     /// Test an adapter configuration
+    #[allow(clippy::if_same_then_else)]
     pub async fn test_adapter(
         &mut self,
         config_id: &Uuid,

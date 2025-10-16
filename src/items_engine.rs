@@ -169,9 +169,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
                     }
 
                     // Return the existing item (potentially with new identifiers)
-                    return self
-                        .get_item(&dfid)?
-                        .ok_or(ItemsError::ItemNotFound(dfid));
+                    return self.get_item(&dfid)?.ok_or(ItemsError::ItemNotFound(dfid));
                 }
             }
         }

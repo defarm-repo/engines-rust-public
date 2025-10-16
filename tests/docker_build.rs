@@ -183,7 +183,6 @@ fn test_cargo_lock_has_libsodium_dependency() {
 
 #[cfg(test)]
 mod dockerfile_validation {
-    
 
     #[test]
     fn test_no_root_user_in_runtime() {

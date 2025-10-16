@@ -195,6 +195,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
         }
     }
 
+    #[allow(clippy::await_holding_lock)]
     pub async fn check_permission(
         &self,
         check: &PermissionCheck,

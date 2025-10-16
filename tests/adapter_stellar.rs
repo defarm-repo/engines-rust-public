@@ -100,9 +100,7 @@ async fn test_stellar_testnet_adapter_stores_item() {
         "Should have IPFS location in event_locations"
     );
     if let Some(cid) = ipfs_cid {
-        println!(
-            "✅ Item also recorded in IPFS event locations with CID: {cid}"
-        );
+        println!("✅ Item also recorded in IPFS event locations with CID: {cid}");
     }
 }
 

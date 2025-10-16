@@ -138,9 +138,7 @@ async fn main() {
     }
 
     // Demonstrate push/pull operations with the item
-    println!(
-        "   Demonstrating circuit operations with item: {demo_dfid}"
-    );
+    println!("   Demonstrating circuit operations with item: {demo_dfid}");
 
     // Push item to circuit
     let push_operation = circuits_engine

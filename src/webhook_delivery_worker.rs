@@ -187,9 +187,7 @@ async fn deliver_webhook_with_retry(
                             })
                             .await;
 
-                        return Err(format!(
-                            "HTTP error {status_code} after {attempt} attempts"
-                        ));
+                        return Err(format!("HTTP error {status_code} after {attempt} attempts"));
                     }
                 }
             }

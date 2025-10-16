@@ -52,10 +52,7 @@ fn test_readme_has_required_sections() {
     ];
 
     for (marker, description) in &required_sections {
-        assert!(
-            readme.contains(marker),
-            "README.md missing: {description}"
-        );
+        assert!(readme.contains(marker), "README.md missing: {description}");
         println!("   ✅ Has {description}");
     }
 

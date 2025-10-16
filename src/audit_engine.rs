@@ -49,6 +49,7 @@ impl<S: StorageBackend> AuditEngine<S> {
     }
 
     // Core audit event logging
+    #[allow(clippy::too_many_arguments)]
     pub fn log_event(
         &self,
         user_id: String,
@@ -89,6 +90,7 @@ impl<S: StorageBackend> AuditEngine<S> {
     }
 
     // Security event logging with automatic incident creation for critical events
+    #[allow(clippy::too_many_arguments)]
     pub fn log_security_event(
         &self,
         user_id: String,
@@ -145,6 +147,7 @@ impl<S: StorageBackend> AuditEngine<S> {
     }
 
     // Data access logging with compliance tracking
+    #[allow(clippy::too_many_arguments)]
     pub fn log_data_access(
         &self,
         user_id: String,
@@ -264,6 +267,7 @@ impl<S: StorageBackend> AuditEngine<S> {
     }
 
     // Compliance event logging
+    #[allow(clippy::too_many_arguments)]
     pub fn log_compliance_event(
         &self,
         user_id: String,
@@ -358,6 +362,7 @@ impl<S: StorageBackend> AuditEngine<S> {
     }
 
     // Security incident management
+    #[allow(clippy::too_many_arguments)]
     pub fn create_security_incident(
         &self,
         title: String,

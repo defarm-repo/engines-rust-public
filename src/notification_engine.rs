@@ -126,9 +126,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
             invited_user_id.to_string(),
             NotificationType::CircuitInvite,
             format!("Invited to {circuit_name}"),
-            format!(
-                "You have been invited to join {circuit_name} as a {role}."
-            ),
+            format!("You have been invited to join {circuit_name} as a {role}."),
             json!({
                 "circuit_id": circuit_id,
                 "circuit_name": circuit_name,
@@ -180,9 +178,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
             user_id.to_string(),
             NotificationType::AccountUpdated,
             "Account Updated".to_string(),
-            format!(
-                "Your account has been updated by admin {admin_username}. Changes: {changes}"
-            ),
+            format!("Your account has been updated by admin {admin_username}. Changes: {changes}"),
             json!({
                 "admin_username": admin_username,
                 "changes": changes,
@@ -240,9 +236,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
             user_id.to_string(),
             NotificationType::AccountFrozen,
             "Account Frozen".to_string(),
-            format!(
-                "Your account has been frozen by admin {admin_username}. Reason: {reason}"
-            ),
+            format!("Your account has been frozen by admin {admin_username}. Reason: {reason}"),
             json!({
                 "admin_username": admin_username,
                 "reason": reason,

@@ -253,8 +253,6 @@ impl ApiKeyEngine {
             .expires_in_days
             .map(|days| now + Duration::days(days));
 
-        
-
         ApiKey {
             id: Uuid::new_v4(),
             name: request.name.clone(),

@@ -707,11 +707,7 @@ impl PostgresPersistence {
              ON CONFLICT (user_id) DO UPDATE SET
                 credits = EXCLUDED.credits,
                 updated_at_ts = EXCLUDED.updated_at_ts",
-                &[
-                    &user.user_id,
-                    &{ user.credits },
-                    &Utc::now().timestamp(),
-                ],
+                &[&user.user_id, &{ user.credits }, &Utc::now().timestamp()],
             )
             .await
             .map_err(|e| format!("Failed to persist credit balance: {e}"))?;

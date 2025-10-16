@@ -133,9 +133,8 @@ impl IpfsClient {
             }
         };
 
-        serde_json::from_str(&data).map_err(|e| {
-            IpfsError::SerializationError(format!("Failed to deserialize JSON: {e}"))
-        })
+        serde_json::from_str(&data)
+            .map_err(|e| IpfsError::SerializationError(format!("Failed to deserialize JSON: {e}")))
     }
 
     /// Pin content (for Kubo, this is automatic; for Pinata, already pinned on upload)

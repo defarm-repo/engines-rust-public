@@ -229,19 +229,18 @@ impl StorageAdapter for StellarTestnetIpfsAdapter {
 
     async fn store_item(&self, item: &Item) -> Result<AdapterResult<String>, StorageError> {
         // Step 1: Upload item to IPFS
-        let cid =
-            self.ipfs_client.upload_json(item).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
-            })?;
+        let cid = self
+            .ipfs_client
+            .upload_json(item)
+            .await
+            .map_err(|e| StorageError::WriteError(format!("Failed to upload to IPFS: {e}")))?;
 
         // Step 2: Register CID on Stellar testnet blockchain using IPCM contract
         let tx_hash = self
             .stellar_client
             .update_ipcm(&item.dfid, &cid)
             .await
-            .map_err(|e| {
-                StorageError::WriteError(format!("Failed to register on Stellar: {e}"))
-            })?;
+            .map_err(|e| StorageError::WriteError(format!("Failed to register on Stellar: {e}")))?;
 
         // Step 3: Create metadata with both IPFS CID and Stellar transaction
         let metadata = self.create_metadata(&tx_hash, &cid);
@@ -286,9 +285,10 @@ impl StorageAdapter for StellarTestnetIpfsAdapter {
             );
 
             // Step 2: Upload item to IPFS
-            let cid = self.ipfs_client.upload_json(item).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
-            })?;
+            let cid =
+                self.ipfs_client.upload_json(item).await.map_err(|e| {
+                    StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
+                })?;
 
             // Step 3: Register CID in IPCM contract
             let ipcm_tx_hash = self

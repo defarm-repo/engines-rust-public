@@ -1158,8 +1158,8 @@ async fn create_local_item(
     let local_id = item.local_id.unwrap_or_else(|| {
         // Extract from temporary DFID format "LID-{uuid}"
         let dfid = &item.dfid;
-        if dfid.starts_with("LID-") {
-            Uuid::parse_str(&dfid[4..]).unwrap_or_else(|_| Uuid::new_v4())
+        if let Some(stripped) = dfid.strip_prefix("LID-") {
+            Uuid::parse_str(stripped).unwrap_or_else(|_| Uuid::new_v4())
         } else {
             Uuid::new_v4()
         }

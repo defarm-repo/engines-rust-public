@@ -165,9 +165,8 @@ impl StellarClient {
             .map_err(|e| StellarError::NetworkError(format!("Failed to get account: {e:?}")))?;
 
         // Create contract instance
-        let contract = Contracts::new(&self.contract_address).map_err(|e| {
-            StellarError::ContractError(format!("Invalid contract address: {e:?}"))
-        })?;
+        let contract = Contracts::new(&self.contract_address)
+            .map_err(|e| StellarError::ContractError(format!("Invalid contract address: {e:?}")))?;
 
         // Build ScVal arguments for the contract call
         // IPCM contract signature: update(env: Env, ipcm_key: String, cid: String, interface_address: Address)
@@ -332,9 +331,7 @@ impl StellarClient {
         // NFT contract mint function: mint(env: Env, valuechain_id: String, token_id: u64, ipcm_key: String, data: String)
         let valuechain_id_val = ScVal::String(ScString(
             valuechain_id.as_str().try_into().map_err(|e| {
-                StellarError::SerializationError(format!(
-                    "Failed to convert valuechain_id: {e:?}"
-                ))
+                StellarError::SerializationError(format!("Failed to convert valuechain_id: {e:?}"))
             })?,
         ));
         let token_id_val = ScVal::U64(token_id);

@@ -562,17 +562,13 @@ impl PendingReason {
                 conflicting_dfids,
                 ..
             } => {
-                format!(
-                    "Identifier {identifier:?} maps to multiple DFIDs: {conflicting_dfids:?}"
-                )
+                format!("Identifier {identifier:?} maps to multiple DFIDs: {conflicting_dfids:?}")
             }
             PendingReason::IdentifierMappingConflict {
                 conflicting_mappings,
                 ..
             } => {
-                format!(
-                    "Conflicting identifier mappings: {conflicting_mappings:?}"
-                )
+                format!("Conflicting identifier mappings: {conflicting_mappings:?}")
             }
             PendingReason::DataQualityIssue {
                 issue_type,
@@ -595,9 +591,7 @@ impl PendingReason {
                 external_system,
                 conflict_type,
             } => {
-                format!(
-                    "Conflict with external system {external_system}: {conflict_type}"
-                )
+                format!("Conflict with external system {external_system}: {conflict_type}")
             }
         }
     }
@@ -765,8 +759,7 @@ pub enum Permission {
     ManageRoles,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CircuitPermissions {
     pub require_approval_for_push: bool,
     pub require_approval_for_pull: bool,
@@ -1325,8 +1318,7 @@ impl Circuit {
             public_name: settings
                 .and_then(|s| s.public_name.clone())
                 .unwrap_or_else(|| self.name.clone()),
-            public_description: settings
-                .and_then(|s| s.public_description.clone()),
+            public_description: settings.and_then(|s| s.public_description.clone()),
             primary_color: settings.and_then(|s| s.primary_color.clone()),
             secondary_color: settings.and_then(|s| s.secondary_color.clone()),
             logo_url: settings.and_then(|s| s.logo_url.clone()),
@@ -1355,16 +1347,15 @@ impl Circuit {
         let mut role_counts = std::collections::HashMap::new();
 
         for member in &self.members {
-            let role_name =
-                member
-                    .custom_role_name
-                    .as_deref()
-                    .unwrap_or(match member.role {
-                        MemberRole::Owner => "Owner",
-                        MemberRole::Admin => "Admin",
-                        MemberRole::Member => "Member",
-                        MemberRole::Viewer => "Viewer",
-                    });
+            let role_name = member
+                .custom_role_name
+                .as_deref()
+                .unwrap_or(match member.role {
+                    MemberRole::Owner => "Owner",
+                    MemberRole::Admin => "Admin",
+                    MemberRole::Member => "Member",
+                    MemberRole::Viewer => "Viewer",
+                });
 
             *role_counts.entry(role_name.to_string()).or_insert(0) += 1;
         }
@@ -1372,7 +1363,6 @@ impl Circuit {
         role_counts
     }
 }
-
 
 impl CircuitOperation {
     pub fn new(
@@ -1705,8 +1695,7 @@ pub enum AuditSeverity {
     Critical,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuditEventMetadata {
     pub user_agent: Option<String>,
     pub ip_address: Option<String>,
@@ -1715,8 +1704,7 @@ pub struct AuditEventMetadata {
     pub session_duration: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ComplianceInfo {
     pub gdpr: Option<bool>,
     pub ccpa: Option<bool>,
@@ -1952,8 +1940,6 @@ impl AuditEvent {
     }
 }
 
-
-
 impl SecurityIncident {
     pub fn new(
         title: String,
@@ -2129,6 +2115,7 @@ impl AdapterType {
         }
     }
 
+    #[allow(clippy::match_like_matches_macro)]
     pub fn requires_blockchain(&self) -> bool {
         match self {
             AdapterType::IpfsIpfs => false,
@@ -2445,6 +2432,7 @@ impl UserTier {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
             "basic" => Ok(UserTier::Basic),
@@ -2623,6 +2611,7 @@ pub struct CreditCosts {
 }
 
 impl CreditCosts {
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         CreditCosts {
             item_creation: 1,

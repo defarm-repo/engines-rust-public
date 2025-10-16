@@ -1320,12 +1320,7 @@ impl StorageBackend for InMemoryStorage {
         Ok(self
             .security_incidents
             .values()
-            .filter(|incident| {
-                incident
-                    .assigned_to
-                    .as_ref()
-                    .is_some_and(|a| a == assignee)
-            })
+            .filter(|incident| incident.assigned_to.as_ref().is_some_and(|a| a == assignee))
             .cloned()
             .collect())
     }

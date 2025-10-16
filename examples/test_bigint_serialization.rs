@@ -118,12 +118,8 @@ fn main() {
     println!("Parsed from mixed (strings and numbers): {parsed2:?}\n");
 
     println!("=== Summary ===");
-    println!(
-        "✅ Values <= {JS_MAX_SAFE_INTEGER} are serialized as JSON numbers"
-    );
-    println!(
-        "✅ Values > {JS_MAX_SAFE_INTEGER} are serialized as JSON strings"
-    );
+    println!("✅ Values <= {JS_MAX_SAFE_INTEGER} are serialized as JSON numbers");
+    println!("✅ Values > {JS_MAX_SAFE_INTEGER} are serialized as JSON strings");
     println!("✅ Deserialization accepts both formats");
     println!("✅ Frontend can safely handle all values without BigInt issues");
 }

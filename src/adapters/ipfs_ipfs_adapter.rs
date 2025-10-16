@@ -63,10 +63,11 @@ impl StorageAdapter for IpfsIpfsAdapter {
 
     async fn store_item(&self, item: &Item) -> Result<AdapterResult<String>, StorageError> {
         // Upload item to IPFS and get CID
-        let cid =
-            self.ipfs_client.upload_json(item).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
-            })?;
+        let cid = self
+            .ipfs_client
+            .upload_json(item)
+            .await
+            .map_err(|e| StorageError::WriteError(format!("Failed to upload to IPFS: {e}")))?;
 
         // Create metadata with CID
         let metadata = self.create_metadata(&cid);

@@ -415,9 +415,7 @@ mod tests {
                 let item = guard.get_item_by_dfid(&dfid).unwrap().unwrap();
                 assert_eq!(item.identifiers, identifiers);
             }
-            other => panic!(
-                "expected VerificationResult::NewItemCreated, got {other:?}"
-            ),
+            other => panic!("expected VerificationResult::NewItemCreated, got {other:?}"),
         }
     }
 

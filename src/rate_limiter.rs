@@ -233,9 +233,10 @@ impl RateLimiter {
         api_key_id: Uuid,
         config: &RateLimitConfig,
     ) -> Result<RateLimitResult, RateLimitError> {
-        let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
-        })?;
+        let mut limits = self
+            .limits
+            .write()
+            .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         let key_limits = limits
             .entry(api_key_id)
@@ -251,9 +252,10 @@ impl RateLimiter {
 
     /// Record a successful request
     pub fn record_request(&self, api_key_id: Uuid) -> Result<(), RateLimitError> {
-        let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
-        })?;
+        let mut limits = self
+            .limits
+            .write()
+            .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         if let Some(key_limits) = limits.get_mut(&api_key_id) {
             key_limits.record_request();
@@ -268,9 +270,10 @@ impl RateLimiter {
         api_key_id: Uuid,
         config: &RateLimitConfig,
     ) -> Result<RateLimitResult, RateLimitError> {
-        let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
-        })?;
+        let mut limits = self
+            .limits
+            .write()
+            .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         let key_limits = limits
             .entry(api_key_id)
@@ -281,9 +284,10 @@ impl RateLimiter {
 
     /// Reset rate limits for a specific API key
     pub fn reset_limits(&self, api_key_id: Uuid) -> Result<(), RateLimitError> {
-        let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
-        })?;
+        let mut limits = self
+            .limits
+            .write()
+            .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         limits.remove(&api_key_id);
 
@@ -292,9 +296,10 @@ impl RateLimiter {
 
     /// Clean up old data (should be called periodically)
     pub fn cleanup(&self) -> Result<(), RateLimitError> {
-        let mut limits = self.limits.write().map_err(|e| {
-            RateLimitError::LockError(format!("Failed to acquire write lock: {e}"))
-        })?;
+        let mut limits = self
+            .limits
+            .write()
+            .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         let cutoff = Utc::now() - Duration::days(1);
         limits.retain(|_, key_limits| {

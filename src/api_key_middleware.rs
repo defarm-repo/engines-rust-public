@@ -387,6 +387,7 @@ mod tests {
     use super::*;
     use crate::api_key_engine::{CreateApiKeyRequest, OrganizationType};
     use crate::api_key_storage::InMemoryApiKeyStorage;
+    #[allow(dead_code)]
     async fn create_test_setup() -> (ApiKeyMiddlewareState<InMemoryApiKeyStorage>, String, Uuid) {
         let logging = Arc::new(Mutex::new(LoggingEngine::new()));
         let engine = Arc::new(ApiKeyEngine::new());

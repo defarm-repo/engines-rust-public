@@ -63,9 +63,7 @@ impl<S: StorageBackend> WebhookEngine<S> {
             .info(
                 "webhook_engine",
                 "webhook_trigger",
-                format!(
-                    "Triggering webhooks for circuit {circuit_id} event {trigger_event:?}"
-                ),
+                format!("Triggering webhooks for circuit {circuit_id} event {trigger_event:?}"),
             )
             .with_context("circuit_id", circuit_id.to_string())
             .with_context("trigger_event", trigger_event.as_str());
@@ -92,9 +90,7 @@ impl<S: StorageBackend> WebhookEngine<S> {
                 self.logger.info(
                     "webhook_engine",
                     "webhook_skip",
-                    format!(
-                        "Trigger event {trigger_event:?} not configured for circuit"
-                    ),
+                    format!("Trigger event {trigger_event:?} not configured for circuit"),
                 );
                 return Ok(vec![]);
             }

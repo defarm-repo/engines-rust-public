@@ -280,9 +280,7 @@ async fn journey_circuit_sponsors_adapter_for_members() {
             println!("  This worked because circuit sponsors the adapter access");
         }
         Err(e) => {
-            println!(
-                "✓ Step 4: Push attempt made (adapter error expected): {e:?}"
-            );
+            println!("✓ Step 4: Push attempt made (adapter error expected): {e:?}");
             // Even if it fails, we tested the permission flow
         }
     }
@@ -444,15 +442,11 @@ async fn journey_item_lifecycle_local_to_tokenized() {
             drop(storage_lock);
 
             if let Ok(Some(dfid)) = mapping {
-                println!(
-                    "✓ Step 5: LID-DFID mapping created: {local_id} → {dfid}"
-                );
+                println!("✓ Step 5: LID-DFID mapping created: {local_id} → {dfid}");
             }
         }
         Err(e) => {
-            println!(
-                "✓ Step 4: Tokenization attempted (adapter error expected): {e:?}"
-            );
+            println!("✓ Step 4: Tokenization attempted (adapter error expected): {e:?}");
         }
     }
 
