@@ -8,10 +8,12 @@ FROM rust:1.90-bookworm as builder
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including libsodium for encryption
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
+    libsodium-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Stellar SDK integration - no CLI needed (native Rust)
@@ -40,10 +42,11 @@ RUN cargo build --release --bin defarm-api
 # ============================================================================
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
+# Install runtime dependencies including libsodium for encryption
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
+    libsodium23 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
