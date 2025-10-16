@@ -2,6 +2,8 @@
 
 ## 📋 Important Documentation References
 
+**OpenAPI Specification**: See [docs/api/openapi.yaml](../api/openapi.yaml) for complete API documentation with all endpoints, schemas, and authentication requirements. This is the authoritative frontend-backend interface contract.
+
 **Production Deployment Plan**: See [PRODUCTION_DEPLOYMENT_PLAN.md](./PRODUCTION_DEPLOYMENT_PLAN.md) for complete production deployment strategy including PostgreSQL implementation, infrastructure setup, and deployment checklist.
 
 **Production Deployment Guide**: See [PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md) for comprehensive step-by-step deployment instructions, SSL/TLS setup, monitoring, and troubleshooting.

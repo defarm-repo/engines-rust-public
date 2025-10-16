@@ -1,0 +1,1658 @@
+openapi: 3.0.3
+info:
+  title: DeFarm Engines API
+  version: 1.0.0
+  description: |
+    DeFarm Engines API provides a comprehensive agricultural supply chain tracking system
+    with tokenization, circuit management, and secure item verification.
+
+    ## Key Features
+    - **JWT Authentication** - Secure token-based authentication
+    - **Circuit Management** - Permission-controlled data sharing repositories
+    - **Item Tokenization** - Local ID (LID) to DFID conversion via circuits
+    - **Enhanced Identifiers** - Canonical and contextual identifier support
+    - **Storage Adapters** - IPFS, Stellar blockchain, and custom storage backends
+    - **Webhook System** - Post-action webhooks for circuit events
+    - **Audit Trail** - Complete event history and activity tracking
+
+    ## Authentication
+    All authenticated endpoints require a JWT token in the Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+
+    Or API key authentication:
+    ```
+    X-API-Key: dfm_<your-api-key>
+    ```
+  contact:
+    name: DeFarm API Support
+    email: api@defarm.net
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://connect.defarm.net/api
+    description: Production server
+  - url: http://localhost:3000/api
+    description: Local development server
+
+tags:
+  - name: Authentication
+    description: User authentication and JWT token management
+  - name: Circuits
+    description: Circuit management and operations (push/pull items)
+  - name: Items
+    description: Item creation, tokenization, and management
+  - name: Workspaces
+    description: Workspace management and tier configuration
+  - name: API Keys
+    description: API key creation and management
+  - name: Events
+    description: Event tracking and history
+  - name: Activities
+    description: Activity logs and audit trail
+  - name: Storage History
+    description: Item storage location and history tracking
+  - name: Adapters
+    description: Storage adapter configuration
+  - name: Receipts
+    description: Receipt management for data reception
+  - name: Notifications
+    description: Real-time notifications and webhooks
+  - name: User Credits
+    description: Credit management and tier limits
+  - name: Audit
+    description: Audit logs and compliance
+  - name: Admin
+    description: Administrative operations
+  - name: ZK Proofs
+    description: Zero-knowledge proof generation and verification
+  - name: Test Blockchain
+    description: Blockchain testing utilities (development only)
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key in format dfm_<32-character-string>
+
+  schemas:
+    # ============================================================================
+    # Authentication Schemas
+    # ============================================================================
+
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: "user@example.com"
+        password:
+          type: string
+          format: password
+          example: "SecurePass123!"
+        workspace_id:
+          type: string
+          format: uuid
+          description: Optional workspace context for login
+
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - password
+        - email
+      properties:
+        username:
+          type: string
+          example: "johndoe"
+        password:
+          type: string
+          format: password
+          description: |
+            Password requirements:
+            - Minimum 8 characters
+            - At least one uppercase letter
+            - At least one lowercase letter
+            - At least one digit
+            - At least one special character
+          example: "SecurePass123!"
+        email:
+          type: string
+          format: email
+          example: "john@example.com"
+        workspace_name:
+          type: string
+          example: "My Farm"
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token for authentication
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        user_id:
+          type: string
+          format: uuid
+          example: "user-123e4567-e89b-12d3-a456-426614174000"
+        workspace_id:
+          type: string
+          format: uuid
+          example: "ws-123e4567-e89b-12d3-a456-426614174000"
+        expires_at:
+          type: integer
+          format: int64
+          description: Unix timestamp of token expiration
+          example: 1735689600
+
+    # ============================================================================
+    # Circuit Schemas
+    # ============================================================================
+
+    CreateCircuitRequest:
+      type: object
+      required:
+        - name
+        - description
+      properties:
+        name:
+          type: string
+          example: "Organic Coffee Supply Chain"
+          maxLength: 255
+        description:
+          type: string
+          example: "Track organic coffee from farm to cup"
+        adapter_config:
+          $ref: '#/components/schemas/AdapterConfig'
+        alias_config:
+          $ref: '#/components/schemas/CircuitAliasConfig'
+
+    AdapterConfig:
+      type: object
+      properties:
+        adapter_type:
+          $ref: '#/components/schemas/AdapterType'
+        requires_approval:
+          type: boolean
+          default: false
+          description: Whether push operations require approval
+        auto_migrate_existing:
+          type: boolean
+          default: false
+          description: Auto-migrate existing items to new adapter
+        sponsor_adapter_access:
+          type: boolean
+          default: false
+          description: Circuit sponsors adapter access for all members
+
+    AdapterType:
+      type: string
+      enum:
+        - None
+        - IpfsOnly
+        - StellarTestnetIpfs
+        - StellarMainnetIpfs
+      description: |
+        Storage adapter types:
+        - None: No blockchain storage
+        - IpfsOnly: IPFS storage only
+        - StellarTestnetIpfs: Stellar testnet + IPFS
+        - StellarMainnetIpfs: Stellar mainnet + IPFS (production)
+
+    CircuitAliasConfig:
+      type: object
+      properties:
+        required_canonical:
+          type: array
+          items:
+            type: string
+          description: Required canonical identifiers (e.g., ["sisbov", "cpf"])
+          example: ["sisbov", "cpf"]
+        required_contextual:
+          type: array
+          items:
+            type: string
+          description: Required contextual identifiers (e.g., ["lote", "safra"])
+          example: ["lote", "safra"]
+        allowed_namespaces:
+          type: array
+          items:
+            type: string
+          description: Allowed namespaces for identifiers
+          example: ["bovino", "cafe", "soja"]
+        default_namespace:
+          type: string
+          description: Default namespace if none specified
+          example: "bovino"
+        auto_apply_namespace:
+          type: boolean
+          default: true
+          description: Auto-apply default namespace if missing
+        use_fingerprint:
+          type: boolean
+          default: true
+          description: Use fingerprint for deduplication
+
+    Circuit:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "circuit-123e4567-e89b-12d3-a456-426614174000"
+        name:
+          type: string
+          example: "Organic Coffee Supply Chain"
+        description:
+          type: string
+          example: "Track organic coffee from farm to cup"
+        owner_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [Active, Inactive]
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/CircuitMember'
+        permissions:
+          $ref: '#/components/schemas/CircuitPermissions'
+        adapter_config:
+          $ref: '#/components/schemas/AdapterConfig'
+        alias_config:
+          $ref: '#/components/schemas/CircuitAliasConfig'
+        public_settings:
+          $ref: '#/components/schemas/PublicSettings'
+
+    CircuitMember:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [Owner, Admin, Member, Viewer]
+        joined_at:
+          type: string
+          format: date-time
+
+    CircuitPermissions:
+      type: object
+      properties:
+        allow_public_visibility:
+          type: boolean
+          default: false
+        require_approval_to_push:
+          type: boolean
+          default: false
+        require_approval_to_pull:
+          type: boolean
+          default: false
+        allow_member_invites:
+          type: boolean
+          default: true
+
+    PublicSettings:
+      type: object
+      properties:
+        access_mode:
+          type: string
+          enum: [public, protected, scheduled]
+          default: public
+        scheduled_date:
+          type: string
+          format: date-time
+          description: Only for scheduled mode
+        access_password:
+          type: string
+          description: Only for protected mode
+        public_name:
+          type: string
+        public_description:
+          type: string
+        primary_color:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+          example: "#00AA00"
+        secondary_color:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+          example: "#0066CC"
+        published_items:
+          type: array
+          items:
+            type: string
+        auto_approve_members:
+          type: boolean
+          default: false
+        auto_publish_pushed_items:
+          type: boolean
+          default: false
+        show_encrypted_events:
+          type: boolean
+          default: false
+        export_permissions:
+          type: string
+          enum: [admin, members, public]
+          default: members
+
+    # ============================================================================
+    # Item Schemas
+    # ============================================================================
+
+    CreateLocalItemRequest:
+      type: object
+      properties:
+        identifiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identifier'
+          description: Legacy identifiers (backward compatibility)
+        enhanced_identifiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnhancedIdentifier'
+          description: Enhanced identifiers with namespace support
+        enriched_data:
+          type: object
+          additionalProperties: true
+          description: Additional metadata for the item
+          example:
+            weight: "500kg"
+            harvest_date: "2024-01-15"
+            quality_grade: "A"
+
+    Identifier:
+      type: object
+      required:
+        - key
+        - value
+      properties:
+        key:
+          type: string
+          example: "lote"
+        value:
+          type: string
+          example: "2024-001"
+
+    EnhancedIdentifier:
+      type: object
+      required:
+        - namespace
+        - key
+        - value
+        - id_type
+      properties:
+        namespace:
+          type: string
+          description: Namespace (bovino, cafe, soja, etc.)
+          example: "bovino"
+        key:
+          type: string
+          example: "sisbov"
+        value:
+          type: string
+          example: "BR12345678901234"
+        id_type:
+          type: string
+          enum: [Canonical, Contextual]
+          description: |
+            - Canonical: Globally unique (SISBOV, CPF, etc.)
+            - Contextual: Locally unique, requires fingerprint
+
+    Item:
+      type: object
+      properties:
+        dfid:
+          type: string
+          description: DeFarm ID in format DFID-YYYYMMDD-NNNNNN-XXXX or LID-{uuid} for local items
+          example: "DFID-20240115-000001-A1B2"
+        local_id:
+          type: string
+          format: uuid
+          description: Local ID (LID) before tokenization
+        legacy_mode:
+          type: boolean
+          description: True if DFID was generated in workspace (backward compatibility)
+        identifiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identifier'
+        enhanced_identifiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnhancedIdentifier'
+        aliases:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExternalAlias'
+        fingerprint:
+          type: string
+          description: BLAKE3 hash for contextual deduplication
+        enriched_data:
+          type: object
+          additionalProperties: true
+        creation_timestamp:
+          type: string
+          format: date-time
+        last_modified:
+          type: string
+          format: date-time
+        source_entries:
+          type: array
+          items:
+            type: string
+            format: uuid
+        confidence_score:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        status:
+          type: string
+          enum: [Active, Deprecated, Merged, Split]
+
+    ExternalAlias:
+      type: object
+      properties:
+        scheme:
+          type: string
+          example: "certifier:organic-brazil"
+        value:
+          type: string
+          example: "CERT-2024-001"
+        issuer:
+          type: string
+          example: "IBD Certificações"
+        timestamp:
+          type: string
+          format: date-time
+        evidence_hash:
+          type: string
+          description: BLAKE3 hash of supporting evidence
+
+    PushLocalItemRequest:
+      type: object
+      required:
+        - local_id
+      properties:
+        local_id:
+          type: string
+          format: uuid
+          description: Local ID of item to push to circuit
+          example: "123e4567-e89b-12d3-a456-426614174000"
+
+    # ============================================================================
+    # Workspace Schemas
+    # ============================================================================
+
+    CreateWorkspaceRequest:
+      type: object
+      required:
+        - name
+        - owner_id
+      properties:
+        name:
+          type: string
+          example: "Green Valley Farm"
+          maxLength: 255
+        owner_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+          example: "Organic farming cooperative"
+
+    Workspace:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        tier:
+          $ref: '#/components/schemas/UserTier'
+        members:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    UserTier:
+      type: string
+      enum:
+        - Free
+        - Starter
+        - Professional
+        - Enterprise
+      description: |
+        User tier levels:
+        - Free: Basic features, limited API calls
+        - Starter: Increased limits, basic adapters
+        - Professional: Advanced features, all adapters
+        - Enterprise: Custom limits, dedicated support
+
+    # ============================================================================
+    # API Key Schemas
+    # ============================================================================
+
+    CreateApiKeyRequest:
+      type: object
+      required:
+        - name
+        - permissions
+      properties:
+        name:
+          type: string
+          example: "Production API Key"
+          maxLength: 255
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [read, write, admin]
+          example: ["read", "write"]
+        expires_at:
+          type: string
+          format: date-time
+          description: Optional expiration date
+        ip_restrictions:
+          type: array
+          items:
+            type: string
+          description: Allowed IP addresses
+          example: ["192.168.1.0/24", "10.0.0.1"]
+        endpoint_restrictions:
+          type: array
+          items:
+            type: string
+          description: Allowed API endpoints
+          example: ["/api/items/*", "/api/circuits/*"]
+
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        key_prefix:
+          type: string
+          description: First 8 characters of the API key
+          example: "dfm_a1b2"
+        permissions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+        last_used:
+          type: string
+          format: date-time
+
+    # ============================================================================
+    # Event & Activity Schemas
+    # ============================================================================
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          enum:
+            - ItemCreated
+            - ItemEnriched
+            - ItemMerged
+            - ItemSplit
+            - CircuitPush
+            - CircuitPull
+        dfid:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        visibility:
+          type: string
+          enum: [Public, Private, CircuitOnly]
+        is_encrypted:
+          type: boolean
+
+    Activity:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        activity_type:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        resource_type:
+          type: string
+          enum: [Circuit, Item, Workspace, ApiKey]
+        resource_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        details:
+          type: object
+          additionalProperties: true
+
+    # ============================================================================
+    # Storage & Adapter Schemas
+    # ============================================================================
+
+    StorageLocation:
+      type: object
+      properties:
+        adapter_type:
+          $ref: '#/components/schemas/AdapterType'
+        location:
+          type: string
+          description: Storage location identifier
+          example: "ipfs://QmXxx..."
+        hash:
+          type: string
+          description: BLAKE3 hash of stored data
+        cid:
+          type: string
+          description: IPFS Content Identifier
+          example: "QmXxx..."
+        stellar_tx_hash:
+          type: string
+          description: Stellar transaction hash (if applicable)
+        nft_id:
+          type: string
+          description: NFT ID on Stellar (if applicable)
+        stored_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+
+    # ============================================================================
+    # Error Schemas
+    # ============================================================================
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          example: "AUTHENTICATION_FAILED"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Invalid credentials provided"
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional error context
+        suggestions:
+          type: array
+          items:
+            type: string
+          description: Actionable recovery suggestions
+          example:
+            - "Verify your username and password"
+            - "Check if your account is active"
+
+    SuccessResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Operation completed successfully"
+        data:
+          type: object
+          additionalProperties: true
+
+paths:
+  # ============================================================================
+  # Authentication Endpoints
+  # ============================================================================
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate with username and password to receive a JWT token
+      operationId: login
+      security: []  # No authentication required
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user
+      description: Create a new user account with workspace
+      operationId: register
+      security: []  # No authentication required
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid request (password complexity, duplicate username, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: User logout
+      description: Invalidate current JWT token
+      operationId: logout
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # ============================================================================
+  # Circuit Endpoints
+  # ============================================================================
+
+  /circuits:
+    get:
+      tags:
+        - Circuits
+      summary: List circuits
+      description: Get all circuits accessible to the authenticated user
+      operationId: listCircuits
+      parameters:
+        - name: user_id
+          in: query
+          description: Filter by user ID
+          schema:
+            type: string
+            format: uuid
+        - name: include_public
+          in: query
+          description: Include public circuits
+          schema:
+            type: boolean
+            default: false
+        - name: status
+          in: query
+          description: Filter by circuit status
+          schema:
+            type: string
+            enum: [Active, Inactive]
+      responses:
+        '200':
+          description: List of circuits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  circuits:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Circuit'
+
+    post:
+      tags:
+        - Circuits
+      summary: Create circuit
+      description: Create a new circuit (automatically makes creator the owner)
+      operationId: createCircuit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCircuitRequest'
+      responses:
+        '201':
+          description: Circuit created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  circuit_id:
+                    type: string
+                    format: uuid
+                  data:
+                    $ref: '#/components/schemas/Circuit'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /circuits/{circuit_id}:
+    get:
+      tags:
+        - Circuits
+      summary: Get circuit details
+      description: Retrieve detailed information about a specific circuit
+      operationId: getCircuit
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Circuit details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Circuit'
+        '404':
+          description: Circuit not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Circuits
+      summary: Update circuit
+      description: Update circuit settings (owner/admin only)
+      operationId: updateCircuit
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                permissions:
+                  $ref: '#/components/schemas/CircuitPermissions'
+      responses:
+        '200':
+          description: Circuit updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /circuits/{circuit_id}/members:
+    post:
+      tags:
+        - Circuits
+      summary: Add member to circuit
+      description: Add a new member with specified role (owner/admin only)
+      operationId: addCircuitMember
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - member_id
+                - role
+              properties:
+                member_id:
+                  type: string
+                  format: uuid
+                role:
+                  type: string
+                  enum: [Admin, Member, Viewer]
+      responses:
+        '200':
+          description: Member added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /circuits/{circuit_id}/push-local:
+    post:
+      tags:
+        - Circuits
+      summary: Push local item to circuit
+      description: |
+        Push a local item (with LID) to circuit for tokenization.
+        Circuit will assign DFID based on deduplication logic.
+      operationId: pushLocalItem
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushLocalItemRequest'
+      responses:
+        '200':
+          description: Item pushed and tokenized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      dfid:
+                        type: string
+                        description: Assigned DFID (new or existing)
+                      local_id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum: [new_item, enriched_existing, pending_approval]
+                      storage:
+                        $ref: '#/components/schemas/StorageLocation'
+        '403':
+          description: Permission denied or adapter access required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /circuits/{circuit_id}/adapter:
+    get:
+      tags:
+        - Circuits
+      summary: Get circuit adapter configuration
+      description: Retrieve the adapter configuration for a circuit
+      operationId: getCircuitAdapter
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Adapter configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/AdapterConfig'
+
+    put:
+      tags:
+        - Circuits
+      summary: Update circuit adapter configuration
+      description: Update adapter settings (owner/admin only, requires tier access)
+      operationId: updateCircuitAdapter
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdapterConfig'
+      responses:
+        '200':
+          description: Adapter configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /circuits/{circuit_id}/public-settings:
+    get:
+      tags:
+        - Circuits
+      summary: Get circuit public settings
+      description: Retrieve public page configuration
+      operationId: getPublicSettings
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Public settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/PublicSettings'
+
+    put:
+      tags:
+        - Circuits
+      summary: Update circuit public settings
+      description: Configure public page settings (owner/admin only)
+      operationId: updatePublicSettings
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicSettings'
+      responses:
+        '200':
+          description: Public settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /circuits/{circuit_id}/public:
+    get:
+      tags:
+        - Circuits
+      summary: Get public circuit page
+      description: Retrieve publicly accessible circuit information
+      operationId: getPublicCircuit
+      security: []  # No authentication required
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Public circuit data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      circuit_id:
+                        type: string
+                      public_name:
+                        type: string
+                      public_description:
+                        type: string
+                      primary_color:
+                        type: string
+                      secondary_color:
+                        type: string
+                      member_count:
+                        type: integer
+                      published_items:
+                        type: array
+                        items:
+                          type: object
+
+  # ============================================================================
+  # Item Endpoints
+  # ============================================================================
+
+  /items/local:
+    post:
+      tags:
+        - Items
+      summary: Create local item
+      description: |
+        Create a local item with a LID (Local ID).
+        Item remains workspace-private until pushed to a circuit.
+      operationId: createLocalItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLocalItemRequest'
+      responses:
+        '201':
+          description: Local item created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      local_id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        example: "local_only"
+
+  /items/mapping/{local_id}:
+    get:
+      tags:
+        - Items
+      summary: Get LID-DFID mapping
+      description: Query the tokenization status and DFID for a local item
+      operationId: getItemMapping
+      parameters:
+        - name: local_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Mapping found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      local_id:
+                        type: string
+                        format: uuid
+                      dfid:
+                        type: string
+                        nullable: true
+                      status:
+                        type: string
+                        enum: [local_only, tokenized, pending_approval]
+
+  /items/{dfid}:
+    get:
+      tags:
+        - Items
+      summary: Get item by DFID
+      description: Retrieve complete item information by DFID
+      operationId: getItem
+      parameters:
+        - name: dfid
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^DFID-\d{8}-\d{6}-[A-Z0-9]{4}$'
+            example: "DFID-20240115-000001-A1B2"
+      responses:
+        '200':
+          description: Item details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Item'
+
+  /items/{dfid}/storage-history:
+    get:
+      tags:
+        - Storage History
+      summary: Get item storage history
+      description: Retrieve all storage locations for an item across circuits
+      operationId: getStorageHistory
+      parameters:
+        - name: dfid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Storage history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StorageLocation'
+
+  # ============================================================================
+  # Workspace Endpoints
+  # ============================================================================
+
+  /workspaces:
+    get:
+      tags:
+        - Workspaces
+      summary: List workspaces
+      description: Get all workspaces accessible to the authenticated user
+      operationId: listWorkspaces
+      responses:
+        '200':
+          description: List of workspaces
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  workspaces:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Workspace'
+
+    post:
+      tags:
+        - Workspaces
+      summary: Create workspace
+      description: Create a new workspace
+      operationId: createWorkspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkspaceRequest'
+      responses:
+        '201':
+          description: Workspace created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  workspace_id:
+                    type: string
+                    format: uuid
+
+  /workspaces/{workspace_id}:
+    get:
+      tags:
+        - Workspaces
+      summary: Get workspace details
+      description: Retrieve workspace information
+      operationId: getWorkspace
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Workspace details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Workspace'
+
+  # ============================================================================
+  # API Key Endpoints
+  # ============================================================================
+
+  /api-keys:
+    get:
+      tags:
+        - API Keys
+      summary: List API keys
+      description: Get all API keys for the authenticated user
+      operationId: listApiKeys
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  api_keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKey'
+
+    post:
+      tags:
+        - API Keys
+      summary: Create API key
+      description: |
+        Create a new API key. The full key is only shown once in the response.
+        Key format: dfm_{32-character-random-string}
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  api_key:
+                    type: string
+                    description: Full API key (only shown once!)
+                    example: "dfm_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+                  data:
+                    $ref: '#/components/schemas/ApiKey'
+
+  /api-keys/{key_id}:
+    delete:
+      tags:
+        - API Keys
+      summary: Delete API key
+      description: Permanently delete an API key
+      operationId: deleteApiKey
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: API key deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # ============================================================================
+  # Event & Activity Endpoints
+  # ============================================================================
+
+  /events:
+    get:
+      tags:
+        - Events
+      summary: List events
+      description: Get event history with optional filters
+      operationId: listEvents
+      parameters:
+        - name: dfid
+          in: query
+          description: Filter by DFID
+          schema:
+            type: string
+        - name: event_type
+          in: query
+          description: Filter by event type
+          schema:
+            type: string
+        - name: from_time
+          in: query
+          description: Start timestamp (Unix epoch)
+          schema:
+            type: integer
+            format: int64
+        - name: to_time
+          in: query
+          description: End timestamp (Unix epoch)
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Event'
+
+  /activities:
+    get:
+      tags:
+        - Activities
+      summary: List activities
+      description: Get activity log for audit trail
+      operationId: listActivities
+      parameters:
+        - name: user_id
+          in: query
+          description: Filter by user
+          schema:
+            type: string
+            format: uuid
+        - name: resource_type
+          in: query
+          description: Filter by resource type
+          schema:
+            type: string
+            enum: [Circuit, Item, Workspace, ApiKey]
+        - name: limit
+          in: query
+          description: Maximum number of results
+          schema:
+            type: integer
+            default: 50
+            maximum: 1000
+      responses:
+        '200':
+          description: List of activities
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  activities:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Activity'
+
+  # ============================================================================
+  # Admin Endpoints
+  # ============================================================================
+
+  /admin/users/{user_id}/tier:
+    put:
+      tags:
+        - Admin
+      summary: Update user tier
+      description: Update user tier level (admin only)
+      operationId: updateUserTier
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tier
+              properties:
+                tier:
+                  $ref: '#/components/schemas/UserTier'
+      responses:
+        '200':
+          description: Tier updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
