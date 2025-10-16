@@ -17,6 +17,15 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
+# Explicitly upgrade Rust to 1.88.0 via rustup (ensures edition 2024 support)
+# This is critical because base64ct 1.8.0 requires edition 2024
+RUN rustup update && \
+    rustup install 1.88.0 && \
+    rustup default 1.88.0
+
+# Verify Rust version
+RUN rustc --version && cargo --version
+
 # Stellar SDK integration - no CLI needed (native Rust)
 
 # Copy dependency manifests and rust-toolchain to ensure correct version
