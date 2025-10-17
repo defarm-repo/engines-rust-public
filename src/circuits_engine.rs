@@ -730,6 +730,58 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     .add_storage_record(&dfid, storage_record) // ← THIS is where history is recorded
                     .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
+                // ============================================================
+                // DUAL-WRITE STRATEGY: CID Timeline Entry
+                // ============================================================
+                // Write CID timeline entry immediately to storage (InMemory + PostgreSQL queue)
+                // This provides instant timeline availability without waiting for blockchain polling.
+                // The event listener will write the same data later for verification/redundancy.
+                // Benefits:
+                // - Instant timeline queries
+                // - Blockchain verification via event listener
+                // - Can compare both sources to detect issues
+                // - Fallback if event listener has problems
+                // ============================================================
+                if let (Some(cid), Some(ipcm_tx)) = (
+                    transaction_metadata
+                        .get("ipfs_cid")
+                        .and_then(|v| v.as_str()),
+                    transaction_metadata
+                        .get("ipcm_update_tx")
+                        .and_then(|v| v.as_str()),
+                ) {
+                    let network = transaction_metadata
+                        .get("network")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+
+                    let blockchain_timestamp = Utc::now().timestamp();
+
+                    // Write to storage backend (InMemoryStorage + PostgreSQL queue)
+                    if let Err(e) = storage.add_cid_to_timeline(
+                        &dfid,
+                        cid,
+                        ipcm_tx,
+                        blockchain_timestamp,
+                        network,
+                    ) {
+                        tracing::warn!(
+                            "⚠️  Failed to add CID to timeline (non-fatal): {} -> {} ({})",
+                            dfid,
+                            cid,
+                            e
+                        );
+                        // Don't fail the push operation if timeline write fails
+                    } else {
+                        tracing::info!(
+                            "✅ Added CID to timeline: {} -> {} (TX: {}, source: push_direct)",
+                            dfid,
+                            cid,
+                            ipcm_tx
+                        );
+                    }
+                }
+
                 self.logger
                     .borrow_mut()
                     .info(
