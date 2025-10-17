@@ -215,30 +215,44 @@ impl PostgresPersistence {
             .map_err(|_| "Migration connection timeout".to_string())?
             .map_err(|e| format!("Failed to get connection for migration: {e}"))?;
 
-        // Read migration file
-        let migration_sql = include_str!("../config/migrations/V1__initial_schema.sql");
+        // Run migrations in order
+        let migrations = vec![
+            (
+                "V1__initial_schema",
+                include_str!("../config/migrations/V1__initial_schema.sql"),
+            ),
+            (
+                "V2__create_cid_timeline",
+                include_str!("../config/migrations/V2__create_cid_timeline.sql"),
+            ),
+        ];
 
-        // Execute migration with timeout
-        match timeout(Duration::from_secs(30), client.batch_execute(migration_sql)).await {
-            Ok(Ok(_)) => {
-                tracing::info!("✅ Database migrations completed successfully");
-                Ok(())
-            }
-            Ok(Err(e)) => {
-                // Check if error is "already exists" which is okay
-                if e.to_string().contains("already exists") {
-                    tracing::info!("ℹ️  Database schema already exists, skipping migration");
-                    Ok(())
-                } else {
-                    tracing::error!("❌ Migration failed: {}", e);
-                    Err(format!("Migration failed: {e}"))
+        for (name, migration_sql) in migrations {
+            tracing::info!("📋 Running migration: {}", name);
+
+            // Execute migration with timeout
+            match timeout(Duration::from_secs(30), client.batch_execute(migration_sql)).await {
+                Ok(Ok(_)) => {
+                    tracing::info!("✅ Migration {} completed successfully", name);
+                }
+                Ok(Err(e)) => {
+                    // Check if error is "already exists" which is okay
+                    if e.to_string().contains("already exists") {
+                        tracing::info!("ℹ️  Migration {} already applied", name);
+                    } else {
+                        tracing::error!("❌ Migration {} failed: {}", name, e);
+                        return Err(format!("Migration {} failed: {e}", name));
+                    }
+                }
+                Err(_) => {
+                    tracing::error!("❌ Migration {} timed out after 30 seconds", name);
+                    return Err(format!("Migration {} timeout", name));
                 }
             }
-            Err(_) => {
-                tracing::error!("❌ Migration timed out after 30 seconds");
-                Err("Migration timeout".to_string())
-            }
         }
+
+        tracing::info!("✅ All database migrations completed");
+        Ok(())
     }
 
     /// Check if PostgreSQL is connected and operational
