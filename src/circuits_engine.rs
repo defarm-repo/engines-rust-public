@@ -70,6 +70,9 @@ fn get_tier_default_adapters(tier: &UserTier) -> Vec<AdapterType> {
 // Helper function to validate if a user tier has access to an adapter
 fn validate_adapter_tier_access(user_tier: &UserTier, adapter_type: &AdapterType) -> bool {
     match adapter_type {
+        // None adapter - all tiers have access (no storage)
+        AdapterType::None => true,
+
         // Basic tier adapter - all tiers have access
         AdapterType::IpfsIpfs => true,
 
@@ -581,6 +584,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
                 // Create adapter instance based on type and call store_new_item with mint flag
                 let upload_result = match adapter_type {
+                    AdapterType::None => {
+                        // No storage adapter - skip upload entirely
+                        return Err(CircuitsError::StorageError(
+                            "Circuit has no storage adapter configured (adapter type: None)"
+                                .to_string(),
+                        ));
+                    }
                     AdapterType::IpfsIpfs => {
                         let adapter = IpfsIpfsAdapter::new().map_err(|e| {
                             CircuitsError::StorageError(format!(

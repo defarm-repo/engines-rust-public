@@ -2060,6 +2060,7 @@ pub use crate::zk_proof_engine::{
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum AdapterType {
+    None,
     IpfsIpfs,
     StellarTestnetIpfs,
     StellarMainnetIpfs,
@@ -2068,9 +2069,16 @@ pub enum AdapterType {
     Custom(String),
 }
 
+impl Default for AdapterType {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 impl std::fmt::Display for AdapterType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            AdapterType::None => write!(f, "none"),
             AdapterType::IpfsIpfs => write!(f, "ipfs-ipfs"),
             AdapterType::StellarTestnetIpfs => write!(f, "stellar_testnet-ipfs"),
             AdapterType::StellarMainnetIpfs => write!(f, "stellar_mainnet-ipfs"),
@@ -2084,6 +2092,7 @@ impl std::fmt::Display for AdapterType {
 impl AdapterType {
     pub fn from_string(s: &str) -> Result<Self, String> {
         match s {
+            "none" | "None" => Ok(AdapterType::None),
             "ipfs-ipfs" => Ok(AdapterType::IpfsIpfs),
             "stellar_testnet-ipfs" => Ok(AdapterType::StellarTestnetIpfs),
             "stellar_mainnet-ipfs" => Ok(AdapterType::StellarMainnetIpfs),
@@ -2098,6 +2107,7 @@ impl AdapterType {
 
     pub fn description(&self) -> &'static str {
         match self {
+            AdapterType::None => "No storage adapter - circuit data stays local only",
             AdapterType::IpfsIpfs => "Full IPFS storage - decentralized with no blockchain",
             AdapterType::StellarTestnetIpfs => {
                 "Stellar testnet NFTs + IPFS events - for testing blockchain integration"
@@ -2118,6 +2128,7 @@ impl AdapterType {
     #[allow(clippy::match_like_matches_macro)]
     pub fn requires_blockchain(&self) -> bool {
         match self {
+            AdapterType::None => false,
             AdapterType::IpfsIpfs => false,
             _ => true,
         }
@@ -2125,6 +2136,7 @@ impl AdapterType {
 
     pub fn storage_locations(&self) -> (StorageBackendType, StorageBackendType) {
         match self {
+            AdapterType::None => (StorageBackendType::Local, StorageBackendType::Local),
             AdapterType::IpfsIpfs => (StorageBackendType::IPFS, StorageBackendType::IPFS),
             AdapterType::StellarTestnetIpfs => {
                 (StorageBackendType::StellarTestnet, StorageBackendType::IPFS)

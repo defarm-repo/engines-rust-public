@@ -2445,10 +2445,15 @@ async fn get_circuit_adapter_config(
                     configured_at: adapter_config.configured_at.to_rfc3339(),
                 }))
             } else {
-                Err((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({"error": "Circuit adapter configuration not found"})),
-                ))
+                // Return default "None" adapter config instead of 404
+                Ok(Json(GetAdapterConfigResponse {
+                    adapter_type: Some("none".to_string()),
+                    sponsor_adapter_access: false,
+                    requires_approval: false,
+                    auto_migrate_existing: false,
+                    configured_by: "system".to_string(),
+                    configured_at: chrono::Utc::now().to_rfc3339(),
+                }))
             }
         }
         Ok(None) => Err((

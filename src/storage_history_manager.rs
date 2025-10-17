@@ -24,6 +24,9 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         user_id: &str,
     ) -> Result<(), StorageError> {
         let storage_location = match adapter_type {
+            AdapterType::None => StorageLocation::Local {
+                id: storage_id.clone(),
+            },
             AdapterType::IpfsIpfs => StorageLocation::IPFS {
                 cid: storage_id.clone(),
                 pinned: true,
@@ -73,6 +76,9 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         user_id: &str,
     ) -> Result<(), StorageError> {
         let storage_location = match adapter_type {
+            AdapterType::None => StorageLocation::Local {
+                id: storage_id.clone(),
+            },
             AdapterType::IpfsIpfs => StorageLocation::IPFS {
                 cid: storage_id.clone(),
                 pinned: true,
@@ -172,6 +178,9 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
             // For now, we'll record the migration intent
 
             let storage_location = match adapter_type {
+                AdapterType::None => StorageLocation::Local {
+                    id: format!("migrated_{dfid}"),
+                },
                 AdapterType::IpfsIpfs => StorageLocation::IPFS {
                     cid: format!("migrated_{dfid}"),
                     pinned: true,
