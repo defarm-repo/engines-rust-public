@@ -1,5 +1,6 @@
 pub mod adapters;
 pub mod audit_engine;
+pub mod blockchain_event_listener;
 pub mod circuits_engine;
 pub mod conflict_detection;
 pub mod dfid_engine;

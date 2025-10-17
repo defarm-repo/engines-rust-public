@@ -1613,4 +1613,303 @@ impl PostgresPersistence {
 
         Ok(webhooks)
     }
+
+    // ========================================================================
+    // CID TIMELINE PERSISTENCE (IPCM Event Tracking)
+    // ========================================================================
+    // These methods support the IPCM timeline architecture where:
+    // - Event listener daemon polls Soroban RPC for IPCM events
+    // - Events are parsed and stored in item_cid_timeline
+    // - Frontend queries timeline to display item history with all CIDs
+    // ========================================================================
+
+    /// Add a CID to the timeline for a DFID (called by event listener)
+    pub async fn add_cid_to_timeline(
+        &self,
+        dfid: &str,
+        cid: &str,
+        ipcm_tx: &str,
+        blockchain_timestamp: i64,
+        network: &str,
+    ) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        // event_sequence is auto-incremented by database trigger
+        client
+            .execute(
+                "INSERT INTO item_cid_timeline
+             (dfid, cid, ipcm_transaction_hash, blockchain_timestamp, network, event_sequence)
+             VALUES ($1, $2, $3, $4, $5, 0)",
+                &[&dfid, &cid, &ipcm_tx, &blockchain_timestamp, &network],
+            )
+            .await
+            .map_err(|e| format!("Failed to add CID to timeline: {e}"))?;
+
+        tracing::debug!(
+            "✅ Added CID to timeline: {} -> {} (TX: {})",
+            dfid,
+            cid,
+            ipcm_tx
+        );
+        Ok(())
+    }
+
+    /// Get the complete CID timeline for a DFID
+    pub async fn get_item_timeline(&self, dfid: &str) -> Result<Vec<TimelineEntry>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT id, dfid, cid, event_sequence, blockchain_timestamp,
+                        ipcm_transaction_hash, network, created_at
+                 FROM item_cid_timeline
+                 WHERE dfid = $1
+                 ORDER BY event_sequence ASC",
+                &[&dfid],
+            )
+            .await
+            .map_err(|e| format!("Failed to get item timeline: {e}"))?;
+
+        let entries = rows
+            .iter()
+            .filter_map(|row| {
+                let created_at_ts: chrono::DateTime<Utc> = row.get("created_at");
+
+                Some(TimelineEntry {
+                    id: row.get("id"),
+                    dfid: row.get("dfid"),
+                    cid: row.get("cid"),
+                    event_sequence: row.get("event_sequence"),
+                    blockchain_timestamp: row.get("blockchain_timestamp"),
+                    ipcm_transaction_hash: row.get("ipcm_transaction_hash"),
+                    network: row.get("network"),
+                    created_at: created_at_ts,
+                })
+            })
+            .collect();
+
+        Ok(entries)
+    }
+
+    /// Get a specific timeline entry by sequence number
+    pub async fn get_timeline_by_sequence(
+        &self,
+        dfid: &str,
+        sequence: i32,
+    ) -> Result<Option<TimelineEntry>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT id, dfid, cid, event_sequence, blockchain_timestamp,
+                        ipcm_transaction_hash, network, created_at
+                 FROM item_cid_timeline
+                 WHERE dfid = $1 AND event_sequence = $2",
+                &[&dfid, &sequence],
+            )
+            .await
+            .map_err(|e| format!("Failed to get timeline by sequence: {e}"))?;
+
+        if let Some(row) = rows.first() {
+            let created_at_ts: chrono::DateTime<Utc> = row.get("created_at");
+
+            Ok(Some(TimelineEntry {
+                id: row.get("id"),
+                dfid: row.get("dfid"),
+                cid: row.get("cid"),
+                event_sequence: row.get("event_sequence"),
+                blockchain_timestamp: row.get("blockchain_timestamp"),
+                ipcm_transaction_hash: row.get("ipcm_transaction_hash"),
+                network: row.get("network"),
+                created_at: created_at_ts,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Map an event to the CID where it first appeared
+    pub async fn map_event_to_cid(
+        &self,
+        event_id: &Uuid,
+        dfid: &str,
+        cid: &str,
+        sequence: i32,
+    ) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        client
+            .execute(
+                "INSERT INTO event_cid_mapping
+             (event_id, dfid, first_cid, appeared_in_sequence)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (event_id) DO NOTHING",
+                &[&event_id, &dfid, &cid, &sequence],
+            )
+            .await
+            .map_err(|e| format!("Failed to map event to CID: {e}"))?;
+
+        tracing::debug!(
+            "✅ Mapped event {} to CID {} (sequence: {})",
+            event_id,
+            cid,
+            sequence
+        );
+        Ok(())
+    }
+
+    /// Get the CID where an event first appeared
+    pub async fn get_event_first_cid(
+        &self,
+        event_id: &Uuid,
+    ) -> Result<Option<EventCidMapping>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT id, event_id, dfid, first_cid, appeared_in_sequence, created_at
+                 FROM event_cid_mapping
+                 WHERE event_id = $1",
+                &[&event_id],
+            )
+            .await
+            .map_err(|e| format!("Failed to get event first CID: {e}"))?;
+
+        if let Some(row) = rows.first() {
+            let created_at_ts: chrono::DateTime<Utc> = row.get("created_at");
+
+            Ok(Some(EventCidMapping {
+                id: row.get("id"),
+                event_id: row.get("event_id"),
+                dfid: row.get("dfid"),
+                first_cid: row.get("first_cid"),
+                appeared_in_sequence: row.get("appeared_in_sequence"),
+                created_at: created_at_ts,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get all events that first appeared in a specific CID
+    pub async fn get_events_in_cid(&self, cid: &str) -> Result<Vec<EventCidMapping>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT id, event_id, dfid, first_cid, appeared_in_sequence, created_at
+                 FROM event_cid_mapping
+                 WHERE first_cid = $1
+                 ORDER BY appeared_in_sequence ASC",
+                &[&cid],
+            )
+            .await
+            .map_err(|e| format!("Failed to get events in CID: {e}"))?;
+
+        let mappings = rows
+            .iter()
+            .filter_map(|row| {
+                let created_at_ts: chrono::DateTime<Utc> = row.get("created_at");
+
+                Some(EventCidMapping {
+                    id: row.get("id"),
+                    event_id: row.get("event_id"),
+                    dfid: row.get("dfid"),
+                    first_cid: row.get("first_cid"),
+                    appeared_in_sequence: row.get("appeared_in_sequence"),
+                    created_at: created_at_ts,
+                })
+            })
+            .collect();
+
+        Ok(mappings)
+    }
+
+    /// Update blockchain indexing progress (called by event listener)
+    pub async fn update_indexing_progress(
+        &self,
+        network: &str,
+        last_indexed_ledger: i64,
+        last_confirmed_ledger: i64,
+    ) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        client
+            .execute(
+                "INSERT INTO blockchain_indexing_progress
+             (network, last_indexed_ledger, last_confirmed_ledger, last_indexed_at, status)
+             VALUES ($1, $2, $3, NOW(), 'active')
+             ON CONFLICT (network) DO UPDATE
+             SET last_indexed_ledger = EXCLUDED.last_indexed_ledger,
+                 last_confirmed_ledger = EXCLUDED.last_confirmed_ledger,
+                 last_indexed_at = NOW(),
+                 status = 'active',
+                 error_message = NULL",
+                &[&network, &last_indexed_ledger, &last_confirmed_ledger],
+            )
+            .await
+            .map_err(|e| format!("Failed to update indexing progress: {e}"))?;
+
+        tracing::debug!(
+            "✅ Updated indexing progress for {}: ledger {}",
+            network,
+            last_indexed_ledger
+        );
+        Ok(())
+    }
+
+    /// Get blockchain indexing progress for a network
+    pub async fn get_indexing_progress(
+        &self,
+        network: &str,
+    ) -> Result<Option<IndexingProgress>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT network, last_indexed_ledger, last_confirmed_ledger,
+                        last_indexed_at, status, error_message, total_events_indexed, last_error_at
+                 FROM blockchain_indexing_progress
+                 WHERE network = $1",
+                &[&network],
+            )
+            .await
+            .map_err(|e| format!("Failed to get indexing progress: {e}"))?;
+
+        if let Some(row) = rows.first() {
+            let last_indexed_at: chrono::DateTime<Utc> = row.get("last_indexed_at");
+            let last_error_at: Option<chrono::DateTime<Utc>> = row.get("last_error_at");
+
+            Ok(Some(IndexingProgress {
+                network: row.get("network"),
+                last_indexed_ledger: row.get("last_indexed_ledger"),
+                last_confirmed_ledger: row.get("last_confirmed_ledger"),
+                last_indexed_at,
+                status: row.get("status"),
+                error_message: row.get("error_message"),
+                total_events_indexed: row.get("total_events_indexed"),
+                last_error_at,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Increment the total events indexed counter
+    pub async fn increment_events_indexed(&self, network: &str, count: i64) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        client
+            .execute(
+                "UPDATE blockchain_indexing_progress
+             SET total_events_indexed = total_events_indexed + $1
+             WHERE network = $2",
+                &[&count, &network],
+            )
+            .await
+            .map_err(|e| format!("Failed to increment events indexed: {e}"))?;
+
+        tracing::debug!("✅ Incremented events indexed for {}: +{}", network, count);
+        Ok(())
+    }
 }

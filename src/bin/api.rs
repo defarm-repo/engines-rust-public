@@ -8,9 +8,10 @@ use tracing::{info, Level};
 
 use defarm_engine::api::{
     activity_routes, adapter_routes, admin_routes, audit_routes, auth_routes, circuit_routes,
-    event_routes, item_routes, notifications_rest_routes, notifications_ws_route, receipt_routes,
-    shared_state::AppState, storage_history_routes, test_blockchain_routes, user_credits_routes,
-    workspace_routes, zk_proof_routes,
+    event_routes, get_indexing_progress, get_item_timeline, get_timeline_entry, item_routes,
+    notifications_rest_routes, notifications_ws_route, receipt_routes, shared_state::AppState,
+    storage_history_routes, test_blockchain_routes, user_credits_routes, workspace_routes,
+    zk_proof_routes, TimelineState,
 };
 use defarm_engine::auth_middleware::jwt_auth_middleware;
 use defarm_engine::db_init::setup_development_data;
@@ -82,6 +83,36 @@ async fn main() {
             notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()),
         );
 
+    // Timeline routes (requires PostgreSQL - will return error if not available)
+    // Note: timeline_state will be created even if PostgreSQL is None, but endpoints will fail gracefully
+    let timeline_state_result =
+        app_state
+            .postgres_persistence
+            .try_read()
+            .ok()
+            .and_then(|pg_lock| {
+                pg_lock.as_ref().map(|pg| TimelineState {
+                    persistence: Arc::new(pg.clone()),
+                })
+            });
+
+    let timeline_routes = if let Some(timeline_state) = timeline_state_result {
+        Router::new()
+            .route("/api/items/:dfid/timeline", get(get_item_timeline))
+            .route(
+                "/api/items/:dfid/timeline/:sequence",
+                get(get_timeline_entry),
+            )
+            .route(
+                "/api/timeline/indexing-progress/:network",
+                get(get_indexing_progress),
+            )
+            .with_state(timeline_state)
+    } else {
+        tracing::warn!("⚠️  Timeline routes disabled - PostgreSQL not available");
+        Router::new() // Empty router if PostgreSQL not available
+    };
+
     // Protected routes (require JWT authentication)
     let protected_routes = Router::new()
         .nest("/api/receipts", receipt_routes())
@@ -105,6 +136,7 @@ async fn main() {
         )
         .merge(user_credits_routes().with_state(app_state.clone()))
         .nest("/api/admin", admin_routes().with_state(app_state.clone()))
+        .merge(timeline_routes) // Add timeline routes
         .layer(middleware::from_fn_with_state(
             app_state.clone(),
             jwt_auth_middleware,

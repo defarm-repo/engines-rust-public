@@ -11,6 +11,10 @@ path = "src/bin/api.rs"
 name = "defarm-demo"
 path = "src/main.rs"
 
+[[bin]]
+name = "ipcm-event-listener"
+path = "src/bin/ipcm_event_listener.rs"
+
 [dependencies]
 # Core dependencies
 blake3 = "1.5"
