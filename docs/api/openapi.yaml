@@ -54,6 +54,8 @@ tags:
     description: Activity logs and audit trail
   - name: Storage History
     description: Item storage location and history tracking
+  - name: Timeline
+    description: IPCM CID timeline tracking from blockchain events
   - name: Adapters
     description: Storage adapter configuration
   - name: Receipts
@@ -767,6 +769,101 @@ components:
           type: object
           additionalProperties: true
 
+    # =========================================================================
+    # Timeline Schemas
+    # =========================================================================
+
+    TimelineEntry:
+      type: object
+      required:
+        - sequence
+        - cid
+        - transaction_hash
+        - blockchain_timestamp
+        - network
+        - created_at
+      properties:
+        sequence:
+          type: integer
+          description: Auto-incrementing sequence number (1, 2, 3, ...)
+          example: 1
+        cid:
+          type: string
+          description: IPFS Content Identifier
+          example: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG"
+        transaction_hash:
+          type: string
+          description: Stellar transaction hash for IPCM update
+          example: "abc123def456789"
+        blockchain_timestamp:
+          type: integer
+          format: int64
+          description: Ledger close timestamp (Unix timestamp)
+          example: 1704067200
+        network:
+          type: string
+          description: Blockchain network
+          enum:
+            - stellar-testnet
+            - stellar-mainnet
+          example: "stellar-testnet"
+        created_at:
+          type: string
+          format: date-time
+          description: When this timeline entry was recorded
+          example: "2025-01-01T00:00:00Z"
+
+    IndexingProgress:
+      type: object
+      required:
+        - network
+        - last_indexed_ledger
+        - last_confirmed_ledger
+        - last_indexed_at
+        - status
+        - total_events_indexed
+      properties:
+        network:
+          type: string
+          description: Blockchain network being indexed
+          enum:
+            - stellar-testnet
+            - stellar-mainnet
+          example: "stellar-testnet"
+        last_indexed_ledger:
+          type: integer
+          format: int64
+          description: Last ledger sequence processed
+          example: 123456
+        last_confirmed_ledger:
+          type: integer
+          format: int64
+          description: Last confirmed ledger
+          example: 123456
+        last_indexed_at:
+          type: string
+          format: date-time
+          description: When indexing last ran
+          example: "2025-01-01T00:00:00Z"
+        status:
+          type: string
+          description: Indexing status
+          enum:
+            - active
+            - paused
+            - error
+          example: "active"
+        total_events_indexed:
+          type: integer
+          format: int64
+          description: Total IPCM events processed
+          example: 1234
+        error_message:
+          type: string
+          nullable: true
+          description: Last error message (if any)
+          example: null
+
 paths:
   # ============================================================================
   # Authentication Endpoints
@@ -1370,6 +1467,128 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/StorageLocation'
+
+  # ============================================================================
+  # Timeline Endpoints (IPCM CID Timeline)
+  # ============================================================================
+
+  /items/{dfid}/timeline:
+    get:
+      tags:
+        - Timeline
+      summary: Get item CID timeline
+      description: |
+        Retrieve the complete chronological timeline of IPFS CIDs for an item.
+        Timeline is populated by the blockchain event listener from IPCM contract events.
+      operationId: getItemTimeline
+      parameters:
+        - name: dfid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: DFID of the item
+      responses:
+        '200':
+          description: Item timeline retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - dfid
+                  - total_entries
+                  - timeline
+                properties:
+                  dfid:
+                    type: string
+                    example: "DFID-20250101-000001-ABC123"
+                  total_entries:
+                    type: integer
+                    example: 5
+                  timeline:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TimelineEntry'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /items/{dfid}/timeline/{sequence}:
+    get:
+      tags:
+        - Timeline
+      summary: Get specific timeline entry
+      description: Retrieve a specific timeline entry by sequence number
+      operationId: getTimelineEntry
+      parameters:
+        - name: dfid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: DFID of the item
+        - name: sequence
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Sequence number (1, 2, 3, ...)
+      responses:
+        '200':
+          description: Timeline entry retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineEntry'
+        '404':
+          description: Timeline entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /timeline/indexing-progress/{network}:
+    get:
+      tags:
+        - Timeline
+      summary: Get blockchain indexing progress
+      description: |
+        Get the blockchain event indexing progress for a network.
+        Shows how far the event listener has synced.
+      operationId: getIndexingProgress
+      parameters:
+        - name: network
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - stellar-testnet
+              - stellar-mainnet
+          description: Blockchain network
+      responses:
+        '200':
+          description: Indexing progress retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IndexingProgress'
+        '400':
+          description: Invalid network
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No indexing progress found (event listener not running)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   # ============================================================================
   # Workspace Endpoints
