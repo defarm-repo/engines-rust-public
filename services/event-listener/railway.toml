@@ -4,6 +4,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "../../config/Dockerfile.event-listener"
+watchPatterns = ["../../src/**", "../../Cargo.toml", "../../Cargo.lock", "../../config/migrations/**"]
 
 [deploy]
 startCommand = "/app/ipcm-event-listener"
