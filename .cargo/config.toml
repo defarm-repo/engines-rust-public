@@ -1,2 +1,13 @@
 [env]
 SODIUM_USE_PKG_CONFIG = "1"
+PKG_CONFIG_PATH = "/usr/local/lib/pkgconfig:/usr/local/Cellar/libsodium/1.0.20/lib/pkgconfig"
+PKG_CONFIG_ALLOW_CROSS = "1"
+PKG_CONFIG_ALLOW_CROSS_x86_64_apple_darwin = "1"
+
+# macOS specific: Help linker find libsodium installed via Homebrew
+# Force x86_64 build to match Intel-based libsodium installation
+[build]
+target = "x86_64-apple-darwin"
+
+[target.x86_64-apple-darwin]
+rustflags = ["-L", "/usr/local/lib"]
