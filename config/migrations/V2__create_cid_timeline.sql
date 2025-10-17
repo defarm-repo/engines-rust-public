@@ -31,10 +31,7 @@ CREATE TABLE IF NOT EXISTS item_cid_timeline (
     created_at TIMESTAMPTZ DEFAULT NOW(),
 
     -- Ensure unique sequence per DFID
-    UNIQUE(dfid, event_sequence),
-
-    -- Indexes for fast timeline queries
-    CONSTRAINT idx_timeline_dfid PRIMARY KEY (id)
+    UNIQUE(dfid, event_sequence)
 );
 
 CREATE INDEX IF NOT EXISTS idx_cid_timeline_dfid ON item_cid_timeline(dfid);
@@ -81,12 +78,10 @@ CREATE TABLE IF NOT EXISTS event_cid_mapping (
     created_at TIMESTAMPTZ DEFAULT NOW(),
 
     -- One event appears in exactly one CID first
-    UNIQUE(event_id),
+    UNIQUE(event_id)
 
     -- Foreign key to events table (if it exists)
     -- CONSTRAINT fk_event_cid_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-
-    CONSTRAINT idx_event_cid_mapping PRIMARY KEY (id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_event_cid_dfid ON event_cid_mapping(dfid);

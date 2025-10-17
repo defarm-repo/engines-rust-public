@@ -1,10 +1,12 @@
 # Railway deployment configuration for IPCM Event Listener
 # Background daemon for blockchain event monitoring
+# NOTE: rootDirectory is set to "services/event-listener" in Railway dashboard
+# All paths are relative to the repository root, not this subdirectory
 
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "../../config/Dockerfile.event-listener"
-watchPatterns = ["../../src/**", "../../Cargo.toml", "../../Cargo.lock", "../../config/migrations/**"]
+dockerfilePath = "config/Dockerfile.event-listener"
+watchPatterns = ["src/**", "Cargo.toml", "Cargo.lock", "config/migrations/**"]
 
 [deploy]
 startCommand = "/app/ipcm-event-listener"
