@@ -3,6 +3,9 @@ target/
 **/*.rs.bk
 *.pdb
 
+# Cargo config (macOS-specific, conflicts with Linux builds)
+.cargo/
+
 # Git
 .git/
 .gitignore
