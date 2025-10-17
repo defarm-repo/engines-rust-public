@@ -260,6 +260,7 @@ impl StellarClient {
         dfid: &str,
         creator: &str,
         canonical_identifiers: Vec<String>,
+        first_cid: Option<&str>,
         metadata: Option<serde_json::Value>,
     ) -> Result<String, StellarError> {
         // Ensure NFT contract is configured
@@ -300,17 +301,25 @@ impl StellarClient {
         // Generate unique token_id from timestamp (nanoseconds since epoch as u64)
         let token_id = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u64;
 
-        // Build metadata with canonical identifiers
+        // Build metadata with canonical identifiers and first CID
         let metadata_str = metadata.map(|m| m.to_string()).unwrap_or_else(|| {
             let mut meta = serde_json::json!({
-                "dfid": dfid,
+                "ipcm_key": dfid,
                 "creator": creator,
-                "minted_at": chrono::Utc::now().to_rfc3339()
+                "minted_at": chrono::Utc::now().to_rfc3339(),
+                "value_chain": &valuechain_id
             });
 
             // Add canonical identifiers (for IPCM key references)
             if !canonical_identifiers.is_empty() {
+                // Use first canonical identifier as primary identifier field
+                meta["identifier"] = serde_json::json!(canonical_identifiers[0]);
                 meta["canonical_identifiers"] = serde_json::json!(canonical_identifiers);
+            }
+
+            // Add first CID (IPFS content identifier for initial state)
+            if let Some(cid) = first_cid {
+                meta["first_cid"] = serde_json::json!(cid);
             }
 
             meta.to_string()

@@ -269,26 +269,29 @@ impl StorageAdapter for StellarTestnetIpfsAdapter {
                 })
                 .collect();
 
-            // Step 1: Mint NFT for new DFID with canonical identifiers
+            // Step 1: Upload item to IPFS FIRST to get the CID
+            let cid =
+                self.ipfs_client.upload_json(item).await.map_err(|e| {
+                    StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
+                })?;
+
+            tracing::info!("📦 Item uploaded to IPFS: {} → CID: {}", item.dfid, cid);
+
+            // Step 2: Mint NFT for new DFID with canonical identifiers AND first CID
             let nft_tx_hash = self
                 .stellar_client
-                .mint_nft(&item.dfid, creator, canonical_identifiers, None)
+                .mint_nft(&item.dfid, creator, canonical_identifiers, Some(&cid), None)
                 .await
                 .map_err(|e| {
                     StorageError::WriteError(format!("Failed to mint NFT on Stellar: {e}"))
                 })?;
 
             tracing::info!(
-                "🎨 NFT minted for new DFID: {} (TX: {})",
+                "🎨 NFT minted for new DFID: {} (TX: {}, CID: {})",
                 item.dfid,
-                nft_tx_hash
+                nft_tx_hash,
+                cid
             );
-
-            // Step 2: Upload item to IPFS
-            let cid =
-                self.ipfs_client.upload_json(item).await.map_err(|e| {
-                    StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
-                })?;
 
             // Step 3: Register CID in IPCM contract
             let ipcm_tx_hash = self

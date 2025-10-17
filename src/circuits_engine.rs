@@ -9,7 +9,6 @@ use crate::identifier_types::{
 };
 use crate::logging::LoggingEngine;
 use crate::storage::StorageBackend;
-use crate::storage_history_manager::StorageHistoryManager;
 use crate::types::{
     Activity, ActivityDetails, ActivityStatus, ActivityType, AdapterType, BatchPushItemResult,
     BatchPushResult, Circuit, CircuitAdapterConfig, CircuitItem, CircuitOperation, CircuitStatus,
@@ -98,7 +97,6 @@ pub struct CircuitsEngine<S: StorageBackend> {
     storage: Arc<std::sync::Mutex<S>>,
     logger: std::cell::RefCell<LoggingEngine>,
     events_engine: EventsEngine<S>,
-    storage_history_manager: Option<StorageHistoryManager<S>>,
     dfid_engine: DfidEngine,
     webhook_engine: std::cell::RefCell<WebhookEngine<S>>,
 }
@@ -112,18 +110,9 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             storage,
             logger: std::cell::RefCell::new(logger),
             events_engine,
-            storage_history_manager: None,
             dfid_engine: DfidEngine::new(),
             webhook_engine: std::cell::RefCell::new(webhook_engine),
         }
-    }
-
-    pub fn with_storage_history_manager(
-        mut self,
-        storage_history_manager: StorageHistoryManager<S>,
-    ) -> Self {
-        self.storage_history_manager = Some(storage_history_manager);
-        self
     }
 
     fn handle_auto_publish(
@@ -706,20 +695,39 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     }
                 }
 
-                // Record in storage history with transaction metadata
+                // ============================================================
+                // IMPORTANT: Storage History Recording
+                // ============================================================
+                // This is where storage history is ACTUALLY recorded.
+                // The flow:
+                // 1. Adapter (e.g., StellarTestnetIpfsAdapter) performs:
+                //    - NFT minting (if new DFID)
+                //    - IPFS upload (generates CID)
+                //    - IPCM contract update (registers CID on-chain)
+                // 2. Adapter returns AdapterResult with StorageMetadata containing:
+                //    - item_location: Primary storage (IPCM transaction)
+                //    - event_locations: Secondary storage (NFT mint tx, IPFS CID)
+                // 3. We extract all blockchain/IPFS details into transaction_metadata
+                // 4. We create StorageRecord with all transaction hashes and CIDs
+                // 5. We call storage.add_storage_record() directly (NOT StorageHistoryManager)
+                //
+                // NOTE: StorageHistoryManager.record_item_storage() is NEVER called.
+                // That's deprecated code with placeholder values. The real recording
+                // happens right here using actual blockchain transaction data.
+                // ============================================================
                 let storage_record = crate::types::StorageRecord {
                     adapter_type: adapter_type.clone(),
-                    storage_location: storage_location.clone(),
+                    storage_location: storage_location.clone(), // Primary: IPCM tx or IPFS CID
                     stored_at: Utc::now(),
                     triggered_by: "circuit_push".to_string(),
                     triggered_by_id: Some(circuit_id.to_string()),
                     events_range: None,
                     is_active: true,
-                    metadata: transaction_metadata.clone(),
+                    metadata: transaction_metadata.clone(), // Contains: nft_mint_tx, ipcm_update_tx, ipfs_cid, etc.
                 };
 
                 storage
-                    .add_storage_record(&dfid, storage_record)
+                    .add_storage_record(&dfid, storage_record) // ← THIS is where history is recorded
                     .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
                 self.logger

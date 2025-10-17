@@ -1,8 +1,6 @@
-use crate::adapters::base::StorageLocation;
 use crate::dfid_engine::DfidEngine;
 use crate::logging::{LogEntry, LoggingEngine};
 use crate::storage::{StorageBackend, StorageError};
-use crate::storage_history_manager::StorageHistoryManager;
 use crate::types::{
     Identifier, Item, ItemShare, ItemStatus, MergeStrategy, PendingItem, PendingReason,
     SharedItemResponse,
@@ -42,7 +40,6 @@ pub struct ItemsEngine<S: StorageBackend> {
     storage: S,
     logger: LoggingEngine,
     dfid_engine: DfidEngine,
-    storage_history_manager: Option<StorageHistoryManager<S>>,
 }
 
 impl<S: StorageBackend + 'static> ItemsEngine<S> {
@@ -54,16 +51,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             storage,
             logger,
             dfid_engine: DfidEngine::new(),
-            storage_history_manager: None,
         }
-    }
-
-    pub fn with_storage_history_manager(
-        mut self,
-        storage_history_manager: StorageHistoryManager<S>,
-    ) -> Self {
-        self.storage_history_manager = Some(storage_history_manager);
-        self
     }
 
     pub fn create_item(
@@ -550,54 +538,11 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             return Ok(Some(item));
         }
 
-        // If storage history manager is available, try to retrieve from other locations
-        if let Some(ref history_manager) = self.storage_history_manager {
-            let storage_locations = history_manager
-                .get_all_storage_locations(dfid)
-                .await
-                .map_err(ItemsError::StorageError)?;
+        // Multi-storage retrieval is not yet implemented
+        // This would require integrating with StorageHistoryReader and implementing
+        // cross-adapter retrieval logic to fetch items from IPFS, Stellar, etc.
+        // For now, items are only retrieved from local storage
 
-            // TODO: Re-enable logging when logger is made thread-safe (use Arc<Mutex<LoggingEngine>>)
-            // self.logger.info("ItemsEngine", "multi_storage_retrieval", "Attempting retrieval from multiple storage locations")
-            //     .with_context("dfid", dfid.to_string())
-            //     .with_context("locations_count", storage_locations.len().to_string());
-
-            // Try each storage location until we find the item
-            for location in storage_locations {
-                if let Ok(Some(item)) = self.retrieve_item_from_location(dfid, &location).await {
-                    // TODO: Re-enable logging when logger is made thread-safe
-                    // self.logger.info("ItemsEngine", "item_found_remote", "Item retrieved from remote storage location")
-                    //     .with_context("dfid", dfid.to_string())
-                    //     .with_context("location_type", format!("{:?}", location));
-
-                    // Optionally cache the item locally for future access
-                    // Note: This would require mutable access to storage
-                    return Ok(Some(item));
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
-    async fn retrieve_item_from_location(
-        &self,
-        _dfid: &str,
-        _location: &StorageLocation,
-    ) -> Result<Option<Item>, ItemsError> {
-        // This method would use the appropriate adapter to retrieve the item
-        // For now, we'll return None since we need to implement adapter integration
-        // TODO: Create adapter instances and retrieve data from them
-
-        // TODO: Re-enable logging when logger is made thread-safe
-        // self.logger.info("ItemsEngine", "location_retrieval_attempt", "Attempting to retrieve item from storage location")
-        //     .with_context("dfid", dfid.to_string())
-        //     .with_context("location", format!("{:?}", location));
-
-        // Placeholder - in a full implementation, this would:
-        // 1. Create appropriate adapter instance based on location type
-        // 2. Use adapter to retrieve item data
-        // 3. Deserialize and return the item
         Ok(None)
     }
 

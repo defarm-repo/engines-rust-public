@@ -11,7 +11,6 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::adapters::base::StorageLocation;
-use crate::api::adapters::create_adapter_instance;
 use crate::api::shared_state::AppState;
 use crate::storage::StorageBackend;
 use crate::types::{AdapterType, ItemStorageHistory};
@@ -83,7 +82,7 @@ async fn get_item_storage_history(
     State(app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, StatusCode> {
     match app_state
-        .storage_history_manager
+        .storage_history_reader
         .get_item_storage_history(&dfid)
         .await
     {
@@ -112,7 +111,7 @@ async fn get_all_storage_locations(
     State(app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, StatusCode> {
     match app_state
-        .storage_history_manager
+        .storage_history_reader
         .get_all_storage_locations(&params.dfid)
         .await
     {
@@ -132,69 +131,37 @@ async fn get_all_storage_locations(
 
 async fn migrate_item_storage(
     Path(dfid): Path<String>,
-    State(app_state): State<Arc<AppState>>,
+    State(_app_state): State<Arc<AppState>>,
     Json(request): Json<MigrateItemRequest>,
 ) -> Result<Json<Value>, StatusCode> {
-    let adapter_instance = match create_adapter_instance(&request.target_adapter_type) {
-        Ok(instance) => instance,
-        Err(e) => {
-            return Ok(Json(json!({
-                "success": false,
-                "error": format!("Failed to create adapter: {}", e),
-                "dfid": dfid
-            })));
-        }
-    };
-
-    match app_state
-        .storage_history_manager
-        .migrate_to_circuit_adapter(
-            &dfid,
-            &adapter_instance,
-            request.circuit_id,
-            &request.user_id,
-        )
-        .await
-    {
-        Ok(()) => Ok(Json(json!({
-            "success": true,
-            "message": "Item migration initiated successfully",
-            "dfid": dfid,
-            "target_adapter": request.target_adapter_type,
-            "circuit_id": request.circuit_id,
-            "user_id": request.user_id
-        }))),
-        Err(e) => Ok(Json(json!({
-            "success": false,
-            "error": format!("Failed to migrate item: {}", e),
-            "dfid": dfid,
-            "target_adapter": request.target_adapter_type
-        }))),
-    }
+    // Migration functionality is not yet implemented
+    // Items are automatically stored in the adapter specified by the circuit during push operations
+    // Manual migration between storage adapters is a future feature
+    Ok(Json(json!({
+        "success": false,
+        "error": "Storage migration is not yet implemented. Items are stored according to circuit adapter configuration during push operations.",
+        "dfid": dfid,
+        "target_adapter": request.target_adapter_type,
+        "circuit_id": request.circuit_id,
+        "note": "Use circuit push operations to store items in different adapters"
+    })))
 }
 
 async fn set_primary_storage(
     Path(dfid): Path<String>,
-    State(app_state): State<Arc<AppState>>,
+    State(_app_state): State<Arc<AppState>>,
     Json(request): Json<SetPrimaryStorageRequest>,
 ) -> Result<Json<Value>, StatusCode> {
-    match app_state
-        .storage_history_manager
-        .set_primary_storage(&dfid, request.storage_location.clone())
-        .await
-    {
-        Ok(()) => Ok(Json(json!({
-            "success": true,
-            "message": "Primary storage updated successfully",
-            "dfid": dfid,
-            "primary_storage": request.storage_location
-        }))),
-        Err(e) => Ok(Json(json!({
-            "success": false,
-            "error": format!("Failed to set primary storage: {}", e),
-            "dfid": dfid
-        }))),
-    }
+    // Setting primary storage is not yet implemented
+    // Currently, the most recent storage location is considered primary
+    // This feature would require implementing storage location preferences
+    Ok(Json(json!({
+        "success": false,
+        "error": "Setting primary storage is not yet implemented. The most recent storage location is automatically considered primary.",
+        "dfid": dfid,
+        "requested_primary": request.storage_location,
+        "note": "Storage locations are managed automatically based on circuit push operations"
+    })))
 }
 
 async fn get_storage_statistics(

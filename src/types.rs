@@ -2996,3 +2996,44 @@ pub struct ContractTestResult {
     pub methods_verified: Vec<String>,
     pub error: Option<String>,
 }
+
+// ============================================================================
+// CID Timeline Types
+// ============================================================================
+
+/// Timeline entry representing a single CID version for an item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineEntry {
+    pub id: Uuid,
+    pub dfid: String,
+    pub cid: String,
+    pub event_sequence: i32,
+    pub blockchain_timestamp: i64,
+    pub ipcm_transaction_hash: String,
+    pub network: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Maps an event to the CID where it first appeared
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventCidMapping {
+    pub id: Uuid,
+    pub event_id: Uuid,
+    pub dfid: String,
+    pub first_cid: String,
+    pub appeared_in_sequence: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Tracks blockchain event indexing progress per network
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexingProgress {
+    pub network: String,
+    pub last_indexed_ledger: i64,
+    pub last_confirmed_ledger: i64,
+    pub last_indexed_at: DateTime<Utc>,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub total_events_indexed: i64,
+    pub last_error_at: Option<DateTime<Utc>>,
+}

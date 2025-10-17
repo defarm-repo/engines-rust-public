@@ -32,7 +32,8 @@ pub mod postgres_persistence;
 pub mod rate_limiter;
 pub mod safe_json_numbers;
 pub mod storage_factory;
-pub mod storage_history_manager;
+pub mod storage_history_manager; // Deprecated - use storage_history_reader
+pub mod storage_history_reader;
 pub mod tier_permission_system;
 pub mod webhook_delivery_worker;
 pub mod webhook_engine;
@@ -55,7 +56,8 @@ pub use notification_engine::*;
 pub use rate_limiter::*;
 pub use receipt_engine::*;
 pub use storage::*;
-pub use storage_history_manager::*;
+pub use storage_history_manager::*; // Deprecated - use storage_history_reader
+pub use storage_history_reader::*;
 pub use types::*;
 pub use verification_engine::{VerificationEngine, VerificationError, VerificationResult};
 pub use webhook_engine::*;

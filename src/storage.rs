@@ -4,10 +4,11 @@ use crate::types::{
     Activity, AdapterConfig, AdapterTestResult, AdapterType, AdminAction, AuditDashboardMetrics,
     AuditEvent, AuditEventType, AuditQuery, AuditSeverity, Circuit, CircuitAdapterConfig,
     CircuitItem, CircuitOperation, CircuitType, ComplianceReport, ComplianceStatus,
-    ConflictResolution, CreditTransaction, DataLakeEntry, Event, EventType, EventVisibility,
-    Identifier, IdentifierMapping, Item, ItemShare, ItemStatus, ItemStorageHistory, Notification,
-    PendingItem, PendingPriority, PendingReason, ProcessingStatus, Receipt, SecurityIncident,
-    SecurityIncidentSummary, StorageRecord, SystemStatistics, UserAccount, WebhookDelivery,
+    ConflictResolution, CreditTransaction, DataLakeEntry, Event, EventCidMapping, EventType,
+    EventVisibility, Identifier, IdentifierMapping, IndexingProgress, Item, ItemShare, ItemStatus,
+    ItemStorageHistory, Notification, PendingItem, PendingPriority, PendingReason,
+    ProcessingStatus, Receipt, SecurityIncident, SecurityIncidentSummary, StorageRecord,
+    SystemStatistics, TimelineEntry, UserAccount, WebhookDelivery,
 };
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -326,6 +327,45 @@ pub trait StorageBackend {
     fn add_storage_record(&mut self, dfid: &str, record: StorageRecord)
         -> Result<(), StorageError>;
 
+    // CID Timeline operations (populated by blockchain event listener)
+    fn add_cid_to_timeline(
+        &mut self,
+        dfid: &str,
+        cid: &str,
+        ipcm_tx: &str,
+        timestamp: i64,
+        network: &str,
+    ) -> Result<(), StorageError>;
+    fn get_item_timeline(&self, dfid: &str) -> Result<Vec<TimelineEntry>, StorageError>;
+    fn get_timeline_by_sequence(
+        &self,
+        dfid: &str,
+        sequence: i32,
+    ) -> Result<Option<TimelineEntry>, StorageError>;
+    fn map_event_to_cid(
+        &mut self,
+        event_id: &Uuid,
+        dfid: &str,
+        cid: &str,
+        sequence: i32,
+    ) -> Result<(), StorageError>;
+    fn get_event_first_cid(&self, event_id: &Uuid)
+        -> Result<Option<EventCidMapping>, StorageError>;
+    fn get_events_in_cid(&self, cid: &str) -> Result<Vec<EventCidMapping>, StorageError>;
+
+    // Blockchain indexing progress operations
+    fn update_indexing_progress(
+        &mut self,
+        network: &str,
+        last_ledger: i64,
+        confirmed_ledger: i64,
+    ) -> Result<(), StorageError>;
+    fn get_indexing_progress(
+        &self,
+        network: &str,
+    ) -> Result<Option<IndexingProgress>, StorageError>;
+    fn increment_events_indexed(&mut self, network: &str, count: i64) -> Result<(), StorageError>;
+
     // Circuit Adapter Configuration operations
     fn store_circuit_adapter_config(
         &mut self,
@@ -511,6 +551,10 @@ pub struct InMemoryStorage {
     webhook_deliveries: HashMap<Uuid, WebhookDelivery>,
     webhook_deliveries_by_circuit: HashMap<Uuid, Vec<Uuid>>, // circuit_id -> delivery_ids
     webhook_deliveries_by_webhook: HashMap<Uuid, Vec<Uuid>>, // webhook_id -> delivery_ids
+    // CID Timeline tracking
+    cid_timeline: HashMap<String, Vec<TimelineEntry>>, // dfid -> timeline entries
+    event_cid_mappings: HashMap<Uuid, EventCidMapping>, // event_id -> mapping
+    indexing_progress: HashMap<String, IndexingProgress>, // network -> progress
 }
 
 impl InMemoryStorage {
@@ -553,6 +597,9 @@ impl InMemoryStorage {
             webhook_deliveries: HashMap::new(),
             webhook_deliveries_by_circuit: HashMap::new(),
             webhook_deliveries_by_webhook: HashMap::new(),
+            cid_timeline: HashMap::new(),
+            event_cid_mappings: HashMap::new(),
+            indexing_progress: HashMap::new(),
         }
     }
 }
@@ -1703,6 +1750,133 @@ impl StorageBackend for InMemoryStorage {
                 updated_at: chrono::Utc::now(),
             };
             self.storage_histories.insert(dfid.to_string(), history);
+        }
+        Ok(())
+    }
+
+    // CID Timeline operations - real implementations using HashMaps
+    fn add_cid_to_timeline(
+        &mut self,
+        dfid: &str,
+        cid: &str,
+        ipcm_tx: &str,
+        timestamp: i64,
+        network: &str,
+    ) -> Result<(), StorageError> {
+        let timeline = self
+            .cid_timeline
+            .entry(dfid.to_string())
+            .or_insert_with(Vec::new);
+
+        // Auto-increment sequence
+        let event_sequence = timeline.len() as i32 + 1;
+
+        let entry = TimelineEntry {
+            id: Uuid::new_v4(),
+            dfid: dfid.to_string(),
+            cid: cid.to_string(),
+            event_sequence,
+            blockchain_timestamp: timestamp,
+            ipcm_transaction_hash: ipcm_tx.to_string(),
+            network: network.to_string(),
+            created_at: Utc::now(),
+        };
+
+        timeline.push(entry);
+        Ok(())
+    }
+
+    fn get_item_timeline(&self, dfid: &str) -> Result<Vec<TimelineEntry>, StorageError> {
+        Ok(self.cid_timeline.get(dfid).cloned().unwrap_or_default())
+    }
+
+    fn get_timeline_by_sequence(
+        &self,
+        dfid: &str,
+        sequence: i32,
+    ) -> Result<Option<TimelineEntry>, StorageError> {
+        if let Some(timeline) = self.cid_timeline.get(dfid) {
+            Ok(timeline
+                .iter()
+                .find(|entry| entry.event_sequence == sequence)
+                .cloned())
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn map_event_to_cid(
+        &mut self,
+        event_id: &Uuid,
+        dfid: &str,
+        cid: &str,
+        sequence: i32,
+    ) -> Result<(), StorageError> {
+        let mapping = EventCidMapping {
+            id: Uuid::new_v4(),
+            event_id: *event_id,
+            dfid: dfid.to_string(),
+            first_cid: cid.to_string(),
+            appeared_in_sequence: sequence,
+            created_at: Utc::now(),
+        };
+
+        self.event_cid_mappings.insert(*event_id, mapping);
+        Ok(())
+    }
+
+    fn get_event_first_cid(
+        &self,
+        event_id: &Uuid,
+    ) -> Result<Option<EventCidMapping>, StorageError> {
+        Ok(self.event_cid_mappings.get(event_id).cloned())
+    }
+
+    fn get_events_in_cid(&self, cid: &str) -> Result<Vec<EventCidMapping>, StorageError> {
+        Ok(self
+            .event_cid_mappings
+            .values()
+            .filter(|mapping| mapping.first_cid == cid)
+            .cloned()
+            .collect())
+    }
+
+    fn update_indexing_progress(
+        &mut self,
+        network: &str,
+        last_ledger: i64,
+        confirmed_ledger: i64,
+    ) -> Result<(), StorageError> {
+        let progress = self
+            .indexing_progress
+            .entry(network.to_string())
+            .or_insert_with(|| IndexingProgress {
+                network: network.to_string(),
+                last_indexed_ledger: 0,
+                last_confirmed_ledger: 0,
+                last_indexed_at: Utc::now(),
+                status: "active".to_string(),
+                error_message: None,
+                total_events_indexed: 0,
+                last_error_at: None,
+            });
+
+        progress.last_indexed_ledger = last_ledger;
+        progress.last_confirmed_ledger = confirmed_ledger;
+        progress.last_indexed_at = Utc::now();
+        Ok(())
+    }
+
+    fn get_indexing_progress(
+        &self,
+        network: &str,
+    ) -> Result<Option<IndexingProgress>, StorageError> {
+        Ok(self.indexing_progress.get(network).cloned())
+    }
+
+    fn increment_events_indexed(&mut self, network: &str, count: i64) -> Result<(), StorageError> {
+        if let Some(progress) = self.indexing_progress.get_mut(network) {
+            progress.total_events_indexed += count;
         }
         Ok(())
     }
@@ -3088,6 +3262,93 @@ impl StorageBackend for EncryptedFileStorage {
         ))
     }
 
+    // CID Timeline operations - not implemented for EncryptedFileStorage
+    fn add_cid_to_timeline(
+        &mut self,
+        _dfid: &str,
+        _cid: &str,
+        _ipcm_tx: &str,
+        _timestamp: i64,
+        _network: &str,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "CID timeline operations not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn get_item_timeline(&self, _dfid: &str) -> Result<Vec<TimelineEntry>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "CID timeline operations not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn get_timeline_by_sequence(
+        &self,
+        _dfid: &str,
+        _sequence: i32,
+    ) -> Result<Option<TimelineEntry>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "CID timeline operations not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn map_event_to_cid(
+        &mut self,
+        _event_id: &Uuid,
+        _dfid: &str,
+        _cid: &str,
+        _sequence: i32,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "CID timeline operations not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn get_event_first_cid(
+        &self,
+        _event_id: &Uuid,
+    ) -> Result<Option<EventCidMapping>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "CID timeline operations not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn get_events_in_cid(&self, _cid: &str) -> Result<Vec<EventCidMapping>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "CID timeline operations not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn update_indexing_progress(
+        &mut self,
+        _network: &str,
+        _last_ledger: i64,
+        _confirmed_ledger: i64,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Indexing progress operations not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn get_indexing_progress(
+        &self,
+        _network: &str,
+    ) -> Result<Option<IndexingProgress>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Indexing progress operations not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn increment_events_indexed(
+        &mut self,
+        _network: &str,
+        _count: i64,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Indexing progress operations not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
     fn store_circuit_adapter_config(
         &mut self,
         _config: &CircuitAdapterConfig,
@@ -4177,6 +4438,89 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
         self.lock()
             .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
             .add_storage_record(dfid, record)
+    }
+
+    // CID Timeline operations - delegate to inner InMemoryStorage
+    fn add_cid_to_timeline(
+        &mut self,
+        dfid: &str,
+        cid: &str,
+        ipcm_tx: &str,
+        timestamp: i64,
+        network: &str,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .add_cid_to_timeline(dfid, cid, ipcm_tx, timestamp, network)
+    }
+
+    fn get_item_timeline(&self, dfid: &str) -> Result<Vec<TimelineEntry>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_item_timeline(dfid)
+    }
+
+    fn get_timeline_by_sequence(
+        &self,
+        dfid: &str,
+        sequence: i32,
+    ) -> Result<Option<TimelineEntry>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_timeline_by_sequence(dfid, sequence)
+    }
+
+    fn map_event_to_cid(
+        &mut self,
+        event_id: &Uuid,
+        dfid: &str,
+        cid: &str,
+        sequence: i32,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .map_event_to_cid(event_id, dfid, cid, sequence)
+    }
+
+    fn get_event_first_cid(
+        &self,
+        event_id: &Uuid,
+    ) -> Result<Option<EventCidMapping>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_event_first_cid(event_id)
+    }
+
+    fn get_events_in_cid(&self, cid: &str) -> Result<Vec<EventCidMapping>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_in_cid(cid)
+    }
+
+    fn update_indexing_progress(
+        &mut self,
+        network: &str,
+        last_ledger: i64,
+        confirmed_ledger: i64,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_indexing_progress(network, last_ledger, confirmed_ledger)
+    }
+
+    fn get_indexing_progress(
+        &self,
+        network: &str,
+    ) -> Result<Option<IndexingProgress>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_indexing_progress(network)
+    }
+
+    fn increment_events_indexed(&mut self, network: &str, count: i64) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .increment_events_indexed(network, count)
     }
 
     fn store_circuit_adapter_config(
