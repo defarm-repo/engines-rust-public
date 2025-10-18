@@ -1041,17 +1041,37 @@ async fn push_local_item(
                         record.metadata.len()
                     );
 
+                    // Log all metadata keys and values for debugging
+                    tracing::info!(
+                        "📋 Storage record metadata for {}: {:?}",
+                        result.dfid,
+                        record.metadata
+                    );
+
                     // ============================================================
                     // DUAL-WRITE: Persist CID timeline entry to PostgreSQL
                     // ============================================================
                     // Extract CID, transaction hash, and network from storage record metadata
-                    if let (Some(cid), Some(ipcm_tx)) = (
-                        record.metadata.get("ipfs_cid").and_then(|v| v.as_str()),
-                        record
-                            .metadata
-                            .get("ipcm_update_tx")
-                            .and_then(|v| v.as_str()),
-                    ) {
+                    // Looking for specific keys that adapter should have returned
+                    let ipfs_cid = record.metadata.get("ipfs_cid").and_then(|v| v.as_str());
+                    let ipcm_tx = record
+                        .metadata
+                        .get("ipcm_update_tx")
+                        .and_then(|v| v.as_str());
+
+                    tracing::info!(
+                        "🔍 Extracted from metadata - ipfs_cid: {:?}, ipcm_update_tx: {:?}",
+                        ipfs_cid,
+                        ipcm_tx
+                    );
+
+                    if let (Some(cid), Some(ipcm_tx)) = (ipfs_cid, ipcm_tx) {
+                        tracing::info!(
+                            "✅ Found CID timeline data for {}: CID={}, TX={}",
+                            result.dfid,
+                            cid,
+                            ipcm_tx
+                        );
                         let network = record
                             .metadata
                             .get("network")
@@ -1086,10 +1106,13 @@ async fn push_local_item(
                         );
                         }
                     } else {
-                        tracing::debug!(
-                        "⚠️  Storage record for {} missing CID or IPCM tx - skipping timeline entry",
-                        result.dfid
-                    );
+                        tracing::warn!(
+                            "⚠️  Missing CID timeline data for {} - ipfs_cid: {:?}, ipcm_update_tx: {:?}. Available metadata keys: {:?}",
+                            result.dfid,
+                            ipfs_cid,
+                            ipcm_tx,
+                            record.metadata.keys().collect::<Vec<_>>()
+                        );
                     }
                 }
             }
