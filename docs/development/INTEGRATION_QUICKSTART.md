@@ -613,7 +613,7 @@ When an item is tokenized, you'll receive:
     "ipfs_cid": "QmPmK1dJR5TJaiknnM1gAHpUXM7eK9921kdc7TsuPW6Zsr",
     "metadata": {
       "nft_contract": "CDOZEG35YQ7KYASQBUW2DVV7CIQZB5HMWAB2PWPUCHSTKSCD5ZUTPUW3",
-      "ipcm_contract": "CAALVDSF7RLM7IRGE3GQKPRHWWZSPDSNHOBEIEDJU5MAM4I4PVFWJXLS"
+      "ipcm_contract": "CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS"
     }
   },
   "operation_id": "b67f14c7-9ec0-49ff-ae3d-b5cf04b2de0e",

@@ -37,7 +37,7 @@
    ```bash
    cd ~/defarm/backbone
    stellar contract invoke \
-     --id CAALVDSF7RLM7IRGE3GQKPRHWWZSPDSNHOBEIEDJU5MAM4I4PVFWJXLS \
+     --id CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS \
      --network testnet \
      --source-account defarm-admin-secure-v2 \
      -- \
@@ -131,7 +131,7 @@ stellar network add mainnet \
    # Option A: Add interface to authorized list (recommended)
    cd ~/defarm/backbone
    stellar contract invoke \
-     --id CAALVDSF7RLM7IRGE3GQKPRHWWZSPDSNHOBEIEDJU5MAM4I4PVFWJXLS \
+     --id CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS \
      --network testnet \
      --source-account defarm-admin-secure-v2 \
      -- \

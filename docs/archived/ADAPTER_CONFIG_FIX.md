@@ -41,7 +41,7 @@ POST /api/admin/adapters
     "contracts": [
       {
         "name": "IPCM",
-        "address": "CAALVDSF7RLM7IRGE3GQKPRHWWZSPDSNHOBEIEDJU5MAM4I4PVFWJXLS",
+        "address": "CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS",
         "network": "testnet"
       }
     ]
