@@ -650,7 +650,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     } => transaction_hash.clone(),
                 };
 
-                // Extract transaction hashes and CIDs from event_locations
+                // Extract transaction hashes and CIDs from both item_location and event_locations
                 let mut transaction_metadata = HashMap::new();
                 transaction_metadata.insert(
                     "network".to_string(),
@@ -661,6 +661,27 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     }),
                 );
 
+                // IMPORTANT: For StellarTestnetIpfs adapter, the IPCM update transaction
+                // is stored in item_location (primary location for data retrieval)
+                if let StorageLocation::Stellar {
+                    transaction_id,
+                    asset_id,
+                    ..
+                } = &storage_location
+                {
+                    // This is the IPCM update transaction (used for data retrieval)
+                    transaction_metadata.insert(
+                        "ipcm_update_tx".to_string(),
+                        serde_json::json!(transaction_id),
+                    );
+
+                    // The asset_id contains the IPFS CID
+                    if let Some(cid) = asset_id {
+                        transaction_metadata.insert("ipfs_cid".to_string(), serde_json::json!(cid));
+                    }
+                }
+
+                // Process event_locations for NFT mint and additional metadata
                 for (idx, location) in upload_result.metadata.event_locations.iter().enumerate() {
                     match location {
                         StorageLocation::Stellar {
@@ -668,7 +689,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                             contract_address,
                             ..
                         } => {
-                            // First Stellar transaction is NFT mint, second is IPCM update
+                            // First Stellar transaction in event_locations is NFT mint
                             if idx == 0 {
                                 transaction_metadata.insert(
                                     "nft_mint_tx".to_string(),
@@ -678,14 +699,11 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                                     "nft_contract".to_string(),
                                     serde_json::json!(contract_address),
                                 );
-                            } else {
-                                transaction_metadata.insert(
-                                    "ipcm_update_tx".to_string(),
-                                    serde_json::json!(transaction_id),
-                                );
                             }
+                            // Note: IPCM update is now handled from item_location above
                         }
                         StorageLocation::IPFS { cid, pinned } => {
+                            // Also capture IPFS CID from event_locations
                             transaction_metadata
                                 .insert("ipfs_cid".to_string(), serde_json::json!(cid));
                             transaction_metadata
