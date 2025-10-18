@@ -1020,15 +1020,17 @@ async fn push_local_item(
 
         if let Some(records) = records_to_persist {
             for record in &records {
+                // Persist storage record to PostgreSQL
                 if let Err(e) = pg.persist_storage_record(&result.dfid, record).await {
                     tracing::warn!("Failed to persist storage record to PostgreSQL: {}", e);
-                } else {
-                    tracing::debug!(
-                        "✅ Persisted storage record for {} to PostgreSQL with {} metadata entries",
-                        result.dfid,
-                        record.metadata.len()
-                    );
+                    continue; // Skip timeline creation if storage record persist fails
                 }
+
+                tracing::debug!(
+                    "✅ Persisted storage record for {} to PostgreSQL with {} metadata entries",
+                    result.dfid,
+                    record.metadata.len()
+                );
 
                 // ============================================================
                 // DUAL-WRITE: Persist CID timeline entry to PostgreSQL
@@ -1074,6 +1076,11 @@ async fn push_local_item(
                             network
                         );
                     }
+                } else {
+                    tracing::debug!(
+                        "⚠️  Storage record for {} missing CID or IPCM tx - skipping timeline entry",
+                        result.dfid
+                    );
                 }
             }
         }
