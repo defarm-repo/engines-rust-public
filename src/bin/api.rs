@@ -62,9 +62,22 @@ async fn main() {
     // Stellar SDK integration - no CLI needed, health check removed
     info!("🌟 Stellar SDK integration enabled (native Rust - no CLI dependency)");
 
-    // Initialize PostgreSQL in background (lazy initialization - won't block server startup)
-    // Development data will be set up after PostgreSQL connects (or in-memory if no DB)
-    initialize_postgres_background(app_state.clone());
+    // Initialize PostgreSQL - can be synchronous or asynchronous based on env var
+    // POSTGRES_WAIT_ON_STARTUP=true (default in production) blocks until connected
+    let wait_on_startup = std::env::var("POSTGRES_WAIT_ON_STARTUP")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or_else(|_| {
+            // Default to true if DATABASE_URL is set (production mode)
+            std::env::var("DATABASE_URL").is_ok()
+        });
+
+    if wait_on_startup {
+        info!("⏳ Waiting for PostgreSQL connection before starting server...");
+        initialize_postgres_sync(app_state.clone()).await;
+    } else {
+        info!("🚀 Starting server with background PostgreSQL initialization...");
+        initialize_postgres_background(app_state.clone());
+    }
 
     // Health endpoints with state
     let health_routes = Router::new()
@@ -257,6 +270,112 @@ async fn health_check_db(
                 }
             })),
         ),
+    }
+}
+
+/// Initialize PostgreSQL synchronously, blocking until connected
+async fn initialize_postgres_sync(app_state: Arc<AppState>) {
+    // Check if DATABASE_URL is set
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            tracing::info!("💡 DATABASE_URL not set - running with in-memory storage only");
+            tracing::warn!("⚠️  Data will not persist between restarts");
+            return;
+        }
+    };
+
+    tracing::info!("🗄️  DATABASE_URL detected - initializing PostgreSQL persistence...");
+
+    // Create PostgreSQL persistence instance
+    let mut pg_persistence = PostgresPersistence::new(database_url);
+
+    // Try to connect with retry logic
+    match pg_persistence.connect().await {
+        Ok(()) => {
+            tracing::info!("✅ PostgreSQL persistence enabled");
+
+            // Load or initialize data (same logic as background version)
+            let data_loaded = match load_data_from_postgres(&pg_persistence, &app_state).await {
+                Ok(count) if count > 0 => {
+                    tracing::info!("✅ Loaded {} users from PostgreSQL", count);
+                    true
+                }
+                Ok(_) => {
+                    tracing::info!("💡 PostgreSQL database is empty");
+                    false
+                }
+                Err(e) => {
+                    tracing::warn!("⚠️  Could not load data from PostgreSQL: {}", e);
+                    false
+                }
+            };
+
+            // If database is empty, initialize development data
+            if !data_loaded {
+                tracing::info!("🚀 Initializing development data in PostgreSQL...");
+                match initialize_development_data_to_postgres(&pg_persistence).await {
+                    Ok(()) => tracing::info!("✅ Development data initialized in PostgreSQL"),
+                    Err(e) => {
+                        tracing::error!("❌ Failed to initialize development data: {}", e)
+                    }
+                }
+
+                // Load the newly created data into in-memory storage
+                match load_data_from_postgres(&pg_persistence, &app_state).await {
+                    Ok(count) => {
+                        tracing::info!("✅ Loaded {} users into in-memory cache", count)
+                    }
+                    Err(e) => tracing::warn!("⚠️  Could not load data: {}", e),
+                }
+            } else {
+                // Check and initialize adapters if needed
+                tracing::info!("🔍 Checking if production adapters need initialization...");
+                match pg_persistence.load_adapter_configs().await {
+                    Ok(adapters) if adapters.is_empty() => {
+                        tracing::info!(
+                            "🔌 No adapters found - initializing production adapters..."
+                        );
+                        match initialize_adapters_to_postgres(&pg_persistence).await {
+                            Ok(count) => {
+                                tracing::info!("✅ {} production adapters initialized!", count)
+                            }
+                            Err(e) => {
+                                tracing::error!("❌ Failed to initialize adapters: {}", e)
+                            }
+                        }
+                        // Reload adapters into memory
+                        match load_data_from_postgres(&pg_persistence, &app_state).await {
+                            Ok(_) => tracing::info!("✅ Adapters loaded into memory"),
+                            Err(e) => tracing::warn!("⚠️  Could not reload adapters: {}", e),
+                        }
+                    }
+                    Ok(adapters) => {
+                        tracing::info!("✅ {} adapters already exist in database", adapters.len());
+                    }
+                    Err(e) => {
+                        tracing::warn!("⚠️  Could not check adapters: {}", e);
+                    }
+                }
+            }
+
+            // Store the connected persistence instance
+            let mut pg_lock = app_state.postgres_persistence.write().await;
+            *pg_lock = Some(pg_persistence);
+            drop(pg_lock);
+
+            // Enable event persistence now that PostgreSQL is connected
+            app_state.enable_event_persistence();
+            tracing::info!("✅ Event persistence enabled - events will now persist to PostgreSQL");
+
+            tracing::info!("🎉 PostgreSQL persistence fully operational!");
+        }
+        Err(e) => {
+            tracing::error!("❌ PostgreSQL connection failed: {}", e);
+            if !handle_postgres_failure(&app_state) {
+                std::process::exit(1);
+            }
+        }
     }
 }
 

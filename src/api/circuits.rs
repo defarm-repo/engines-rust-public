@@ -996,98 +996,105 @@ async fn push_local_item(
     // Write-through cache: Persist to PostgreSQL if available
     let pg_lock = state.postgres_persistence.read().await;
     if let Some(pg) = &*pg_lock {
-        // Persist LID-DFID mapping
-        if let Err(e) = pg
-            .persist_lid_dfid_mapping(&result.local_id, &result.dfid)
-            .await
-        {
-            tracing::warn!("Failed to persist LID-DFID mapping to PostgreSQL: {}", e);
-        }
+        // Ensure PostgreSQL is connected before attempting persistence
+        if let Err(e) = pg.wait_for_connection(10).await {
+            tracing::warn!(
+                "⚠️  PostgreSQL not ready for persistence operations: {}. Data will be in-memory only.",
+                e
+            );
+        } else {
+            // Persist LID-DFID mapping
+            if let Err(e) = pg
+                .persist_lid_dfid_mapping(&result.local_id, &result.dfid)
+                .await
+            {
+                tracing::warn!("Failed to persist LID-DFID mapping to PostgreSQL: {}", e);
+            }
 
-        // Persist storage records (transaction hashes, CIDs, etc.)
-        // Extract records first to avoid holding lock across await
-        let records_to_persist = {
-            if let Ok(storage_guard) = state.shared_storage.lock() {
-                if let Ok(Some(storage_history)) = storage_guard.get_storage_history(&result.dfid) {
-                    Some(storage_history.storage_records.clone())
+            // Persist storage records (transaction hashes, CIDs, etc.)
+            // Extract records first to avoid holding lock across await
+            let records_to_persist = {
+                if let Ok(storage_guard) = state.shared_storage.lock() {
+                    if let Ok(Some(storage_history)) =
+                        storage_guard.get_storage_history(&result.dfid)
+                    {
+                        Some(storage_history.storage_records.clone())
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
-            } else {
-                None
-            }
-        };
+            };
 
-        if let Some(records) = records_to_persist {
-            for record in &records {
-                // Persist storage record to PostgreSQL
-                if let Err(e) = pg.persist_storage_record(&result.dfid, record).await {
-                    tracing::warn!("Failed to persist storage record to PostgreSQL: {}", e);
-                    continue; // Skip timeline creation if storage record persist fails
-                }
+            if let Some(records) = records_to_persist {
+                for record in &records {
+                    // Persist storage record to PostgreSQL
+                    if let Err(e) = pg.persist_storage_record(&result.dfid, record).await {
+                        tracing::warn!("Failed to persist storage record to PostgreSQL: {}", e);
+                        continue; // Skip timeline creation if storage record persist fails
+                    }
 
-                tracing::debug!(
-                    "✅ Persisted storage record for {} to PostgreSQL with {} metadata entries",
-                    result.dfid,
-                    record.metadata.len()
-                );
+                    tracing::debug!(
+                        "✅ Persisted storage record for {} to PostgreSQL with {} metadata entries",
+                        result.dfid,
+                        record.metadata.len()
+                    );
 
-                // ============================================================
-                // DUAL-WRITE: Persist CID timeline entry to PostgreSQL
-                // ============================================================
-                // Extract CID, transaction hash, and network from storage record metadata
-                if let (Some(cid), Some(ipcm_tx)) = (
-                    record.metadata.get("ipfs_cid").and_then(|v| v.as_str()),
-                    record
-                        .metadata
-                        .get("ipcm_update_tx")
-                        .and_then(|v| v.as_str()),
-                ) {
-                    let network = record
-                        .metadata
-                        .get("network")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
+                    // ============================================================
+                    // DUAL-WRITE: Persist CID timeline entry to PostgreSQL
+                    // ============================================================
+                    // Extract CID, transaction hash, and network from storage record metadata
+                    if let (Some(cid), Some(ipcm_tx)) = (
+                        record.metadata.get("ipfs_cid").and_then(|v| v.as_str()),
+                        record
+                            .metadata
+                            .get("ipcm_update_tx")
+                            .and_then(|v| v.as_str()),
+                    ) {
+                        let network = record
+                            .metadata
+                            .get("network")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
 
-                    let blockchain_timestamp = chrono::Utc::now().timestamp();
+                        let blockchain_timestamp = chrono::Utc::now().timestamp();
 
-                    if let Err(e) = pg
-                        .add_cid_to_timeline(
-                            &result.dfid,
-                            cid,
-                            ipcm_tx,
-                            blockchain_timestamp,
-                            network,
-                        )
-                        .await
-                    {
-                        tracing::warn!(
-                            "⚠️  Failed to add CID to timeline (non-fatal): {} -> {} ({})",
-                            result.dfid,
-                            cid,
-                            e
-                        );
-                    } else {
-                        tracing::info!(
+                        if let Err(e) = pg
+                            .add_cid_to_timeline(
+                                &result.dfid,
+                                cid,
+                                ipcm_tx,
+                                blockchain_timestamp,
+                                network,
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "⚠️  Failed to add CID to timeline (non-fatal): {} -> {} ({})",
+                                result.dfid,
+                                cid,
+                                e
+                            );
+                        } else {
+                            tracing::info!(
                             "✅ Added CID to timeline (PostgreSQL): {} -> {} (TX: {}, network: {})",
                             result.dfid,
                             cid,
                             ipcm_tx,
                             network
                         );
-                    }
-                } else {
-                    tracing::debug!(
+                        }
+                    } else {
+                        tracing::debug!(
                         "⚠️  Storage record for {} missing CID or IPCM tx - skipping timeline entry",
                         result.dfid
                     );
+                    }
                 }
             }
-        }
-
-        // TODO: Persist CircuitOperation and Activity once we can retrieve them from storage
-        // Currently they're stored in-memory but we need to query them back to persist
-    }
+        } // End of else block (PostgreSQL is connected)
+    } // End of if let Some(pg)
     drop(pg_lock);
 
     let status_str = match result.status {

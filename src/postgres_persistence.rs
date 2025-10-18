@@ -261,6 +261,33 @@ impl PostgresPersistence {
         state == ConnectionState::Connected && self.pool.is_some()
     }
 
+    /// Wait for PostgreSQL connection to be established
+    /// Returns Ok when connected or Err if timeout is reached
+    pub async fn wait_for_connection(&self, timeout_secs: u64) -> Result<(), String> {
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_secs(timeout_secs);
+        let check_interval = Duration::from_millis(100);
+
+        while start.elapsed() < timeout {
+            if self.is_connected().await {
+                return Ok(());
+            }
+
+            // Check connection state to see if we're still trying to connect
+            let state = *self.connection_state.read().await;
+            if state == ConnectionState::Failed {
+                return Err("PostgreSQL connection failed".to_string());
+            }
+
+            tokio::time::sleep(check_interval).await;
+        }
+
+        Err(format!(
+            "Timeout waiting for PostgreSQL connection after {} seconds",
+            timeout_secs
+        ))
+    }
+
     /// Get connection status for health checks
     pub async fn get_status(&self) -> (String, String) {
         let state = *self.connection_state.read().await;
@@ -463,8 +490,10 @@ impl PostgresPersistence {
     }
 
     async fn persist_circuit_once(&self, circuit: &Circuit) -> Result<(), String> {
-        if !self.is_connected().await {
-            return Err("PostgreSQL not connected".to_string());
+        // Wait for connection with a 10-second timeout
+        if let Err(e) = self.wait_for_connection(10).await {
+            tracing::debug!("⏳ Waiting for PostgreSQL connection before persisting circuit...");
+            return Err(e);
         }
 
         let client = self.get_client().await?;
@@ -645,8 +674,10 @@ impl PostgresPersistence {
     }
 
     async fn persist_user_once(&self, user: &UserAccount) -> Result<(), String> {
-        if !self.is_connected().await {
-            return Err("PostgreSQL not connected".to_string());
+        // Wait for connection with a 10-second timeout
+        if let Err(e) = self.wait_for_connection(10).await {
+            tracing::debug!("⏳ Waiting for PostgreSQL connection before persisting user...");
+            return Err(e);
         }
 
         let client = self.get_client().await?;
@@ -769,8 +800,10 @@ impl PostgresPersistence {
     }
 
     async fn persist_item_once(&self, item: &crate::types::Item) -> Result<(), String> {
-        if !self.is_connected().await {
-            return Err("PostgreSQL not connected".to_string());
+        // Wait for connection with a 10-second timeout
+        if let Err(e) = self.wait_for_connection(10).await {
+            tracing::debug!("⏳ Waiting for PostgreSQL connection before persisting item...");
+            return Err(e);
         }
 
         let client = self.get_client().await?;
@@ -858,8 +891,10 @@ impl PostgresPersistence {
     }
 
     async fn persist_event_once(&self, event: &crate::types::Event) -> Result<(), String> {
-        if !self.is_connected().await {
-            return Err("PostgreSQL not connected".to_string());
+        // Wait for connection with a 10-second timeout
+        if let Err(e) = self.wait_for_connection(10).await {
+            tracing::debug!("⏳ Waiting for PostgreSQL connection before persisting event...");
+            return Err(e);
         }
 
         let client = self.get_client().await?;
@@ -990,6 +1025,14 @@ impl PostgresPersistence {
         local_id: &Uuid,
         dfid: &str,
     ) -> Result<(), String> {
+        // Wait for connection with a 10-second timeout
+        if let Err(e) = self.wait_for_connection(10).await {
+            tracing::debug!(
+                "⏳ Waiting for PostgreSQL connection before persisting LID-DFID mapping..."
+            );
+            return Err(e);
+        }
+
         let client = self.get_client().await?;
 
         client
@@ -1288,6 +1331,14 @@ impl PostgresPersistence {
         dfid: &str,
         record: &StorageRecord,
     ) -> Result<(), String> {
+        // Wait for connection with a 10-second timeout
+        if let Err(e) = self.wait_for_connection(10).await {
+            tracing::debug!(
+                "⏳ Waiting for PostgreSQL connection before persisting storage record..."
+            );
+            return Err(e);
+        }
+
         let client = self.get_client().await?;
 
         let storage_location_json = serde_json::to_value(&record.storage_location)

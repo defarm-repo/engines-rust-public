@@ -11,3 +11,8 @@ dockerfilePath = "config/Dockerfile"
 startCommand = "/app/defarm-api"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+
+# Health check configuration
+# Railway will not route traffic until this endpoint returns 200
+healthcheckPath = "/health/db"
+healthcheckTimeout = 30
