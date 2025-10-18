@@ -229,6 +229,7 @@ impl SorobanRpcClient {
     ) -> Result<Vec<IpcmEvent>, String> {
         // Query Soroban RPC for events
         // POST request to RPC endpoint with getEvents method
+        // Using xdrFormat: "json" for easier parsing (can refactor to XDR decoding later)
         let request_body = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -238,7 +239,8 @@ impl SorobanRpcClient {
                 "filters": [{
                     "type": "contract",
                     "contractIds": [contract_address]
-                }]
+                }],
+                "xdrFormat": "json"
             }
         });
 
@@ -266,6 +268,7 @@ impl SorobanRpcClient {
     }
 
     /// Parse Soroban RPC events response into IpcmEvent structs
+    /// Expects JSON format response (xdrFormat: "json")
     fn parse_events_response(&self, response: serde_json::Value) -> Result<Vec<IpcmEvent>, String> {
         let result = response.get("result").ok_or("No result in RPC response")?;
 
@@ -277,9 +280,10 @@ impl SorobanRpcClient {
         let mut ipcm_events = Vec::new();
 
         for event in events_array {
-            // Extract event data
-            // Note: This is simplified - actual Soroban event format is more complex
-            // Real implementation needs to decode XDR-encoded event data
+            // Extract event data from JSON format
+            // Event structure from IPCM contract:
+            // Topic: (symbol_short!("update"), dfid)
+            // Data: (cid, timestamp, updater_address)
 
             let topic = event
                 .get("topic")
@@ -288,10 +292,11 @@ impl SorobanRpcClient {
 
             let value = event.get("value").ok_or("No value in event")?;
 
-            // Parse DFID and CID from event data
-            // Format: topic = ["Symbol(update_ipcm)"], value = {key: "DFID-...", value: "Qm..."}
-            let dfid = self.extract_dfid(topic, value)?;
-            let cid = self.extract_cid(topic, value)?;
+            // Parse DFID from topic (second element)
+            let dfid = self.extract_dfid(topic)?;
+
+            // Parse CID from value (first element of tuple)
+            let cid = self.extract_cid(value)?;
 
             let tx_hash = event
                 .get("txHash")
@@ -323,34 +328,76 @@ impl SorobanRpcClient {
         Ok(ipcm_events)
     }
 
-    /// Extract DFID from event data
-    /// This needs to decode XDR format from Soroban
-    fn extract_dfid(
-        &self,
-        _topic: &[serde_json::Value],
-        value: &serde_json::Value,
-    ) -> Result<String, String> {
-        // Simplified parsing - real implementation needs XDR decoding
-        value
-            .get("key")
-            .and_then(|k| k.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| "Failed to extract DFID from event".to_string())
+    /// Extract DFID from event topic (JSON format)
+    /// Topic structure: [{"sym": "update"}, {"string": "DFID-..."}]
+    /// Returns the DFID string from the second element
+    fn extract_dfid(&self, topic: &[serde_json::Value]) -> Result<String, String> {
+        if topic.len() < 2 {
+            return Err(format!(
+                "Topic too short: expected at least 2 elements, got {}",
+                topic.len()
+            ));
+        }
+
+        // Second element should be the DFID
+        let dfid_value = &topic[1];
+
+        // Try different possible JSON structures
+        // Option 1: {"string": "DFID-..."}
+        if let Some(s) = dfid_value.get("string").and_then(|v| v.as_str()) {
+            return Ok(s.to_string());
+        }
+
+        // Option 2: {"String": "DFID-..."}
+        if let Some(s) = dfid_value.get("String").and_then(|v| v.as_str()) {
+            return Ok(s.to_string());
+        }
+
+        // Option 3: Direct string
+        if let Some(s) = dfid_value.as_str() {
+            return Ok(s.to_string());
+        }
+
+        Err(format!(
+            "Failed to extract DFID from topic element: {}",
+            dfid_value
+        ))
     }
 
-    /// Extract CID from event data
-    /// This needs to decode XDR format from Soroban
-    fn extract_cid(
-        &self,
-        _topic: &[serde_json::Value],
-        value: &serde_json::Value,
-    ) -> Result<String, String> {
-        // Simplified parsing - real implementation needs XDR decoding
-        value
-            .get("value")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| "Failed to extract CID from event".to_string())
+    /// Extract CID from event value (JSON format)
+    /// Value structure: [{"string": "Qm..."}, {"u64": 123456}, {"address": "G..."}]
+    /// Returns the CID string from the first element
+    fn extract_cid(&self, value: &serde_json::Value) -> Result<String, String> {
+        // Value should be an array (tuple in Soroban)
+        let value_array = value.as_array().ok_or("Event value is not an array")?;
+
+        if value_array.is_empty() {
+            return Err("Event value array is empty".to_string());
+        }
+
+        // First element should be the CID
+        let cid_value = &value_array[0];
+
+        // Try different possible JSON structures
+        // Option 1: {"string": "Qm..."}
+        if let Some(s) = cid_value.get("string").and_then(|v| v.as_str()) {
+            return Ok(s.to_string());
+        }
+
+        // Option 2: {"String": "Qm..."}
+        if let Some(s) = cid_value.get("String").and_then(|v| v.as_str()) {
+            return Ok(s.to_string());
+        }
+
+        // Option 3: Direct string
+        if let Some(s) = cid_value.as_str() {
+            return Ok(s.to_string());
+        }
+
+        Err(format!(
+            "Failed to extract CID from value element: {}",
+            cid_value
+        ))
     }
 }
 
