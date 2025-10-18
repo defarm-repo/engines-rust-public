@@ -59,6 +59,8 @@ $$ LANGUAGE plpgsql;
 -- ============================================================================
 -- Trigger: Auto-set sequence before insert
 -- ============================================================================
+DROP TRIGGER IF EXISTS trigger_auto_sequence ON item_cid_timeline;
+
 CREATE TRIGGER trigger_auto_sequence
 BEFORE INSERT ON item_cid_timeline
 FOR EACH ROW
@@ -116,6 +118,8 @@ ON CONFLICT (network) DO NOTHING;
 -- View: item_timeline_with_events
 -- Purpose: Convenient view combining timeline with event information
 -- ============================================================================
+DROP VIEW IF EXISTS item_timeline_with_events CASCADE;
+
 CREATE OR REPLACE VIEW item_timeline_with_events AS
 SELECT
     t.dfid,
