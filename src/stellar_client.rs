@@ -16,9 +16,9 @@ use soroban_client::{
     Options, Server,
 };
 
-// Real contract addresses from .env configuration
-pub const TESTNET_IPCM_CONTRACT: &str = "CAALVDSF7RLM7IRGE3GQKPRHWWZSPDSNHOBEIEDJU5MAM4I4PVFWJXLS";
-pub const MAINNET_IPCM_CONTRACT: &str = "CBSIAY6QWRSRPXT2I2KP7TPFDH6G3BEPL4I7PPXTAXKQHTJYE5EC4P24";
+// Real contract addresses - v2.1.0 with event emission and upgrade capability
+pub const TESTNET_IPCM_CONTRACT: &str = "CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS";
+pub const MAINNET_IPCM_CONTRACT: &str = "CBHYQKSG2ZADD7NXZPLFZIH7ZK766VA3YWRLISKJ6PH6KXJ4JZ52OLNZ";
 
 #[derive(Debug, Clone)]
 pub enum StellarNetwork {
