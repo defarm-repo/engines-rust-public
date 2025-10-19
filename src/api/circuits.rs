@@ -36,6 +36,7 @@ pub struct CreateCircuitRequest {
     // owner_id is now extracted from JWT token automatically
     pub adapter_config: Option<CreateCircuitAdapterConfigRequest>,
     pub alias_config: Option<CircuitAliasConfig>,
+    pub allow_public_visibility: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -727,6 +728,34 @@ async fn create_circuit(
                         Json(json!({"error": format!("Failed to set adapter config: {}", e)})),
                     )
                 })?;
+        }
+
+        // Set public visibility if requested
+        if let Some(allow_public) = payload.allow_public_visibility {
+            if allow_public {
+                let updated_permissions = CircuitPermissions {
+                    require_approval_for_push: circuit.permissions.require_approval_for_push,
+                    require_approval_for_pull: circuit.permissions.require_approval_for_pull,
+                    allow_public_visibility: true,
+                };
+
+                engine
+                    .update_circuit(
+                        &circuit.circuit_id,
+                        None,
+                        None,
+                        Some(updated_permissions),
+                        &owner_id,
+                    )
+                    .map_err(|e| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                json!({"error": format!("Failed to set public visibility: {}", e)}),
+                            ),
+                        )
+                    })?;
+            }
         }
 
         // Get updated circuit

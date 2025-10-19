@@ -44,12 +44,17 @@ impl StellarMainnetIpfsAdapter {
             let api_key = cfg.connection_details.api_key.clone();
             let secret_key = cfg.connection_details.secret_key.clone();
 
-            let contract_address = cfg
-                .contract_configs
-                .as_ref()
-                .and_then(|cc| cc.ipcm_contract.as_ref())
-                .map(|ci| ci.contract_address.clone())
-                .unwrap_or_else(|| MAINNET_IPCM_CONTRACT.to_string());
+            // Environment variable takes precedence over database config
+            // This allows easy contract upgrades without database migration
+            let contract_address = std::env::var("STELLAR_MAINNET_IPCM_CONTRACT")
+                .or_else(|_| {
+                    cfg.contract_configs
+                        .as_ref()
+                        .and_then(|cc| cc.ipcm_contract.as_ref())
+                        .map(|ci| ci.contract_address.clone())
+                        .ok_or_else(|| std::env::VarError::NotPresent)
+                })
+                .unwrap_or_else(|_| MAINNET_IPCM_CONTRACT.to_string());
 
             // Extract from custom headers
             let stellar_secret = cfg
