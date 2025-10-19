@@ -25,6 +25,11 @@ pub struct StellarConfig {
     pub keypair: String,
     pub contract_address: String,
     pub fee_sponsor: Option<String>,
+    /// Use on-chain storage for IPCM updates
+    /// - false (default): Event-only mode via emit_update_event() - ~90% cheaper
+    /// - true: Full storage mode via update_ipcm() - stores on-chain + emits event
+    #[serde(default)]
+    pub use_onchain_storage: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -17,6 +17,8 @@ pub struct StellarMainnetIpfsAdapter {
     interface_address: String,
     #[allow(dead_code)]
     source_account_identity: String,
+    /// Use on-chain storage (false = event-only mode, default; true = full storage mode)
+    use_onchain_storage: bool,
 }
 
 impl StellarMainnetIpfsAdapter {
@@ -70,7 +72,7 @@ impl StellarMainnetIpfsAdapter {
                 .custom_headers
                 .get("source_account_identity")
                 .cloned()
-                .unwrap_or_else(|| "defarm-admin-secure-v2".to_string());
+                .unwrap_or_else(|| "defarm-admin-mainnet".to_string());
 
             (
                 ipfs_endpoint,
@@ -89,11 +91,11 @@ impl StellarMainnetIpfsAdapter {
                 .unwrap_or_else(|_| MAINNET_IPCM_CONTRACT.to_string());
             let api_key = std::env::var("PINATA_API_KEY").ok();
             let secret_key = std::env::var("PINATA_SECRET_KEY").ok();
-            let stellar_secret = std::env::var("STELLAR_MAINNET_SECRET_KEY").ok();
+            let stellar_secret = std::env::var("STELLAR_MAINNET_SECRET").ok();
             let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
                 "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
             });
-            let source_account_identity = "defarm-admin-secure-v2".to_string();
+            let source_account_identity = "defarm-admin-mainnet".to_string();
 
             (
                 ipfs_endpoint,
@@ -128,13 +130,20 @@ impl StellarMainnetIpfsAdapter {
             })?;
         }
 
-        // Configure with NFT contract if available (from env variable)
-        if let Some(nft_contract) =
-            config.and_then(|c| c.connection_details.custom_headers.get("nft_contract"))
-        {
-            stellar_client = stellar_client.with_nft_contract(nft_contract.to_string());
+        // Configure with NFT contract if available (from config or env variable)
+        let nft_contract = config
+            .and_then(|c| {
+                c.connection_details
+                    .custom_headers
+                    .get("nft_contract")
+                    .cloned()
+            })
+            .or_else(|| std::env::var("STELLAR_MAINNET_NFT_CONTRACT").ok());
+
+        if let Some(nft_contract) = nft_contract {
+            stellar_client = stellar_client.with_nft_contract(nft_contract.clone());
             tracing::info!(
-                "🎨 Stellar Mainnet adapter configured with NFT contract: {} (⚠️ PRODUCTION!)",
+                "🎨 Stellar Mainnet adapter configured with NFT contract: {}",
                 nft_contract
             );
         } else {
@@ -148,13 +157,47 @@ impl StellarMainnetIpfsAdapter {
             .with_interface_address(interface_address.clone())
             .with_source_account(source_account_identity.clone());
 
+        // Extract use_onchain_storage setting (defaults to false = event-only mode)
+        let use_onchain_storage = config
+            .and_then(|c| {
+                c.connection_details
+                    .custom_headers
+                    .get("use_onchain_storage")
+                    .and_then(|v| v.parse::<bool>().ok())
+            })
+            .unwrap_or(false);
+
+        if use_onchain_storage {
+            tracing::info!("📝 Stellar Mainnet adapter: Using FULL STORAGE mode (update_ipcm)");
+        } else {
+            tracing::info!("⚡ Stellar Mainnet adapter: Using EVENT-ONLY mode (emit_update_event) - 90% cheaper!");
+        }
+
         Ok(Self {
             stellar_client: Arc::new(stellar_client),
             ipfs_client: Arc::new(ipfs_client),
             contract_address,
             interface_address,
             source_account_identity,
+            use_onchain_storage,
         })
+    }
+
+    /// Register CID on Stellar blockchain using either full storage or event-only mode
+    /// - Event-only mode (default): emit_update_event() - ~90% cheaper, no on-chain storage
+    /// - Full storage mode: update_ipcm() - stores on-chain + emits event
+    async fn register_on_stellar(
+        &self,
+        dfid: &str,
+        cid: &str,
+    ) -> Result<String, crate::stellar_client::StellarError> {
+        if self.use_onchain_storage {
+            // Full storage mode: write to IPCM contract storage + emit event
+            self.stellar_client.update_ipcm(dfid, cid).await
+        } else {
+            // Event-only mode (default): only emit event for timeline tracking
+            self.stellar_client.emit_update_event(dfid, cid).await
+        }
     }
 
     fn create_metadata(&self, stellar_tx: &str, ipfs_cid: &str) -> StorageMetadata {
@@ -176,7 +219,7 @@ impl StellarMainnetIpfsAdapter {
     }
 
     /// Create metadata with both NFT mint transaction and IPCM update transaction
-    /// Used for new DFID minting (store_new_item) on MAINNET
+    /// Used for new DFID minting (store_new_item)
     fn create_metadata_with_nft(
         &self,
         nft_tx: &str,
@@ -228,10 +271,9 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
             .await
             .map_err(|e| StorageError::WriteError(format!("Failed to upload to IPFS: {e}")))?;
 
-        // Step 2: Register CID on Stellar mainnet blockchain using IPCM contract
+        // Step 2: Register CID on Stellar mainnet blockchain (event-only by default, or full storage if configured)
         let tx_hash = self
-            .stellar_client
-            .update_ipcm(&item.dfid, &cid)
+            .register_on_stellar(&item.dfid, &cid)
             .await
             .map_err(|e| StorageError::WriteError(format!("Failed to register on Stellar: {e}")))?;
 
@@ -241,7 +283,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
         Ok(AdapterResult::new(item.dfid.clone(), metadata))
     }
 
-    /// Store item with NFT minting for new DFIDs (PRODUCTION - uses real XLM!)
+    /// Store item with NFT minting for new DFIDs
     async fn store_new_item(
         &self,
         item: &Item,
@@ -268,35 +310,30 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
                     StorageError::WriteError(format!("Failed to upload to IPFS: {e}"))
                 })?;
 
-            tracing::info!(
-                "📦 Item uploaded to IPFS (MAINNET): {} → CID: {}",
-                item.dfid,
-                cid
-            );
+            tracing::info!("📦 Item uploaded to IPFS: {} → CID: {}", item.dfid, cid);
 
-            // Step 2: Mint NFT for new DFID on MAINNET with canonical identifiers AND first CID (⚠️ USES REAL FUNDS!)
+            // Step 2: Mint NFT for new DFID with canonical identifiers AND first CID
             let nft_tx_hash = self
                 .stellar_client
                 .mint_nft(&item.dfid, creator, canonical_identifiers, Some(&cid), None)
                 .await
                 .map_err(|e| {
-                    StorageError::WriteError(format!("Failed to mint NFT on Stellar Mainnet: {e}"))
+                    StorageError::WriteError(format!("Failed to mint NFT on Stellar: {e}"))
                 })?;
 
             tracing::info!(
-                "🎨 NFT minted for new DFID on MAINNET: {} (TX: {}, CID: {})",
+                "🎨 NFT minted for new DFID: {} (TX: {}, CID: {})",
                 item.dfid,
                 nft_tx_hash,
                 cid
             );
 
-            // Step 3: Register CID in IPCM contract on MAINNET
+            // Step 3: Register CID in IPCM contract (event-only by default, or full storage if configured)
             let ipcm_tx_hash = self
-                .stellar_client
-                .update_ipcm(&item.dfid, &cid)
+                .register_on_stellar(&item.dfid, &cid)
                 .await
                 .map_err(|e| {
-                    StorageError::WriteError(format!("Failed to register on Stellar Mainnet: {e}"))
+                    StorageError::WriteError(format!("Failed to register on Stellar: {e}"))
                 })?;
 
             // Create metadata with BOTH NFT mint and IPCM transactions
@@ -305,10 +342,7 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
             Ok(AdapterResult::new(item.dfid.clone(), metadata))
         } else {
             // Existing DFID: just update IPCM pointer (no NFT minting)
-            tracing::info!(
-                "♻️  Updating existing DFID on MAINNET: {} (no NFT mint)",
-                item.dfid
-            );
+            tracing::info!("♻️  Updating existing DFID: {} (no NFT mint)", item.dfid);
             self.store_item(item).await
         }
     }
@@ -323,11 +357,10 @@ impl StorageAdapter for StellarMainnetIpfsAdapter {
             StorageError::WriteError(format!("Failed to upload event to IPFS: {e}"))
         })?;
 
-        // Step 2: Register event CID in IPCM contract with item reference
+        // Step 2: Register event CID in IPCM contract with item reference (event-only by default, or full storage if configured)
         let event_key = format!("event:{}:{}", item_id, event.event_id);
         let tx_hash = self
-            .stellar_client
-            .update_ipcm(&event_key, &cid)
+            .register_on_stellar(&event_key, &cid)
             .await
             .map_err(|e| {
                 StorageError::WriteError(format!("Failed to register event on Stellar: {e}"))

@@ -864,6 +864,887 @@ components:
           description: Last error message (if any)
           example: null
 
+    # ============================================================================
+    # Receipt Schemas
+    # ============================================================================
+
+    CreateReceiptRequest:
+      type: object
+      required:
+        - data
+        - identifiers
+      properties:
+        data:
+          type: string
+          format: byte
+          description: Base64 encoded data
+          example: "SGVsbG8gV29ybGQh"
+        identifiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identifier'
+          minItems: 1
+          description: At least one identifier is required
+
+    ReceiptResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Receipt ID
+        hash:
+          type: string
+          description: BLAKE3 hash of the data
+          example: "abc123..."
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp when receipt was created
+        data_size:
+          type: integer
+          description: Size of original data in bytes
+        identifiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identifier'
+
+    VerificationResponse:
+      type: object
+      properties:
+        is_valid:
+          type: boolean
+          description: Whether the data matches the receipt hash
+        receipt_id:
+          type: string
+          format: uuid
+        original_hash:
+          type: string
+          description: Hash from original receipt
+        provided_hash:
+          type: string
+          description: Hash of provided data for verification
+        timestamp:
+          type: integer
+          format: int64
+
+    # ============================================================================
+    # Notification Schemas
+    # ============================================================================
+
+    NotificationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        message:
+          type: string
+        notification_type:
+          type: string
+          enum:
+            - CircuitInvite
+            - ItemPushed
+            - ItemApproved
+            - OperationCompleted
+            - SystemAlert
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        action_url:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    # ============================================================================
+    # User Credits Schemas
+    # ============================================================================
+
+    CreditHistoryResponse:
+      type: object
+      properties:
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditTransactionResponse'
+        total_credits:
+          type: integer
+          format: int64
+
+    CreditTransactionResponse:
+      type: object
+      properties:
+        transaction_id:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          format: int64
+          description: Credit amount (positive for additions, negative for deductions)
+        transaction_type:
+          type: string
+          enum: [Purchase, Refund, Deduction, Grant, Adjustment]
+        description:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        balance_after:
+          type: integer
+          format: int64
+
+    OperationCostsResponse:
+      type: object
+      properties:
+        item_creation:
+          type: integer
+          format: int64
+        circuit_operation:
+          type: integer
+          format: int64
+        storage_migration:
+          type: integer
+          format: int64
+        audit_export:
+          type: integer
+          format: int64
+        premium_adapter_usage:
+          type: integer
+          format: int64
+        api_request:
+          type: integer
+          format: int64
+        tier:
+          type: string
+
+    UserProfileResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        tier:
+          $ref: '#/components/schemas/UserTier'
+        credits:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [Active, Suspended, Inactive]
+        is_admin:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        subscription:
+          $ref: '#/components/schemas/SubscriptionResponse'
+          nullable: true
+        limits:
+          $ref: '#/components/schemas/TierLimitsResponse'
+
+    SubscriptionResponse:
+      type: object
+      properties:
+        plan_id:
+          type: string
+        status:
+          type: string
+          enum: [Active, Expired, Cancelled, PendingRenewal]
+        started_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        auto_renew:
+          type: boolean
+
+    TierLimitsResponse:
+      type: object
+      properties:
+        max_items_per_month:
+          type: integer
+          format: int64
+          nullable: true
+        max_circuits:
+          type: integer
+          format: int64
+          nullable: true
+        max_storage_locations:
+          type: integer
+          format: int64
+          nullable: true
+        max_api_requests_per_hour:
+          type: integer
+          format: int64
+          nullable: true
+        max_workspace_members:
+          type: integer
+          format: int64
+          nullable: true
+        can_use_premium_adapters:
+          type: boolean
+        max_audit_retention_days:
+          type: integer
+          format: int64
+        priority_support:
+          type: boolean
+
+    # ============================================================================
+    # ZK Proof Schemas
+    # ============================================================================
+
+    SubmitProofRequest:
+      type: object
+      required:
+        - circuit_type
+        - circuit_input
+        - private_inputs
+      properties:
+        circuit_type:
+          type: string
+          enum:
+            - OrganicCertification
+            - PesticideThreshold
+            - QualityGrade
+            - OwnershipProof
+            - TimestampFreshness
+            - Custom
+        circuit_input:
+          type: object
+          additionalProperties: true
+        private_inputs:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    VerifyProofRequest:
+      type: object
+      required:
+        - proof_id
+      properties:
+        proof_id:
+          type: string
+          format: uuid
+        verification_key:
+          type: string
+          nullable: true
+
+    ZkProofResponse:
+      type: object
+      properties:
+        proof_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        circuit_type:
+          type: string
+        status:
+          type: string
+          enum: [Pending, Verified, Failed, Expired]
+        proof_data:
+          type: string
+          nullable: true
+        verification_result:
+          type: boolean
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ZkProofStatistics:
+      type: object
+      properties:
+        total_proofs:
+          type: integer
+          format: int64
+        pending_proofs:
+          type: integer
+          format: int64
+        verified_proofs:
+          type: integer
+          format: int64
+        failed_proofs:
+          type: integer
+          format: int64
+        proof_types:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+
+    # ============================================================================
+    # Audit Schemas
+    # ============================================================================
+
+    LogEventRequest:
+      type: object
+      required:
+        - user_id
+        - event_type
+        - action
+        - resource
+        - outcome
+        - severity
+      properties:
+        user_id:
+          type: string
+        event_type:
+          type: string
+          enum: [security, data, access, compliance, system, user]
+        action:
+          type: string
+        resource:
+          type: string
+        resource_id:
+          type: string
+          nullable: true
+        outcome:
+          type: string
+          enum: [success, failure, warning, blocked]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        details:
+          type: object
+          additionalProperties: true
+        metadata:
+          $ref: '#/components/schemas/AuditEventMetadataRequest'
+        compliance:
+          $ref: '#/components/schemas/ComplianceInfoRequest'
+
+    AuditEventMetadataRequest:
+      type: object
+      properties:
+        user_agent:
+          type: string
+        ip_address:
+          type: string
+        location:
+          type: string
+        device_id:
+          type: string
+        session_duration:
+          type: integer
+          format: int64
+
+    ComplianceInfoRequest:
+      type: object
+      properties:
+        gdpr:
+          type: boolean
+        ccpa:
+          type: boolean
+        hipaa:
+          type: boolean
+        sox:
+          type: boolean
+
+    AuditEventResponse:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        event_type:
+          type: string
+        action:
+          type: string
+        resource:
+          type: string
+        resource_id:
+          type: string
+          nullable: true
+        outcome:
+          type: string
+        severity:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+        details:
+          type: object
+          additionalProperties: true
+        metadata:
+          $ref: '#/components/schemas/AuditEventMetadataResponse'
+        signature:
+          type: string
+          nullable: true
+        compliance:
+          $ref: '#/components/schemas/ComplianceInfoResponse'
+
+    AuditEventMetadataResponse:
+      type: object
+      properties:
+        user_agent:
+          type: string
+        ip_address:
+          type: string
+        location:
+          type: string
+        device_id:
+          type: string
+        session_duration:
+          type: integer
+          format: int64
+
+    ComplianceInfoResponse:
+      type: object
+      properties:
+        gdpr:
+          type: boolean
+        ccpa:
+          type: boolean
+        hipaa:
+          type: boolean
+        sox:
+          type: boolean
+
+    CreateSecurityIncidentRequest:
+      type: object
+      required:
+        - title
+        - description
+        - severity
+        - category
+        - affected_users
+        - affected_resources
+        - related_event_ids
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        category:
+          type: string
+          enum:
+            - unauthorized-access
+            - data-breach
+            - system-compromise
+            - policy-violation
+            - denial-of-service
+        affected_users:
+          type: array
+          items:
+            type: string
+        affected_resources:
+          type: array
+          items:
+            type: string
+        related_event_ids:
+          type: array
+          items:
+            type: string
+
+    SecurityIncidentResponse:
+      type: object
+      properties:
+        incident_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+        category:
+          type: string
+        status:
+          type: string
+          enum: [Open, Investigating, Resolved, Closed]
+        affected_users:
+          type: array
+          items:
+            type: string
+        affected_resources:
+          type: array
+          items:
+            type: string
+        related_event_ids:
+          type: array
+          items:
+            type: string
+        confidential:
+          type: boolean
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+        assigned_to:
+          type: string
+          nullable: true
+
+    CreateComplianceReportRequest:
+      type: object
+      required:
+        - report_type
+        - period_start
+        - period_end
+        - scope
+      properties:
+        report_type:
+          type: string
+          enum:
+            - gdpr-data-subject
+            - ccpa-consumer
+            - sox-financial
+            - audit-trail
+            - security-incident
+        period_start:
+          type: integer
+          format: int64
+        period_end:
+          type: integer
+          format: int64
+        scope:
+          $ref: '#/components/schemas/ComplianceScopeRequest'
+        export_format:
+          type: string
+          enum: [json, csv, pdf, xml]
+          default: json
+        include_evidence:
+          type: boolean
+          default: false
+
+    ComplianceScopeRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+        resource_types:
+          type: array
+          items:
+            type: string
+        event_types:
+          type: array
+          items:
+            type: string
+        regulations:
+          type: array
+          items:
+            type: string
+
+    ComplianceReportResponse:
+      type: object
+      properties:
+        report_id:
+          type: string
+          format: uuid
+        report_type:
+          type: string
+        start_date:
+          type: integer
+          format: int64
+        end_date:
+          type: integer
+          format: int64
+        scope:
+          type: string
+        format:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        summary:
+          type: string
+        total_events:
+          type: integer
+        compliance_status:
+          type: string
+
+    # ============================================================================
+    # Webhook Schemas (Circuit Post-Action Webhooks)
+    # ============================================================================
+
+    PostActionSettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+          description: Enable/disable post-action webhook system for circuit
+        trigger_events:
+          type: array
+          items:
+            type: string
+            enum:
+              - ItemPushed
+              - ItemApproved
+              - ItemTokenized
+              - ItemPublished
+          description: Events that trigger webhooks
+          example: ["ItemPushed", "ItemTokenized"]
+        include_storage_details:
+          type: boolean
+          default: true
+          description: Include storage adapter details in webhook payload
+        include_item_metadata:
+          type: boolean
+          default: true
+          description: Include full item metadata in webhook payload
+
+    WebhookConfig:
+      type: object
+      required:
+        - name
+        - url
+        - enabled
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Webhook ID (auto-generated)
+        name:
+          type: string
+          maxLength: 255
+          example: "ERP Integration Webhook"
+          description: Descriptive name for the webhook
+        url:
+          type: string
+          format: uri
+          pattern: '^https?://'
+          example: "https://api.example.com/defarm/webhook"
+          description: Target URL (HTTPS/HTTP only, no localhost/private IPs)
+        enabled:
+          type: boolean
+          default: true
+          description: Enable/disable this specific webhook
+        auth_type:
+          type: string
+          enum:
+            - None
+            - BearerToken
+            - ApiKey
+            - BasicAuth
+            - CustomHeader
+          default: None
+          description: Authentication method for webhook delivery
+        auth_config:
+          type: object
+          description: Authentication configuration (encrypted at rest)
+          oneOf:
+            - type: object
+              properties:
+                token:
+                  type: string
+                  description: Bearer token (for BearerToken)
+            - type: object
+              properties:
+                api_key:
+                  type: string
+                  description: API key (for ApiKey)
+            - type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+              description: Basic auth credentials (for BasicAuth)
+            - type: object
+              properties:
+                header_name:
+                  type: string
+                header_value:
+                  type: string
+              description: Custom header (for CustomHeader)
+        retry_config:
+          $ref: '#/components/schemas/WebhookRetryConfig'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    WebhookRetryConfig:
+      type: object
+      properties:
+        max_retries:
+          type: integer
+          default: 3
+          minimum: 0
+          maximum: 10
+          description: Maximum number of retry attempts
+        initial_delay_ms:
+          type: integer
+          default: 1000
+          minimum: 100
+          maximum: 60000
+          description: Initial delay before first retry (milliseconds)
+        max_delay_ms:
+          type: integer
+          default: 30000
+          minimum: 1000
+          maximum: 300000
+          description: Maximum delay between retries (milliseconds)
+        backoff_multiplier:
+          type: number
+          format: double
+          default: 2.0
+          minimum: 1.0
+          maximum: 5.0
+          description: Exponential backoff multiplier
+
+    WebhookPayload:
+      type: object
+      required:
+        - event_type
+        - circuit_id
+        - circuit_name
+        - timestamp
+        - item
+      properties:
+        event_type:
+          type: string
+          enum:
+            - ItemPushed
+            - ItemApproved
+            - ItemTokenized
+            - ItemPublished
+          example: "ItemPushed"
+        circuit_id:
+          type: string
+          format: uuid
+        circuit_name:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        item:
+          type: object
+          required:
+            - dfid
+            - pushed_by
+          properties:
+            dfid:
+              type: string
+            local_id:
+              type: string
+              format: uuid
+            identifiers:
+              type: array
+              items:
+                $ref: '#/components/schemas/Identifier'
+            enhanced_identifiers:
+              type: array
+              items:
+                $ref: '#/components/schemas/EnhancedIdentifier'
+            pushed_by:
+              type: string
+              format: uuid
+        storage:
+          $ref: '#/components/schemas/StorageLocation'
+          description: Storage details (if include_storage_details enabled)
+        operation_id:
+          type: string
+          format: uuid
+          description: Reference to circuit operation
+        status:
+          type: string
+          enum:
+            - new_item
+            - enriched_existing
+            - pending_approval
+            - published
+
+    WebhookDelivery:
+      type: object
+      required:
+        - id
+        - webhook_id
+        - event_type
+        - status
+        - attempt_number
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        webhook_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        payload:
+          $ref: '#/components/schemas/WebhookPayload'
+        status:
+          type: string
+          enum:
+            - pending
+            - success
+            - failed
+            - retrying
+          description: Delivery status
+        attempt_number:
+          type: integer
+          description: Current attempt number (1, 2, 3, ...)
+        http_status_code:
+          type: integer
+          nullable: true
+          description: HTTP status code from target server
+        response_body:
+          type: string
+          nullable: true
+          description: Response from target server (truncated)
+        error_message:
+          type: string
+          nullable: true
+          description: Error message if delivery failed
+        created_at:
+          type: string
+          format: date-time
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+        next_retry_at:
+          type: string
+          format: date-time
+          nullable: true
+
 paths:
   # ============================================================================
   # Authentication Endpoints
@@ -1335,6 +2216,330 @@ paths:
                         type: array
                         items:
                           type: object
+
+  # ============================================================================
+  # Webhook Endpoints (Circuit Post-Action Webhooks)
+  # ============================================================================
+
+  /circuits/{circuit_id}/post-actions:
+    get:
+      tags:
+        - Circuits
+        - Notifications
+      summary: Get post-action webhook settings
+      description: Retrieve webhook configuration for a circuit (owner/admin only)
+      operationId: getPostActionSettings
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Post-action settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/PostActionSettings'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Circuits
+        - Notifications
+      summary: Update post-action webhook settings
+      description: Configure webhook system for circuit (owner/admin only)
+      operationId: updatePostActionSettings
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostActionSettings'
+      responses:
+        '200':
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /circuits/{circuit_id}/post-actions/webhooks:
+    post:
+      tags:
+        - Circuits
+        - Notifications
+      summary: Create webhook
+      description: Create a new webhook for circuit post-actions (owner/admin only)
+      operationId: createWebhook
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookConfig'
+      responses:
+        '201':
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  webhook_id:
+                    type: string
+                    format: uuid
+                  data:
+                    $ref: '#/components/schemas/WebhookConfig'
+        '400':
+          description: Invalid webhook configuration (SSRF protection, invalid URL)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /circuits/{circuit_id}/post-actions/webhooks/{webhook_id}:
+    get:
+      tags:
+        - Circuits
+        - Notifications
+      summary: Get webhook details
+      description: Retrieve webhook configuration (owner/admin only)
+      operationId: getWebhook
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: webhook_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Webhook details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/WebhookConfig'
+        '404':
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Circuits
+        - Notifications
+      summary: Update webhook
+      description: Update webhook configuration (owner/admin only)
+      operationId: updateWebhook
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: webhook_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookConfig'
+      responses:
+        '200':
+          description: Webhook updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags:
+        - Circuits
+        - Notifications
+      summary: Delete webhook
+      description: Remove webhook from circuit (owner/admin only)
+      operationId: deleteWebhook
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: webhook_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Webhook deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /circuits/{circuit_id}/post-actions/webhooks/{webhook_id}/test:
+    post:
+      tags:
+        - Circuits
+        - Notifications
+      summary: Test webhook
+      description: Send test payload to webhook to verify configuration (owner/admin only)
+      operationId: testWebhook
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: webhook_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Test delivery attempted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  status:
+                    type: string
+                    enum: [delivered, failed]
+                  http_status_code:
+                    type: integer
+                    nullable: true
+                  response_body:
+                    type: string
+                    nullable: true
+                  error_message:
+                    type: string
+                    nullable: true
+
+  /circuits/{circuit_id}/post-actions/deliveries:
+    get:
+      tags:
+        - Circuits
+        - Notifications
+      summary: View webhook delivery history
+      description: Get webhook delivery logs and status (owner/admin only)
+      operationId: getWebhookDeliveries
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: webhook_id
+          in: query
+          description: Filter by specific webhook
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: Filter by delivery status
+          schema:
+            type: string
+            enum: [pending, success, failed, retrying]
+        - name: limit
+          in: query
+          description: Maximum number of results
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+      responses:
+        '200':
+          description: Delivery history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deliveries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookDelivery'
+                  total:
+                    type: integer
 
   # ============================================================================
   # Item Endpoints
@@ -1875,3 +3080,1082 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
+
+  # ============================================================================
+  # Receipt Endpoints
+  # ============================================================================
+
+  /receipts:
+    post:
+      tags:
+        - Receipts
+      summary: Create receipt
+      description: Process data and create a cryptographic receipt with BLAKE3 hash
+      operationId: createReceipt
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReceiptRequest'
+      responses:
+        '200':
+          description: Receipt created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptResponse'
+        '400':
+          description: Invalid request (missing identifiers or invalid data)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /receipts/{id}:
+    get:
+      tags:
+        - Receipts
+      summary: Get receipt by ID
+      description: Retrieve a receipt by its UUID
+      operationId: getReceipt
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Receipt found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptResponse'
+        '404':
+          description: Receipt not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /receipts/{id}/verify:
+    post:
+      tags:
+        - Receipts
+      summary: Verify data against receipt
+      description: Verify that provided data matches the hash in the receipt
+      operationId: verifyReceipt
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - data
+              properties:
+                data:
+                  type: string
+                  format: byte
+                  description: Base64 encoded data to verify
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResponse'
+        '404':
+          description: Receipt not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /receipts/search/identifier:
+    post:
+      tags:
+        - Receipts
+      summary: Search receipts by identifier
+      description: Find all receipts containing a specific key-value identifier
+      operationId: searchByIdentifier
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Identifier'
+      responses:
+        '200':
+          description: List of matching receipts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReceiptResponse'
+
+  /receipts/search/key/{key}:
+    get:
+      tags:
+        - Receipts
+      summary: Search receipts by identifier key
+      description: Find all receipts containing identifiers with this key
+      operationId: searchByKey
+      security: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of matching receipts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReceiptResponse'
+
+  /receipts/search/value/{value}:
+    get:
+      tags:
+        - Receipts
+      summary: Search receipts by identifier value
+      description: Find all receipts containing identifiers with this value
+      operationId: searchByValue
+      security: []
+      parameters:
+        - name: value
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of matching receipts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReceiptResponse'
+
+  /receipts/list:
+    get:
+      tags:
+        - Receipts
+      summary: List all receipts
+      description: Retrieve all receipts in the system
+      operationId: listReceipts
+      security: []
+      responses:
+        '200':
+          description: List of receipts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReceiptResponse'
+
+  # ============================================================================
+  # Notification Endpoints
+  # ============================================================================
+
+  /notifications:
+    get:
+      tags:
+        - Notifications
+      summary: Get user notifications
+      description: Retrieve notifications for the authenticated user
+      operationId: getNotifications
+      parameters:
+        - name: since
+          in: query
+          description: Unix timestamp to get notifications since
+          schema:
+            type: integer
+            format: int64
+        - name: limit
+          in: query
+          description: Maximum number of notifications to return
+          schema:
+            type: integer
+            default: 50
+        - name: unread_only
+          in: query
+          description: Return only unread notifications
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationResponse'
+                  count:
+                    type: integer
+
+  /notifications/unread-count:
+    get:
+      tags:
+        - Notifications
+      summary: Get unread notification count
+      description: Get count of unread notifications for authenticated user
+      operationId: getUnreadCount
+      responses:
+        '200':
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  unread_count:
+                    type: integer
+
+  /notifications/{id}/read:
+    patch:
+      tags:
+        - Notifications
+      summary: Mark notification as read
+      description: Mark a specific notification as read
+      operationId: markNotificationRead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Notification marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/NotificationResponse'
+
+  /notifications/{id}:
+    delete:
+      tags:
+        - Notifications
+      summary: Delete notification
+      description: Delete a specific notification
+      operationId: deleteNotification
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Notification deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /notifications/mark-all-read:
+    patch:
+      tags:
+        - Notifications
+      summary: Mark all notifications as read
+      description: Mark all notifications for the user as read
+      operationId: markAllRead
+      responses:
+        '200':
+          description: All notifications marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  marked_read:
+                    type: integer
+
+  /notifications/ws:
+    get:
+      tags:
+        - Notifications
+      summary: WebSocket connection for real-time notifications
+      description: |
+        Establish WebSocket connection for real-time notification delivery.
+        Requires JWT token in query parameter: ?token=<jwt-token>
+      operationId: notificationWebSocket
+      security: []
+      responses:
+        '101':
+          description: WebSocket connection established
+        '401':
+          description: Unauthorized - invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================================
+  # User Credits Endpoints
+  # ============================================================================
+
+  /users/me/credits/history:
+    get:
+      tags:
+        - User Credits
+      summary: Get credit transaction history
+      description: Retrieve credit transaction history for authenticated user
+      operationId: getCreditHistory
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of transactions to return
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Credit history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditHistoryResponse'
+
+  /users/me/credits/costs:
+    get:
+      tags:
+        - User Credits
+      summary: Get operation costs
+      description: Get credit costs for different operations based on user tier
+      operationId: getOperationCosts
+      responses:
+        '200':
+          description: Operation costs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationCostsResponse'
+
+  /users/me/credits/balance:
+    get:
+      tags:
+        - User Credits
+      summary: Get credit balance
+      description: Get current credit balance for authenticated user
+      operationId: getCreditBalance
+      responses:
+        '200':
+          description: Credit balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credits:
+                    type: integer
+                    format: int64
+                  tier:
+                    type: string
+                  last_updated:
+                    type: string
+                    format: date-time
+
+  /users/me/profile:
+    get:
+      tags:
+        - User Credits
+      summary: Get user profile
+      description: Get complete profile for authenticated user including tier, limits, and subscription
+      operationId: getUserProfile
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+
+  # ============================================================================
+  # ZK Proof Endpoints
+  # ============================================================================
+
+  /proofs/submit:
+    post:
+      tags:
+        - ZK Proofs
+      summary: Submit zero-knowledge proof
+      description: Submit a new ZK proof for verification
+      operationId: submitProof
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitProofRequest'
+      responses:
+        '200':
+          description: Proof submitted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  proof_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+
+  /proofs/verify:
+    post:
+      tags:
+        - ZK Proofs
+      summary: Verify zero-knowledge proof
+      description: Verify a submitted ZK proof
+      operationId: verifyProof
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyProofRequest'
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  verification_result:
+                    type: object
+
+  /proofs:
+    get:
+      tags:
+        - ZK Proofs
+      summary: List ZK proofs
+      description: List all ZK proofs with optional filters
+      operationId: listProofs
+      parameters:
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: circuit_type
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: offset
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: List of proofs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  proofs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ZkProofResponse'
+
+  /proofs/statistics:
+    get:
+      tags:
+        - ZK Proofs
+      summary: Get proof statistics
+      description: Get statistics about ZK proofs in the system
+      operationId: getProofStatistics
+      responses:
+        '200':
+          description: Proof statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZkProofStatistics'
+
+  /proofs/templates:
+    get:
+      tags:
+        - ZK Proofs
+      summary: Get circuit templates
+      description: Get available ZK circuit templates
+      operationId: getCircuitTemplates
+      responses:
+        '200':
+          description: Circuit templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  templates:
+                    type: array
+                    items:
+                      type: object
+
+  /proofs/{proof_id}:
+    get:
+      tags:
+        - ZK Proofs
+      summary: Get proof by ID
+      description: Retrieve a specific ZK proof by ID
+      operationId: getProof
+      parameters:
+        - name: proof_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Proof details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  proof:
+                    $ref: '#/components/schemas/ZkProofResponse'
+        '404':
+          description: Proof not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags:
+        - ZK Proofs
+      summary: Delete proof
+      description: Delete a ZK proof by ID
+      operationId: deleteProof
+      parameters:
+        - name: proof_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Proof deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # ============================================================================
+  # Audit Endpoints
+  # ============================================================================
+
+  /audit/events:
+    post:
+      tags:
+        - Audit
+      summary: Log audit event
+      description: Create a new audit log event
+      operationId: logAuditEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogEventRequest'
+      responses:
+        '200':
+          description: Event logged successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      event_id:
+                        type: string
+                        format: uuid
+
+  /audit/events/security:
+    post:
+      tags:
+        - Audit
+      summary: Log security event
+      description: Create a security-specific audit event
+      operationId: logSecurityEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - action
+                - resource
+                - outcome
+                - severity
+              properties:
+                user_id:
+                  type: string
+                action:
+                  type: string
+                resource:
+                  type: string
+                outcome:
+                  type: string
+                severity:
+                  type: string
+                details:
+                  type: object
+                  additionalProperties: true
+                metadata:
+                  $ref: '#/components/schemas/AuditEventMetadataRequest'
+      responses:
+        '200':
+          description: Security event logged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+
+  /audit/events/data-access:
+    post:
+      tags:
+        - Audit
+      summary: Log data access event
+      description: Log data access for compliance tracking
+      operationId: logDataAccess
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - action
+                - resource
+                - outcome
+              properties:
+                user_id:
+                  type: string
+                action:
+                  type: string
+                resource:
+                  type: string
+                resource_id:
+                  type: string
+                outcome:
+                  type: string
+                data_classification:
+                  type: string
+                compliance_flags:
+                  $ref: '#/components/schemas/ComplianceInfoRequest'
+                metadata:
+                  $ref: '#/components/schemas/AuditEventMetadataRequest'
+      responses:
+        '200':
+          description: Data access logged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+  /audit/events/query:
+    post:
+      tags:
+        - Audit
+      summary: Query audit events
+      description: Search and filter audit events
+      operationId: queryAuditEvents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                event_types:
+                  type: array
+                  items:
+                    type: string
+                actions:
+                  type: array
+                  items:
+                    type: string
+                resources:
+                  type: array
+                  items:
+                    type: string
+                outcomes:
+                  type: array
+                  items:
+                    type: string
+                severities:
+                  type: array
+                  items:
+                    type: string
+                start_date:
+                  type: integer
+                  format: int64
+                end_date:
+                  type: integer
+                  format: int64
+                limit:
+                  type: integer
+                offset:
+                  type: integer
+                sort_by:
+                  type: string
+                sort_order:
+                  type: string
+      responses:
+        '200':
+          description: Query results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEventResponse'
+
+  /audit/events/{event_id}:
+    get:
+      tags:
+        - Audit
+      summary: Get audit event by ID
+      description: Retrieve a specific audit event
+      operationId: getAuditEventById
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Audit event details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventResponse'
+
+  /audit/events/user/{user_id}:
+    get:
+      tags:
+        - Audit
+      summary: Get events by user
+      description: Get all audit events for a specific user
+      operationId: getAuditEventsByUser
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User audit events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEventResponse'
+
+  /audit/incidents:
+    get:
+      tags:
+        - Audit
+      summary: List security incidents
+      description: List all security incidents with optional filters
+      operationId: listSecurityIncidents
+      parameters:
+        - name: severity
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: assignee
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of incidents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SecurityIncidentResponse'
+
+    post:
+      tags:
+        - Audit
+      summary: Create security incident
+      description: Create a new security incident
+      operationId: createSecurityIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSecurityIncidentRequest'
+      responses:
+        '201':
+          description: Incident created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  incident_id:
+                    type: string
+                    format: uuid
+
+  /audit/incidents/{incident_id}:
+    get:
+      tags:
+        - Audit
+      summary: Get security incident
+      description: Get details of a specific security incident
+      operationId: getSecurityIncident
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Incident details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityIncidentResponse'
+
+  /audit/incidents/{incident_id}/assign:
+    put:
+      tags:
+        - Audit
+      summary: Assign incident
+      description: Assign a security incident to a user
+      operationId: assignIncident
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - assignee
+              properties:
+                assignee:
+                  type: string
+      responses:
+        '200':
+          description: Incident assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /audit/compliance/reports:
+    get:
+      tags:
+        - Audit
+      summary: List compliance reports
+      description: List all compliance reports
+      operationId: listComplianceReports
+      parameters:
+        - name: report_type
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComplianceReportResponse'
+
+    post:
+      tags:
+        - Audit
+      summary: Create compliance report
+      description: Generate a new compliance report
+      operationId: createComplianceReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateComplianceReportRequest'
+      responses:
+        '200':
+          description: Report created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceReportResponse'
+
+  /audit/dashboard/metrics:
+    get:
+      tags:
+        - Audit
+      summary: Get dashboard metrics
+      description: Get audit dashboard metrics and statistics
+      operationId: getDashboardMetrics
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: integer
+            format: int64
+        - name: end_date
+          in: query
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Dashboard metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_events:
+                    type: integer
+                  security_events:
+                    type: integer
+                  critical_events:
+                    type: integer
+                  open_incidents:
+                    type: integer

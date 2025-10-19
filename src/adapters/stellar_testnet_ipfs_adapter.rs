@@ -17,6 +17,8 @@ pub struct StellarTestnetIpfsAdapter {
     interface_address: String,
     #[allow(dead_code)]
     source_account_identity: String,
+    /// Use on-chain storage (false = event-only mode, default; true = full storage mode)
+    use_onchain_storage: bool,
 }
 
 impl StellarTestnetIpfsAdapter {
@@ -155,13 +157,47 @@ impl StellarTestnetIpfsAdapter {
             .with_interface_address(interface_address.clone())
             .with_source_account(source_account_identity.clone());
 
+        // Extract use_onchain_storage setting (defaults to false = event-only mode)
+        let use_onchain_storage = config
+            .and_then(|c| {
+                c.connection_details
+                    .custom_headers
+                    .get("use_onchain_storage")
+                    .and_then(|v| v.parse::<bool>().ok())
+            })
+            .unwrap_or(false);
+
+        if use_onchain_storage {
+            tracing::info!("📝 Stellar Testnet adapter: Using FULL STORAGE mode (update_ipcm)");
+        } else {
+            tracing::info!("⚡ Stellar Testnet adapter: Using EVENT-ONLY mode (emit_update_event) - 90% cheaper!");
+        }
+
         Ok(Self {
             stellar_client: Arc::new(stellar_client),
             ipfs_client: Arc::new(ipfs_client),
             contract_address,
             interface_address,
             source_account_identity,
+            use_onchain_storage,
         })
+    }
+
+    /// Register CID on Stellar blockchain using either full storage or event-only mode
+    /// - Event-only mode (default): emit_update_event() - ~90% cheaper, no on-chain storage
+    /// - Full storage mode: update_ipcm() - stores on-chain + emits event
+    async fn register_on_stellar(
+        &self,
+        dfid: &str,
+        cid: &str,
+    ) -> Result<String, crate::stellar_client::StellarError> {
+        if self.use_onchain_storage {
+            // Full storage mode: write to IPCM contract storage + emit event
+            self.stellar_client.update_ipcm(dfid, cid).await
+        } else {
+            // Event-only mode (default): only emit event for timeline tracking
+            self.stellar_client.emit_update_event(dfid, cid).await
+        }
     }
 
     fn create_metadata(&self, stellar_tx: &str, ipfs_cid: &str) -> StorageMetadata {
@@ -235,10 +271,9 @@ impl StorageAdapter for StellarTestnetIpfsAdapter {
             .await
             .map_err(|e| StorageError::WriteError(format!("Failed to upload to IPFS: {e}")))?;
 
-        // Step 2: Register CID on Stellar testnet blockchain using IPCM contract
+        // Step 2: Register CID on Stellar testnet blockchain (event-only by default, or full storage if configured)
         let tx_hash = self
-            .stellar_client
-            .update_ipcm(&item.dfid, &cid)
+            .register_on_stellar(&item.dfid, &cid)
             .await
             .map_err(|e| StorageError::WriteError(format!("Failed to register on Stellar: {e}")))?;
 
@@ -293,10 +328,9 @@ impl StorageAdapter for StellarTestnetIpfsAdapter {
                 cid
             );
 
-            // Step 3: Register CID in IPCM contract
+            // Step 3: Register CID in IPCM contract (event-only by default, or full storage if configured)
             let ipcm_tx_hash = self
-                .stellar_client
-                .update_ipcm(&item.dfid, &cid)
+                .register_on_stellar(&item.dfid, &cid)
                 .await
                 .map_err(|e| {
                     StorageError::WriteError(format!("Failed to register on Stellar: {e}"))
@@ -323,11 +357,10 @@ impl StorageAdapter for StellarTestnetIpfsAdapter {
             StorageError::WriteError(format!("Failed to upload event to IPFS: {e}"))
         })?;
 
-        // Step 2: Register event CID in IPCM contract with item reference
+        // Step 2: Register event CID in IPCM contract with item reference (event-only by default, or full storage if configured)
         let event_key = format!("event:{}:{}", item_id, event.event_id);
         let tx_hash = self
-            .stellar_client
-            .update_ipcm(&event_key, &cid)
+            .register_on_stellar(&event_key, &cid)
             .await
             .map_err(|e| {
                 StorageError::WriteError(format!("Failed to register event on Stellar: {e}"))
