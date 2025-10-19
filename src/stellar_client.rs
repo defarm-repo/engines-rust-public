@@ -16,7 +16,7 @@ use soroban_client::{
     Options, Server,
 };
 
-// Real contract addresses - v2.1.0 with event emission and upgrade capability
+// Real contract addresses - v2.2.0 with event-only function and full event emission
 pub const TESTNET_IPCM_CONTRACT: &str = "CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS";
 pub const MAINNET_IPCM_CONTRACT: &str = "CBHYQKSG2ZADD7NXZPLFZIH7ZK766VA3YWRLISKJ6PH6KXJ4JZ52OLNZ";
 
@@ -150,6 +150,7 @@ impl StellarClient {
     }
 
     /// Update IPCM contract with new CID for a DFID using soroban-client
+    /// This writes to storage AND emits an event (costs ~0.0001+ XLM)
     pub async fn update_ipcm(&self, dfid: &str, cid: &str) -> Result<String, StellarError> {
         // Get keypair
         let keypair = self
@@ -249,6 +250,113 @@ impl StellarClient {
             ))),
             Err(e) => Err(StellarError::NetworkError(format!(
                 "Failed to wait for transaction: {e:?}"
+            ))),
+        }
+    }
+
+    /// Emit IPCM update event WITHOUT writing to storage (IPCM v2.2.0+)
+    /// This only emits an event for timeline tracking (~0.00001 XLM - 90% cheaper)
+    /// Event format is identical to update_ipcm(), so event listeners work without changes
+    pub async fn emit_update_event(&self, dfid: &str, cid: &str) -> Result<String, StellarError> {
+        // Get keypair
+        let keypair = self
+            .keypair
+            .as_ref()
+            .ok_or_else(|| StellarError::NotConfigured("Keypair not configured".to_string()))?;
+
+        // Get source account from network
+        let source_account = self
+            .server
+            .get_account(&keypair.public_key())
+            .await
+            .map_err(|e| StellarError::NetworkError(format!("Failed to get account: {e:?}")))?;
+
+        // Create contract instance
+        let contract = Contracts::new(&self.contract_address)
+            .map_err(|e| StellarError::ContractError(format!("Invalid contract address: {e:?}")))?;
+
+        // Build ScVal arguments for the contract call
+        // IPCM v2.2.0 signature: emit_update_event(env: Env, updated_by: Address, ipcm_key: String, cid: String)
+
+        // Convert keypair's public key to Address ScVal (updated_by parameter)
+        let public_key_str = keypair.public_key();
+        let decoded =
+            stellar_strkey::ed25519::PublicKey::from_string(&public_key_str).map_err(|e| {
+                StellarError::SerializationError(format!("Failed to decode public key: {e:?}"))
+            })?;
+
+        let mut key_bytes = [0u8; 32];
+        key_bytes.copy_from_slice(&decoded.0);
+
+        let sc_address = ScAddress::Account(AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(
+            key_bytes,
+        ))));
+        let updated_by_val = ScVal::Address(sc_address);
+
+        let ipcm_key_val = ScVal::String(ScString(dfid.try_into().map_err(|e| {
+            StellarError::SerializationError(format!("Failed to convert ipcm_key: {e:?}"))
+        })?));
+        let cid_val = ScVal::String(ScString(cid.try_into().map_err(|e| {
+            StellarError::SerializationError(format!("Failed to convert cid: {e:?}"))
+        })?));
+
+        // Get network for transaction builder
+        let network = match self.network {
+            StellarNetwork::Testnet => Networks::testnet(),
+            StellarNetwork::Mainnet => Networks::public(),
+        };
+
+        // Build transaction
+        let tx = TransactionBuilder::new(Rc::new(RefCell::new(source_account)), network, None)
+            .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
+            .add_operation(contract.call(
+                "emit_update_event",
+                Some(vec![updated_by_val, ipcm_key_val, cid_val]),
+            ))
+            .build();
+
+        // Prepare transaction (simulate and assemble)
+        let mut prepared_tx = self.server.prepare_transaction(&tx).await.map_err(|e| {
+            StellarError::NetworkError(format!(
+                "Failed to prepare emit_update_event transaction: {e:?}"
+            ))
+        })?;
+
+        // Sign transaction
+        prepared_tx.sign(&[keypair.clone()]);
+
+        // Send transaction
+        let response = self
+            .server
+            .send_transaction(prepared_tx)
+            .await
+            .map_err(|e| {
+                StellarError::NetworkError(format!(
+                    "Failed to send emit_update_event transaction: {e:?}"
+                ))
+            })?;
+
+        let tx_hash = response.hash.clone();
+
+        // Wait for transaction to complete
+        match self
+            .server
+            .wait_transaction(&tx_hash, Duration::from_secs(30))
+            .await
+        {
+            Ok(tx_result) if tx_result.status == TransactionStatus::Success => {
+                tracing::info!(
+                    "✅ IPCM event emitted successfully (event-only, no storage). Network: {:?}, TX: {}, DFID: {}, CID: {}",
+                    self.network, tx_hash, dfid, cid
+                );
+                Ok(tx_hash)
+            }
+            Ok(tx_result) => Err(StellarError::ContractError(format!(
+                "emit_update_event failed with status: {:?}",
+                tx_result.status
+            ))),
+            Err(e) => Err(StellarError::NetworkError(format!(
+                "Failed to wait for emit_update_event transaction: {e:?}"
             ))),
         }
     }
