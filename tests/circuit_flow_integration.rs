@@ -8,7 +8,6 @@
 /// 5. Timeline registration
 ///
 /// Run with: cargo test --test circuit_flow_integration -- --nocapture
-
 use chrono::Utc;
 use defarm_engine::circuits_engine::CircuitsEngine;
 use defarm_engine::identifier_types::{CircuitAliasConfig, EnhancedIdentifier};
@@ -45,7 +44,9 @@ fn create_test_storage() -> Arc<Mutex<InMemoryStorage>> {
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    storage_guard.store_user_account(&professional_user).unwrap();
+    storage_guard
+        .store_user_account(&professional_user)
+        .unwrap();
 
     let enterprise_user = UserAccount {
         user_id: "user-enterprise".to_string(),
@@ -74,13 +75,15 @@ async fn test_01_circuit_crud_operations() {
 
     // 1.1: Create circuit
     println!("\n  1.1 Creating circuit...");
-    let circuit = circuits_engine.create_circuit(
-        "Test Circuit".to_string(),
-        Some("Testing circuit operations".to_string()),
-        "user-enterprise".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits_engine
+        .create_circuit(
+            "Test Circuit".to_string(),
+            Some("Testing circuit operations".to_string()),
+            "user-enterprise".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     println!("    ✅ Circuit created: {}", circuit.circuit_id);
     assert_eq!(circuit.name, "Test Circuit");
@@ -88,40 +91,52 @@ async fn test_01_circuit_crud_operations() {
 
     // 1.2: Update circuit
     println!("\n  1.2 Updating circuit...");
-    circuits_engine.update_circuit(
-        &circuit.circuit_id,
-        Some("Updated Circuit".to_string()),
-        Some("Updated description".to_string()),
-        None,
-        "user-enterprise",
-    ).unwrap();
+    circuits_engine
+        .update_circuit(
+            &circuit.circuit_id,
+            Some("Updated Circuit".to_string()),
+            Some("Updated description".to_string()),
+            None,
+            "user-enterprise",
+        )
+        .unwrap();
 
-    let updated = circuits_engine.get_circuit(&circuit.circuit_id).unwrap().unwrap();
+    let updated = circuits_engine
+        .get_circuit(&circuit.circuit_id)
+        .unwrap()
+        .unwrap();
     assert_eq!(updated.name, "Updated Circuit");
     println!("    ✅ Circuit updated successfully");
 
     // 1.3: Add members with different roles
     println!("\n  1.3 Adding circuit members...");
 
-    circuits_engine.add_member_to_circuit(
-        &circuit.circuit_id,
-        "user-professional".to_string(),
-        MemberRole::Admin,
-        "user-enterprise",
-    ).unwrap();
+    circuits_engine
+        .add_member_to_circuit(
+            &circuit.circuit_id,
+            "user-professional".to_string(),
+            MemberRole::Admin,
+            "user-enterprise",
+        )
+        .unwrap();
     println!("    ✅ Added admin member");
 
-    circuits_engine.add_member_to_circuit(
-        &circuit.circuit_id,
-        "user-basic".to_string(),
-        MemberRole::Member,
-        "user-enterprise",
-    ).unwrap();
+    circuits_engine
+        .add_member_to_circuit(
+            &circuit.circuit_id,
+            "user-basic".to_string(),
+            MemberRole::Member,
+            "user-enterprise",
+        )
+        .unwrap();
     println!("    ✅ Added regular member");
 
     // 1.4: Verify permissions
     println!("\n  1.4 Verifying permissions...");
-    let final_circuit = circuits_engine.get_circuit(&circuit.circuit_id).unwrap().unwrap();
+    let final_circuit = circuits_engine
+        .get_circuit(&circuit.circuit_id)
+        .unwrap()
+        .unwrap();
 
     assert!(final_circuit.has_permission("user-enterprise", &Permission::ManageMembers));
     assert!(final_circuit.has_permission("user-professional", &Permission::ManageMembers));
@@ -144,58 +159,75 @@ async fn test_02_adapter_configuration() {
     let mut circuits_engine = CircuitsEngine::new(storage.clone());
 
     // Create circuit
-    let circuit = circuits_engine.create_circuit(
-        "Adapter Test Circuit".to_string(),
-        None,
-        "user-enterprise".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits_engine
+        .create_circuit(
+            "Adapter Test Circuit".to_string(),
+            None,
+            "user-enterprise".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     // 2.1: Configure IpfsIpfs adapter
     println!("\n  2.1 Configuring IPFS adapter...");
-    circuits_engine.set_circuit_adapter_config(
-        &circuit.circuit_id,
-        "user-enterprise",
-        Some(AdapterType::IpfsIpfs),
-        false,
-        false,
-        false,
-    ).unwrap();
+    circuits_engine
+        .set_circuit_adapter_config(
+            &circuit.circuit_id,
+            "user-enterprise",
+            Some(AdapterType::IpfsIpfs),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
 
     let storage_guard = storage.lock().unwrap();
-    let adapter_config = storage_guard.get_circuit_adapter_config(&circuit.circuit_id).unwrap().unwrap();
+    let adapter_config = storage_guard
+        .get_circuit_adapter_config(&circuit.circuit_id)
+        .unwrap()
+        .unwrap();
     assert_eq!(adapter_config.adapter_type, Some(AdapterType::IpfsIpfs));
     drop(storage_guard);
     println!("    ✅ IPFS adapter configured");
 
     // 2.2: Configure StellarTestnetIpfs adapter with sponsorship
     println!("\n  2.2 Configuring Stellar adapter with sponsorship...");
-    circuits_engine.set_circuit_adapter_config(
-        &circuit.circuit_id,
-        "user-enterprise",
-        Some(AdapterType::StellarTestnetIpfs),
-        true,  // auto_migrate_existing
-        false, // requires_approval
-        true,  // sponsor_adapter_access
-    ).unwrap();
+    circuits_engine
+        .set_circuit_adapter_config(
+            &circuit.circuit_id,
+            "user-enterprise",
+            Some(AdapterType::StellarTestnetIpfs),
+            true,  // auto_migrate_existing
+            false, // requires_approval
+            true,  // sponsor_adapter_access
+        )
+        .unwrap();
 
     let storage_guard = storage.lock().unwrap();
-    let adapter_config = storage_guard.get_circuit_adapter_config(&circuit.circuit_id).unwrap().unwrap();
-    assert_eq!(adapter_config.adapter_type, Some(AdapterType::StellarTestnetIpfs));
+    let adapter_config = storage_guard
+        .get_circuit_adapter_config(&circuit.circuit_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        adapter_config.adapter_type,
+        Some(AdapterType::StellarTestnetIpfs)
+    );
     assert!(adapter_config.sponsor_adapter_access);
     drop(storage_guard);
     println!("    ✅ Stellar adapter configured with sponsorship");
 
     // 2.3: Verify tier restrictions
     println!("\n  2.3 Testing tier restrictions...");
-    let basic_circuit = circuits_engine.create_circuit(
-        "Basic User Circuit".to_string(),
-        None,
-        "user-basic".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let basic_circuit = circuits_engine
+        .create_circuit(
+            "Basic User Circuit".to_string(),
+            None,
+            "user-basic".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     // Basic user should not be able to use StellarTestnet without sponsorship
     let result = circuits_engine.set_circuit_adapter_config(
@@ -226,20 +258,22 @@ async fn test_03_item_push_flow() {
     let mut items_engine = ItemsEngine::new(storage.clone());
 
     // Create circuit with alias configuration
-    let circuit = circuits_engine.create_circuit(
-        "Push Test Circuit".to_string(),
-        None,
-        "user-enterprise".to_string(),
-        None,
-        Some(CircuitAliasConfig {
-            required_canonical: vec!["test_id".to_string()],
-            required_contextual: vec![],
-            allowed_namespaces: vec!["test".to_string()],
-            auto_apply_namespace: true,
-            default_namespace: Some("test".to_string()),
-            use_fingerprint: false,
-        }),
-    ).unwrap();
+    let circuit = circuits_engine
+        .create_circuit(
+            "Push Test Circuit".to_string(),
+            None,
+            "user-enterprise".to_string(),
+            None,
+            Some(CircuitAliasConfig {
+                required_canonical: vec!["test_id".to_string()],
+                required_contextual: vec![],
+                allowed_namespaces: vec!["test".to_string()],
+                auto_apply_namespace: true,
+                default_namespace: Some("test".to_string()),
+                use_fingerprint: false,
+            }),
+        )
+        .unwrap();
 
     println!("  ✅ Circuit created: {}", circuit.circuit_id);
 
@@ -275,7 +309,9 @@ async fn test_03_item_push_flow() {
 
     let storage_guard = storage.lock().unwrap();
     storage_guard.store_item(&item).unwrap();
-    storage_guard.store_lid_dfid_mapping(&local_id, &item.dfid).unwrap();
+    storage_guard
+        .store_lid_dfid_mapping(&local_id, &item.dfid)
+        .unwrap();
     drop(storage_guard);
 
     println!("    ✅ Local item created with LID: {}", local_id);
@@ -284,15 +320,16 @@ async fn test_03_item_push_flow() {
     // 3.2: Push item to circuit (first push - creates DFID)
     println!("\n  3.2 Pushing item to circuit (first time)...");
 
-    let push_result = circuits_engine.push_local_item_to_circuit(
-        &local_id,
-        identifiers.clone(),
-        Some(HashMap::from([
-            ("push_number".to_string(), json!(1)),
-        ])),
-        &circuit.circuit_id,
-        "user-enterprise",
-    ).await.unwrap();
+    let push_result = circuits_engine
+        .push_local_item_to_circuit(
+            &local_id,
+            identifiers.clone(),
+            Some(HashMap::from([("push_number".to_string(), json!(1))])),
+            &circuit.circuit_id,
+            "user-enterprise",
+        )
+        .await
+        .unwrap();
 
     println!("    ✅ Item pushed successfully!");
     println!("    • DFID assigned: {}", push_result.dfid);
@@ -305,24 +342,29 @@ async fn test_03_item_push_flow() {
 
     let local_id_2 = Uuid::new_v4();
     let storage_guard = storage.lock().unwrap();
-    storage_guard.store_lid_dfid_mapping(&local_id_2, "temporary").unwrap();
+    storage_guard
+        .store_lid_dfid_mapping(&local_id_2, "temporary")
+        .unwrap();
     drop(storage_guard);
 
     let duplicate_identifiers = vec![
         EnhancedIdentifier::canonical("test", "test_id", &test_identifier), // Same canonical ID!
-        EnhancedIdentifier::contextual("test", "batch", "BATCH-002"), // Different contextual
+        EnhancedIdentifier::contextual("test", "batch", "BATCH-002"),       // Different contextual
     ];
 
-    let duplicate_push = circuits_engine.push_local_item_to_circuit(
-        &local_id_2,
-        duplicate_identifiers,
-        Some(HashMap::from([
-            ("push_number".to_string(), json!(2)),
-            ("test_data".to_string(), json!("enriched value")),
-        ])),
-        &circuit.circuit_id,
-        "user-enterprise",
-    ).await.unwrap();
+    let duplicate_push = circuits_engine
+        .push_local_item_to_circuit(
+            &local_id_2,
+            duplicate_identifiers,
+            Some(HashMap::from([
+                ("push_number".to_string(), json!(2)),
+                ("test_data".to_string(), json!("enriched value")),
+            ])),
+            &circuit.circuit_id,
+            "user-enterprise",
+        )
+        .await
+        .unwrap();
 
     assert_eq!(duplicate_push.dfid, first_dfid);
     println!("    ✅ Deduplication working!");
@@ -332,7 +374,10 @@ async fn test_03_item_push_flow() {
     // 3.4: Verify item enrichment
     println!("\n  3.4 Verifying item enrichment...");
     let storage_guard = storage.lock().unwrap();
-    let enriched_item = storage_guard.get_item_by_dfid(&first_dfid).unwrap().unwrap();
+    let enriched_item = storage_guard
+        .get_item_by_dfid(&first_dfid)
+        .unwrap()
+        .unwrap();
 
     // Check that item has been enriched with new data
     assert!(enriched_item.enriched_data.contains_key("push_number"));
@@ -375,12 +420,17 @@ async fn test_04_storage_history_and_timeline() {
         ]),
     };
 
-    storage_guard.add_storage_record(test_dfid, storage_record).unwrap();
+    storage_guard
+        .add_storage_record(test_dfid, storage_record)
+        .unwrap();
     println!("    ✅ Storage record added");
 
     // 4.2: Retrieve storage history
     println!("\n  4.2 Retrieving storage history...");
-    let history = storage_guard.get_storage_history(test_dfid).unwrap().unwrap();
+    let history = storage_guard
+        .get_storage_history(test_dfid)
+        .unwrap()
+        .unwrap();
 
     assert_eq!(history.dfid, test_dfid);
     assert_eq!(history.storage_records.len(), 1);
@@ -399,13 +449,15 @@ async fn test_04_storage_history_and_timeline() {
     println!("\n  4.3 Adding CID to timeline...");
     let timestamp = Utc::now().timestamp();
 
-    storage_guard.add_cid_to_timeline(
-        test_dfid,
-        "QmTestCID123456789",
-        "test-tx-hash-12345",
-        timestamp,
-        "testnet",
-    ).unwrap();
+    storage_guard
+        .add_cid_to_timeline(
+            test_dfid,
+            "QmTestCID123456789",
+            "test-tx-hash-12345",
+            timestamp,
+            "testnet",
+        )
+        .unwrap();
     println!("    ✅ CID added to timeline");
 
     // 4.4: Query timeline
@@ -449,33 +501,42 @@ async fn test_05_blockchain_integration() {
 
     // Create circuit with Stellar adapter
     println!("\n  5.1 Creating circuit with Stellar adapter...");
-    let circuit = circuits_engine.create_circuit(
-        "Blockchain Test Circuit".to_string(),
-        None,
-        "user-enterprise".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits_engine
+        .create_circuit(
+            "Blockchain Test Circuit".to_string(),
+            None,
+            "user-enterprise".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
-    circuits_engine.set_circuit_adapter_config(
-        &circuit.circuit_id,
-        "user-enterprise",
-        Some(AdapterType::StellarTestnetIpfs),
-        false,
-        false,
-        true, // Sponsor access
-    ).unwrap();
+    circuits_engine
+        .set_circuit_adapter_config(
+            &circuit.circuit_id,
+            "user-enterprise",
+            Some(AdapterType::StellarTestnetIpfs),
+            false,
+            false,
+            true, // Sponsor access
+        )
+        .unwrap();
 
     println!("    ✅ Circuit configured with StellarTestnet adapter");
 
     // Create and push item
     println!("\n  5.2 Creating item for blockchain push...");
     let local_id = Uuid::new_v4();
-    let unique_id = format!("BLOCKCHAIN-TEST-{}", Uuid::new_v4().to_string()[0..8].to_uppercase());
+    let unique_id = format!(
+        "BLOCKCHAIN-TEST-{}",
+        Uuid::new_v4().to_string()[0..8].to_uppercase()
+    );
 
-    let identifiers = vec![
-        EnhancedIdentifier::canonical("test", "blockchain_id", &unique_id),
-    ];
+    let identifiers = vec![EnhancedIdentifier::canonical(
+        "test",
+        "blockchain_id",
+        &unique_id,
+    )];
 
     let item = Item {
         dfid: format!("LID-{}", local_id),
@@ -487,7 +548,10 @@ async fn test_05_blockchain_integration() {
         identifiers: vec![],
         enhanced_identifiers: identifiers.clone(),
         enriched_data: HashMap::from([
-            ("blockchain_test".to_string(), json!("This data will be stored on IPFS and Stellar")),
+            (
+                "blockchain_test".to_string(),
+                json!("This data will be stored on IPFS and Stellar"),
+            ),
             ("timestamp".to_string(), json!(Utc::now().to_rfc3339())),
         ]),
         creation_timestamp: Utc::now(),
@@ -498,7 +562,9 @@ async fn test_05_blockchain_integration() {
 
     let storage_guard = storage.lock().unwrap();
     storage_guard.store_item(&item).unwrap();
-    storage_guard.store_lid_dfid_mapping(&local_id, &item.dfid).unwrap();
+    storage_guard
+        .store_lid_dfid_mapping(&local_id, &item.dfid)
+        .unwrap();
     drop(storage_guard);
 
     println!("    ✅ Item created with unique ID: {}", unique_id);
@@ -515,8 +581,9 @@ async fn test_05_blockchain_integration() {
             None,
             &circuit.circuit_id,
             "user-enterprise",
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     match push_result {
         Ok(Ok(result)) => {
@@ -536,12 +603,18 @@ async fn test_05_blockchain_integration() {
 
                     if let Some(nft_tx) = record.metadata.get("nft_mint_tx") {
                         println!("    • NFT Mint TX: {}", nft_tx);
-                        println!("      View at: https://stellar.expert/explorer/testnet/tx/{}", nft_tx);
+                        println!(
+                            "      View at: https://stellar.expert/explorer/testnet/tx/{}",
+                            nft_tx
+                        );
                     }
 
                     if let Some(ipcm_tx) = record.metadata.get("ipcm_update_tx") {
                         println!("    • IPCM Update TX: {}", ipcm_tx);
-                        println!("      View at: https://stellar.expert/explorer/testnet/tx/{}", ipcm_tx);
+                        println!(
+                            "      View at: https://stellar.expert/explorer/testnet/tx/{}",
+                            ipcm_tx
+                        );
                     }
                 }
             }
@@ -551,7 +624,10 @@ async fn test_05_blockchain_integration() {
             println!("    ℹ️  Check your Stellar and IPFS configuration");
         }
         Err(_) => {
-            println!("    ⏱️  Push timed out after {} seconds", TEST_TIMEOUT.as_secs());
+            println!(
+                "    ⏱️  Push timed out after {} seconds",
+                TEST_TIMEOUT.as_secs()
+            );
             println!("    ℹ️  This might indicate network issues");
         }
     }

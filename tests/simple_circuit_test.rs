@@ -1,7 +1,6 @@
 /// Simple Circuit Integration Test
 ///
 /// Run with: cargo test --test simple_circuit_test -- --nocapture
-
 use chrono::Utc;
 use defarm_engine::circuits_engine::CircuitsEngine;
 use defarm_engine::storage::{InMemoryStorage, StorageBackend};
@@ -19,13 +18,15 @@ async fn test_circuit_basic_flow() {
 
     // Test 1: Create circuit
     println!("1️⃣  Creating circuit...");
-    let circuit = circuits_engine.create_circuit(
-        "Test Circuit".to_string(),
-        "Test description".to_string(), // description is NOT optional
-        "test-user".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits_engine
+        .create_circuit(
+            "Test Circuit".to_string(),
+            "Test description".to_string(), // description is NOT optional
+            "test-user".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     println!("   ✅ Circuit created: {}", circuit.circuit_id);
     println!("      Name: {}", circuit.name);
@@ -74,11 +75,15 @@ async fn test_circuit_basic_flow() {
 
     // Test 4: Verify permissions
     println!("\n4️⃣  Verifying permissions...");
-    let final_circuit = circuits_engine.get_circuit(&circuit.circuit_id).unwrap().unwrap();
+    let final_circuit = circuits_engine
+        .get_circuit(&circuit.circuit_id)
+        .unwrap()
+        .unwrap();
 
     let owner_can_manage = final_circuit.has_permission("test-user", &Permission::ManageMembers);
     let member_can_push = final_circuit.has_permission("another-user", &Permission::Push);
-    let member_can_manage = final_circuit.has_permission("another-user", &Permission::ManageMembers);
+    let member_can_manage =
+        final_circuit.has_permission("another-user", &Permission::ManageMembers);
 
     println!("   Owner can manage: {}", owner_can_manage);
     println!("   Member can push: {}", member_can_push);
@@ -107,7 +112,9 @@ async fn test_circuit_basic_flow() {
         metadata: std::collections::HashMap::new(),
     };
 
-    storage_guard.add_storage_record(test_dfid, storage_record).unwrap();
+    storage_guard
+        .add_storage_record(test_dfid, storage_record)
+        .unwrap();
 
     // Retrieve history
     if let Ok(Some(history)) = storage_guard.get_storage_history(test_dfid) {
@@ -115,20 +122,24 @@ async fn test_circuit_basic_flow() {
         println!("      DFID: {}", history.dfid);
         println!("      Records: {}", history.storage_records.len());
 
-        if let defarm_engine::adapters::base::StorageLocation::IPFS { cid, .. } = &history.storage_records[0].storage_location {
+        if let defarm_engine::adapters::base::StorageLocation::IPFS { cid, .. } =
+            &history.storage_records[0].storage_location
+        {
             println!("      IPFS CID: {}", cid);
         }
     }
 
     // Test 6: Timeline
     println!("\n6️⃣  Testing timeline...");
-    storage_guard.add_cid_to_timeline(
-        test_dfid,
-        "QmTestCID",
-        "tx-hash-123",
-        Utc::now().timestamp(),
-        "testnet",
-    ).unwrap();
+    storage_guard
+        .add_cid_to_timeline(
+            test_dfid,
+            "QmTestCID",
+            "tx-hash-123",
+            Utc::now().timestamp(),
+            "testnet",
+        )
+        .unwrap();
 
     // Note: get_cid_timeline might not exist, let's check what methods are available
     // For now, we'll just confirm the add worked

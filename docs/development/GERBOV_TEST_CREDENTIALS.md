@@ -14,8 +14,8 @@ Tier: Professional
 ### Gerbov Working Circuit (UPDATED - Use This!)
 
 ```
-Circuit ID: 3896c2bc-5964-4a28-8110-54849919710b
-Circuit Name: Gerbov Simple Test 1760950027
+Circuit ID: 002ea6db-6b7b-4a69-8780-1f01ae074265
+Circuit Name: Gerbov Test Circuit 1760958678
 Owner: gerbov (user-2da9af70-c4c3-4b13-9180-dc1c7094b27c)
 Tier: Professional
 Status: ✅ VERIFIED WORKING (October 20, 2025)
@@ -56,7 +56,7 @@ As circuit owner, gerbov has **ALL** permissions:
 ### 1. Login and Get Token
 
 ```bash
-API_BASE="https://connect.defarm.net/api"
+API_BASE="https://defarm-engines-api-production.up.railway.app/api"
 
 RESPONSE=$(curl -s -X POST "$API_BASE/auth/login" \
   -H "Content-Type: application/json" \
@@ -95,7 +95,7 @@ echo "Local ID: $LOCAL_ID"
 ### 3. Push to Circuit (Tokenization + Blockchain)
 
 ```bash
-CIRCUIT_ID="3896c2bc-5964-4a28-8110-54849919710b"
+CIRCUIT_ID="002ea6db-6b7b-4a69-8780-1f01ae074265"
 
 PUSH_RESPONSE=$(curl -s -X POST "$API_BASE/circuits/$CIRCUIT_ID/push-local" \
   -H "Authorization: Bearer $TOKEN" \
@@ -126,7 +126,7 @@ curl -s "$API_BASE/items/$DFID/storage-history" \
 
 ## 🔗 Useful API Endpoints
 
-All endpoints use base URL: `https://connect.defarm.net/api`
+All endpoints use base URL: `https://defarm-engines-api-production.up.railway.app/api`
 
 - **POST /auth/login** - Get JWT token
 - **POST /items/local** - Create local item
@@ -159,6 +159,6 @@ This user and circuit are ready for:
 
 ---
 
-**Last Updated:** 2025-10-14
-**Environment:** Production (connect.defarm.net)
+**Last Updated:** 2025-10-20
+**Environment:** Production Railway (defarm-engines-api-production.up.railway.app)
 **Status:** ✅ Active and Ready for Testing

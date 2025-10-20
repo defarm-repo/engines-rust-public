@@ -12,7 +12,6 @@
 ///
 /// These tests run against the real IPFS and Stellar testnet to ensure
 /// actual blockchain integration works correctly.
-
 use axum::http::StatusCode;
 use chrono::Utc;
 use defarm_engine::api::shared_state::AppState;
@@ -40,40 +39,48 @@ fn create_test_app_state() -> Arc<AppState> {
     let mut storage_guard = storage.lock().unwrap();
 
     // Basic tier user (only IpfsIpfs adapter)
-    storage_guard.create_user_account(UserAccount {
-        user_id: "user-basic".to_string(),
-        tier: UserTier::Basic,
-        available_adapters: None, // Uses tier defaults
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    }).unwrap();
+    storage_guard
+        .create_user_account(UserAccount {
+            user_id: "user-basic".to_string(),
+            tier: UserTier::Basic,
+            available_adapters: None, // Uses tier defaults
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
 
     // Professional tier user (IpfsIpfs + StellarTestnetIpfs)
-    storage_guard.create_user_account(UserAccount {
-        user_id: "user-professional".to_string(),
-        tier: UserTier::Professional,
-        available_adapters: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    }).unwrap();
+    storage_guard
+        .create_user_account(UserAccount {
+            user_id: "user-professional".to_string(),
+            tier: UserTier::Professional,
+            available_adapters: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
 
     // Enterprise tier user (all adapters)
-    storage_guard.create_user_account(UserAccount {
-        user_id: "user-enterprise".to_string(),
-        tier: UserTier::Enterprise,
-        available_adapters: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    }).unwrap();
+    storage_guard
+        .create_user_account(UserAccount {
+            user_id: "user-enterprise".to_string(),
+            tier: UserTier::Enterprise,
+            available_adapters: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
 
     // Admin user (all adapters + special permissions)
-    storage_guard.create_user_account(UserAccount {
-        user_id: "admin-user".to_string(),
-        tier: UserTier::Admin,
-        available_adapters: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    }).unwrap();
+    storage_guard
+        .create_user_account(UserAccount {
+            user_id: "admin-user".to_string(),
+            tier: UserTier::Admin,
+            available_adapters: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
 
     drop(storage_guard);
 
@@ -99,7 +106,8 @@ fn generate_test_jwt(user_id: &str) -> String {
         &jsonwebtoken::Header::default(),
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(secret.as_ref()),
-    ).unwrap()
+    )
+    .unwrap()
 }
 
 /// Test helper: Create test API key
@@ -145,40 +153,55 @@ async fn test_circuit_crud_with_tiers() {
 
     // Test 1.1: Basic tier user creates circuit
     println!("  1.1 Basic tier user creates circuit...");
-    let basic_circuit = circuits_engine.create_circuit(
-        "Basic Test Circuit".to_string(),
-        Some("Circuit created by basic tier user".to_string()),
-        "user-basic".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let basic_circuit = circuits_engine
+        .create_circuit(
+            "Basic Test Circuit".to_string(),
+            Some("Circuit created by basic tier user".to_string()),
+            "user-basic".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
     assert_eq!(basic_circuit.name, "Basic Test Circuit");
     assert_eq!(basic_circuit.owner_id, "user-basic");
-    println!("    ✅ Basic user created circuit: {}", basic_circuit.circuit_id);
+    println!(
+        "    ✅ Basic user created circuit: {}",
+        basic_circuit.circuit_id
+    );
 
     // Test 1.2: Professional tier user creates circuit
     println!("  1.2 Professional tier user creates circuit...");
-    let prof_circuit = circuits_engine.create_circuit(
-        "Professional Test Circuit".to_string(),
-        Some("Circuit created by professional tier user".to_string()),
-        "user-professional".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let prof_circuit = circuits_engine
+        .create_circuit(
+            "Professional Test Circuit".to_string(),
+            Some("Circuit created by professional tier user".to_string()),
+            "user-professional".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
     assert_eq!(prof_circuit.owner_id, "user-professional");
-    println!("    ✅ Professional user created circuit: {}", prof_circuit.circuit_id);
+    println!(
+        "    ✅ Professional user created circuit: {}",
+        prof_circuit.circuit_id
+    );
 
     // Test 1.3: Enterprise tier user creates circuit
     println!("  1.3 Enterprise tier user creates circuit...");
-    let enterprise_circuit = circuits_engine.create_circuit(
-        "Enterprise Test Circuit".to_string(),
-        Some("Circuit created by enterprise tier user".to_string()),
-        "user-enterprise".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let enterprise_circuit = circuits_engine
+        .create_circuit(
+            "Enterprise Test Circuit".to_string(),
+            Some("Circuit created by enterprise tier user".to_string()),
+            "user-enterprise".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
     assert_eq!(enterprise_circuit.owner_id, "user-enterprise");
-    println!("    ✅ Enterprise user created circuit: {}", enterprise_circuit.circuit_id);
+    println!(
+        "    ✅ Enterprise user created circuit: {}",
+        enterprise_circuit.circuit_id
+    );
 
     // Test 1.4: Update circuit (only owner can update)
     println!("  1.4 Testing circuit update permissions...");
@@ -205,19 +228,33 @@ async fn test_circuit_crud_with_tiers() {
 
     // Test 1.6: List circuits for user
     println!("  1.6 Testing circuit listing...");
-    let basic_circuits = circuits_engine.get_circuits_for_member("user-basic").unwrap();
-    assert!(basic_circuits.iter().any(|c| c.circuit_id == basic_circuit.circuit_id));
+    let basic_circuits = circuits_engine
+        .get_circuits_for_member("user-basic")
+        .unwrap();
+    assert!(basic_circuits
+        .iter()
+        .any(|c| c.circuit_id == basic_circuit.circuit_id));
     println!("    ✅ User can list their circuits");
 
     // Test 1.7: Get specific circuit
-    let retrieved_circuit = circuits_engine.get_circuit(&basic_circuit.circuit_id).unwrap();
-    assert_eq!(retrieved_circuit.as_ref().unwrap().name, "Updated Basic Circuit");
+    let retrieved_circuit = circuits_engine
+        .get_circuit(&basic_circuit.circuit_id)
+        .unwrap();
+    assert_eq!(
+        retrieved_circuit.as_ref().unwrap().name,
+        "Updated Basic Circuit"
+    );
     println!("    ✅ Circuit retrieval successful");
 
     // Test 1.8: Deactivate circuit (soft delete)
     println!("  1.8 Testing circuit deactivation...");
-    circuits_engine.deactivate_circuit(&basic_circuit.circuit_id, "user-basic").unwrap();
-    let deactivated = circuits_engine.get_circuit(&basic_circuit.circuit_id).unwrap().unwrap();
+    circuits_engine
+        .deactivate_circuit(&basic_circuit.circuit_id, "user-basic")
+        .unwrap();
+    let deactivated = circuits_engine
+        .get_circuit(&basic_circuit.circuit_id)
+        .unwrap()
+        .unwrap();
     assert!(!deactivated.is_active);
     println!("    ✅ Circuit successfully deactivated");
 
@@ -240,36 +277,46 @@ async fn test_circuit_configurations() {
     println!("  2.1 Creating circuit with all configurations...");
 
     // First create the circuit
-    let circuit = circuits_engine.create_circuit(
-        "Fully Configured Circuit".to_string(),
-        Some("Testing all configuration options".to_string()),
-        "user-enterprise".to_string(),
-        None,
-        Some(CircuitAliasConfig {
-            required_canonical: vec!["sisbov".to_string(), "cpf".to_string()],
-            required_contextual: vec!["lote".to_string(), "safra".to_string()],
-            allowed_namespaces: vec!["bovino".to_string(), "pessoa".to_string()],
-            auto_apply_namespace: true,
-            default_namespace: Some("bovino".to_string()),
-            use_fingerprint: true,
-        }),
-    ).unwrap();
+    let circuit = circuits_engine
+        .create_circuit(
+            "Fully Configured Circuit".to_string(),
+            Some("Testing all configuration options".to_string()),
+            "user-enterprise".to_string(),
+            None,
+            Some(CircuitAliasConfig {
+                required_canonical: vec!["sisbov".to_string(), "cpf".to_string()],
+                required_contextual: vec!["lote".to_string(), "safra".to_string()],
+                allowed_namespaces: vec!["bovino".to_string(), "pessoa".to_string()],
+                auto_apply_namespace: true,
+                default_namespace: Some("bovino".to_string()),
+                use_fingerprint: true,
+            }),
+        )
+        .unwrap();
 
     println!("    ✅ Circuit created with alias configuration");
 
     // Test 2.2: Configure adapter with sponsorship
     println!("  2.2 Configuring adapter with sponsorship...");
-    circuits_engine.set_circuit_adapter_config(
-        &circuit.circuit_id,
-        "user-enterprise",
-        Some(AdapterType::StellarTestnetIpfs),
-        true,  // auto_migrate_existing
-        false, // requires_approval
-        true,  // sponsor_adapter_access - circuit pays for adapter
-    ).unwrap();
+    circuits_engine
+        .set_circuit_adapter_config(
+            &circuit.circuit_id,
+            "user-enterprise",
+            Some(AdapterType::StellarTestnetIpfs),
+            true,  // auto_migrate_existing
+            false, // requires_approval
+            true,  // sponsor_adapter_access - circuit pays for adapter
+        )
+        .unwrap();
 
-    let adapter_config = storage.get_circuit_adapter_config(&circuit.circuit_id).unwrap().unwrap();
-    assert_eq!(adapter_config.adapter_type, Some(AdapterType::StellarTestnetIpfs));
+    let adapter_config = storage
+        .get_circuit_adapter_config(&circuit.circuit_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        adapter_config.adapter_type,
+        Some(AdapterType::StellarTestnetIpfs)
+    );
     assert!(adapter_config.sponsor_adapter_access);
     println!("    ✅ Adapter configured with sponsorship enabled");
 
@@ -280,15 +327,20 @@ async fn test_circuit_configurations() {
         require_approval_for_pull: false,
         allow_public_visibility: true,
     };
-    circuits_engine.update_circuit(
-        &circuit.circuit_id,
-        None,
-        None,
-        Some(permissions),
-        "user-enterprise",
-    ).unwrap();
+    circuits_engine
+        .update_circuit(
+            &circuit.circuit_id,
+            None,
+            None,
+            Some(permissions),
+            "user-enterprise",
+        )
+        .unwrap();
 
-    let updated_circuit = circuits_engine.get_circuit(&circuit.circuit_id).unwrap().unwrap();
+    let updated_circuit = circuits_engine
+        .get_circuit(&circuit.circuit_id)
+        .unwrap()
+        .unwrap();
     assert!(updated_circuit.permissions.allow_public_visibility);
     println!("    ✅ Circuit set to public visibility");
 
@@ -296,35 +348,44 @@ async fn test_circuit_configurations() {
     println!("  2.4 Adding members with different roles...");
 
     // Add admin
-    circuits_engine.add_member_to_circuit(
-        &circuit.circuit_id,
-        "admin-user".to_string(),
-        MemberRole::Admin,
-        "user-enterprise",
-    ).unwrap();
+    circuits_engine
+        .add_member_to_circuit(
+            &circuit.circuit_id,
+            "admin-user".to_string(),
+            MemberRole::Admin,
+            "user-enterprise",
+        )
+        .unwrap();
     println!("    ✅ Added admin member");
 
     // Add regular member
-    circuits_engine.add_member_to_circuit(
-        &circuit.circuit_id,
-        "user-professional".to_string(),
-        MemberRole::Member,
-        "user-enterprise",
-    ).unwrap();
+    circuits_engine
+        .add_member_to_circuit(
+            &circuit.circuit_id,
+            "user-professional".to_string(),
+            MemberRole::Member,
+            "user-enterprise",
+        )
+        .unwrap();
     println!("    ✅ Added regular member");
 
     // Add viewer
-    circuits_engine.add_member_to_circuit(
-        &circuit.circuit_id,
-        "user-basic".to_string(),
-        MemberRole::Viewer,
-        "user-enterprise",
-    ).unwrap();
+    circuits_engine
+        .add_member_to_circuit(
+            &circuit.circuit_id,
+            "user-basic".to_string(),
+            MemberRole::Viewer,
+            "user-enterprise",
+        )
+        .unwrap();
     println!("    ✅ Added viewer member");
 
     // Test 2.5: Verify role permissions
     println!("  2.5 Verifying role permissions...");
-    let final_circuit = circuits_engine.get_circuit(&circuit.circuit_id).unwrap().unwrap();
+    let final_circuit = circuits_engine
+        .get_circuit(&circuit.circuit_id)
+        .unwrap()
+        .unwrap();
 
     assert!(final_circuit.has_permission("user-enterprise", &Permission::ManageMembers));
     assert!(final_circuit.has_permission("admin-user", &Permission::ManageMembers));
@@ -359,7 +420,9 @@ async fn test_circuit_configurations() {
 
     drop(storage); // Release lock before getting new one
     let mut storage = app_state.shared_storage.lock().unwrap();
-    storage.store_post_action_config(&circuit.circuit_id, post_action_config).unwrap();
+    storage
+        .store_post_action_config(&circuit.circuit_id, post_action_config)
+        .unwrap();
     println!("    ✅ Webhook configured for post-actions");
 
     // Test 2.7: Set approval requirements
@@ -370,15 +433,20 @@ async fn test_circuit_configurations() {
         require_approval_for_pull: true,
         allow_public_visibility: false,
     };
-    circuits_engine.update_circuit(
-        &circuit.circuit_id,
-        None,
-        None,
-        Some(approval_permissions),
-        "user-enterprise",
-    ).unwrap();
+    circuits_engine
+        .update_circuit(
+            &circuit.circuit_id,
+            None,
+            None,
+            Some(approval_permissions),
+            "user-enterprise",
+        )
+        .unwrap();
 
-    let approval_circuit = circuits_engine.get_circuit(&circuit.circuit_id).unwrap().unwrap();
+    let approval_circuit = circuits_engine
+        .get_circuit(&circuit.circuit_id)
+        .unwrap()
+        .unwrap();
     assert!(approval_circuit.permissions.require_approval_for_push);
     assert!(approval_circuit.permissions.require_approval_for_pull);
     println!("    ✅ Approval requirements configured");
@@ -399,13 +467,15 @@ async fn test_adapter_selection() {
 
     // Test 3.1: Basic user can only use IpfsIpfs
     println!("  3.1 Basic tier adapter restrictions...");
-    let basic_circuit = circuits_engine.create_circuit(
-        "Basic Adapter Test".to_string(),
-        None,
-        "user-basic".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let basic_circuit = circuits_engine
+        .create_circuit(
+            "Basic Adapter Test".to_string(),
+            None,
+            "user-basic".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     // Try to set StellarTestnetIpfs (should fail without sponsorship)
     let stellar_result = circuits_engine.set_circuit_adapter_config(
@@ -433,13 +503,15 @@ async fn test_adapter_selection() {
 
     // Test 3.2: Professional user can use testnet
     println!("  3.2 Professional tier adapter access...");
-    let prof_circuit = circuits_engine.create_circuit(
-        "Professional Adapter Test".to_string(),
-        None,
-        "user-professional".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let prof_circuit = circuits_engine
+        .create_circuit(
+            "Professional Adapter Test".to_string(),
+            None,
+            "user-professional".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     let testnet_result = circuits_engine.set_circuit_adapter_config(
         &prof_circuit.circuit_id,
@@ -466,13 +538,15 @@ async fn test_adapter_selection() {
 
     // Test 3.3: Enterprise user has all adapters
     println!("  3.3 Enterprise tier full adapter access...");
-    let enterprise_circuit = circuits_engine.create_circuit(
-        "Enterprise Adapter Test".to_string(),
-        None,
-        "user-enterprise".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let enterprise_circuit = circuits_engine
+        .create_circuit(
+            "Enterprise Adapter Test".to_string(),
+            None,
+            "user-enterprise".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     // Can use mainnet
     let mainnet_result = circuits_engine.set_circuit_adapter_config(
@@ -488,31 +562,37 @@ async fn test_adapter_selection() {
 
     // Test 3.4: Sponsorship allows any member to use adapter
     println!("  3.4 Testing adapter sponsorship...");
-    let sponsored_circuit = circuits_engine.create_circuit(
-        "Sponsored Adapter Circuit".to_string(),
-        None,
-        "user-enterprise".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let sponsored_circuit = circuits_engine
+        .create_circuit(
+            "Sponsored Adapter Circuit".to_string(),
+            None,
+            "user-enterprise".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
     // Set expensive adapter with sponsorship
-    circuits_engine.set_circuit_adapter_config(
-        &sponsored_circuit.circuit_id,
-        "user-enterprise",
-        Some(AdapterType::StellarTestnetIpfs),
-        false,
-        false,
-        true, // Sponsor adapter access
-    ).unwrap();
+    circuits_engine
+        .set_circuit_adapter_config(
+            &sponsored_circuit.circuit_id,
+            "user-enterprise",
+            Some(AdapterType::StellarTestnetIpfs),
+            false,
+            false,
+            true, // Sponsor adapter access
+        )
+        .unwrap();
 
     // Add basic user as member
-    circuits_engine.add_member_to_circuit(
-        &sponsored_circuit.circuit_id,
-        "user-basic".to_string(),
-        MemberRole::Member,
-        "user-enterprise",
-    ).unwrap();
+    circuits_engine
+        .add_member_to_circuit(
+            &sponsored_circuit.circuit_id,
+            "user-basic".to_string(),
+            MemberRole::Member,
+            "user-enterprise",
+        )
+        .unwrap();
 
     println!("    ✅ Circuit configured with sponsored adapter access");
     println!("    ℹ️  Basic tier members can now push using StellarTestnet adapter");
@@ -541,29 +621,33 @@ async fn test_item_push_with_blockchain() {
 
     // Test 4.1: Create circuit with StellarTestnet adapter
     println!("  4.1 Creating circuit with Stellar adapter...");
-    let circuit = circuits_engine.create_circuit(
-        "Blockchain Test Circuit".to_string(),
-        Some("Testing real blockchain integration".to_string()),
-        "user-enterprise".to_string(),
-        None,
-        Some(CircuitAliasConfig {
-            required_canonical: vec!["sisbov".to_string()],
-            required_contextual: vec![],
-            allowed_namespaces: vec!["bovino".to_string()],
-            auto_apply_namespace: true,
-            default_namespace: Some("bovino".to_string()),
-            use_fingerprint: false,
-        }),
-    ).unwrap();
+    let circuit = circuits_engine
+        .create_circuit(
+            "Blockchain Test Circuit".to_string(),
+            Some("Testing real blockchain integration".to_string()),
+            "user-enterprise".to_string(),
+            None,
+            Some(CircuitAliasConfig {
+                required_canonical: vec!["sisbov".to_string()],
+                required_contextual: vec![],
+                allowed_namespaces: vec!["bovino".to_string()],
+                auto_apply_namespace: true,
+                default_namespace: Some("bovino".to_string()),
+                use_fingerprint: false,
+            }),
+        )
+        .unwrap();
 
-    circuits_engine.set_circuit_adapter_config(
-        &circuit.circuit_id,
-        "user-enterprise",
-        Some(AdapterType::StellarTestnetIpfs),
-        false,
-        false,
-        true, // Sponsor access
-    ).unwrap();
+    circuits_engine
+        .set_circuit_adapter_config(
+            &circuit.circuit_id,
+            "user-enterprise",
+            Some(AdapterType::StellarTestnetIpfs),
+            false,
+            false,
+            true, // Sponsor access
+        )
+        .unwrap();
 
     println!("    ✅ Circuit created with StellarTestnet adapter");
 
@@ -578,7 +662,7 @@ async fn test_item_push_with_blockchain() {
     // Store local item (simulating frontend creating item)
     let item = Item {
         dfid: format!("LID-{}", local_id), // Temporary DFID
-        identifiers: vec![], // Legacy identifiers
+        identifiers: vec![],               // Legacy identifiers
         enhanced_identifiers: identifiers.clone(),
         enriched_data: Some(HashMap::from([
             ("weight".to_string(), json!(450.5)),
@@ -612,8 +696,9 @@ async fn test_item_push_with_blockchain() {
             ])),
             &circuit.circuit_id,
             "user-enterprise",
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     match push_result {
         Ok(Ok(result)) => {
@@ -634,7 +719,10 @@ async fn test_item_push_with_blockchain() {
                 // Extract blockchain data
                 let ipfs_cid = record.metadata.get("ipfs_cid").and_then(|v| v.as_str());
                 let nft_mint_tx = record.metadata.get("nft_mint_tx").and_then(|v| v.as_str());
-                let ipcm_update_tx = record.metadata.get("ipcm_update_tx").and_then(|v| v.as_str());
+                let ipcm_update_tx = record
+                    .metadata
+                    .get("ipcm_update_tx")
+                    .and_then(|v| v.as_str());
 
                 println!("    ✅ Blockchain registration confirmed:");
                 if let Some(cid) = ipfs_cid {
@@ -643,11 +731,17 @@ async fn test_item_push_with_blockchain() {
                 }
                 if let Some(nft_tx) = nft_mint_tx {
                     println!("      • NFT Mint TX: {}", nft_tx);
-                    println!("        View at: https://stellar.expert/explorer/testnet/tx/{}", nft_tx);
+                    println!(
+                        "        View at: https://stellar.expert/explorer/testnet/tx/{}",
+                        nft_tx
+                    );
                 }
                 if let Some(ipcm_tx) = ipcm_update_tx {
                     println!("      • IPCM Update TX: {}", ipcm_tx);
-                    println!("        View at: https://stellar.expert/explorer/testnet/tx/{}", ipcm_tx);
+                    println!(
+                        "        View at: https://stellar.expert/explorer/testnet/tx/{}",
+                        ipcm_tx
+                    );
                 }
             } else {
                 println!("    ⚠️  No storage history found (may not be persisted yet)");
@@ -659,7 +753,9 @@ async fn test_item_push_with_blockchain() {
 
             // Store another local item with SAME canonical identifier
             let storage = app_state.shared_storage.lock().unwrap();
-            storage.store_lid_dfid_mapping(&local_id_2, "temporary").unwrap();
+            storage
+                .store_lid_dfid_mapping(&local_id_2, "temporary")
+                .unwrap();
             drop(storage);
 
             let duplicate_push = tokio::time::timeout(
@@ -675,8 +771,9 @@ async fn test_item_push_with_blockchain() {
                     ])),
                     &circuit.circuit_id,
                     "user-enterprise",
-                )
-            ).await;
+                ),
+            )
+            .await;
 
             match duplicate_push {
                 Ok(Ok(dup_result)) => {
@@ -699,7 +796,10 @@ async fn test_item_push_with_blockchain() {
             println!("    ℹ️  Check your STELLAR_TESTNET_SECRET and IPFS configuration");
         }
         Err(_) => {
-            println!("    ⏱️  Push timed out after {} seconds", TEST_TIMEOUT.as_secs());
+            println!(
+                "    ⏱️  Push timed out after {} seconds",
+                TEST_TIMEOUT.as_secs()
+            );
             println!("    ℹ️  This might indicate network issues or blockchain congestion");
         }
     }
@@ -728,45 +828,60 @@ async fn test_ipfs_event_emission() {
 
     // Test 5.1: Create circuit with IpfsIpfs adapter
     println!("  5.1 Creating circuit with IPFS-only adapter...");
-    let circuit = circuits_engine.create_circuit(
-        "IPFS Event Test Circuit".to_string(),
-        None,
-        "user-professional".to_string(),
-        None,
-        None,
-    ).unwrap();
+    let circuit = circuits_engine
+        .create_circuit(
+            "IPFS Event Test Circuit".to_string(),
+            None,
+            "user-professional".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
 
-    circuits_engine.set_circuit_adapter_config(
-        &circuit.circuit_id,
-        "user-professional",
-        Some(AdapterType::IpfsIpfs),
-        false,
-        false,
-        false,
-    ).unwrap();
+    circuits_engine
+        .set_circuit_adapter_config(
+            &circuit.circuit_id,
+            "user-professional",
+            Some(AdapterType::IpfsIpfs),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
 
     // Test 5.2: Create and push item with events
     println!("  5.2 Creating item with enriched data...");
     let local_id = Uuid::new_v4();
-    let test_dfid = format!("DFID-TEST-{}", Uuid::new_v4().to_string()[0..8].to_uppercase());
+    let test_dfid = format!(
+        "DFID-TEST-{}",
+        Uuid::new_v4().to_string()[0..8].to_uppercase()
+    );
 
     let item = Item {
         dfid: test_dfid.clone(),
         identifiers: vec![],
-        enhanced_identifiers: vec![
-            EnhancedIdentifier::canonical("test", "id", &Uuid::new_v4().to_string()),
-        ],
+        enhanced_identifiers: vec![EnhancedIdentifier::canonical(
+            "test",
+            "id",
+            &Uuid::new_v4().to_string(),
+        )],
         enriched_data: Some(HashMap::from([
-            ("event_test".to_string(), json!("Testing IPFS event storage")),
+            (
+                "event_test".to_string(),
+                json!("Testing IPFS event storage"),
+            ),
             ("timestamp".to_string(), json!(Utc::now().to_rfc3339())),
-            ("metadata".to_string(), json!({
-                "source": "test_suite",
-                "version": "1.0.0",
-                "test_data": {
-                    "nested": "value",
-                    "array": [1, 2, 3],
-                }
-            })),
+            (
+                "metadata".to_string(),
+                json!({
+                    "source": "test_suite",
+                    "version": "1.0.0",
+                    "test_data": {
+                        "nested": "value",
+                        "array": [1, 2, 3],
+                    }
+                }),
+            ),
         ])),
         creation_timestamp: Utc::now(),
         last_modified: Utc::now(),
@@ -776,7 +891,9 @@ async fn test_ipfs_event_emission() {
     };
 
     storage.store_item(&item).unwrap();
-    storage.store_lid_dfid_mapping(&local_id, &test_dfid).unwrap();
+    storage
+        .store_lid_dfid_mapping(&local_id, &test_dfid)
+        .unwrap();
     drop(storage);
 
     // Test 5.3: Push to circuit (uploads to IPFS)
@@ -790,8 +907,9 @@ async fn test_ipfs_event_emission() {
             item.enriched_data.clone(),
             &circuit.circuit_id,
             "user-professional",
-        )
-    ).await;
+        ),
+    )
+    .await;
 
     match push_result {
         Ok(Ok(result)) => {
@@ -823,7 +941,10 @@ async fn test_ipfs_event_emission() {
                             actor: "test-suite".to_string(),
                             metadata: HashMap::from([
                                 ("action".to_string(), json!("test_event")),
-                                ("description".to_string(), json!("Testing event emission to IPFS")),
+                                (
+                                    "description".to_string(),
+                                    json!("Testing event emission to IPFS"),
+                                ),
                             ]),
                             visibility: EventVisibility::Public,
                             evidence_hash: Some("test-hash-12345".to_string()),
@@ -838,7 +959,10 @@ async fn test_ipfs_event_emission() {
                         // For now, we've verified the IPFS upload mechanism works
                     }
                     _ => {
-                        println!("    ⚠️  Unexpected storage location: {:?}", record.storage_location);
+                        println!(
+                            "    ⚠️  Unexpected storage location: {:?}",
+                            record.storage_location
+                        );
                     }
                 }
             }
@@ -872,13 +996,9 @@ async fn test_timeline_registration() {
     let test_tx_hash = "test-tx-hash-12345";
     let timestamp = Utc::now().timestamp();
 
-    storage.add_cid_to_timeline(
-        test_dfid,
-        test_cid,
-        test_tx_hash,
-        timestamp,
-        "testnet",
-    ).unwrap();
+    storage
+        .add_cid_to_timeline(test_dfid, test_cid, test_tx_hash, timestamp, "testnet")
+        .unwrap();
 
     println!("    ✅ CID added to timeline");
 
@@ -902,21 +1022,25 @@ async fn test_timeline_registration() {
     // Test 6.3: Multiple timeline entries
     println!("  6.3 Adding multiple timeline entries...");
 
-    storage.add_cid_to_timeline(
-        test_dfid,
-        "QmSecondCID456",
-        "second-tx-hash",
-        timestamp + 100,
-        "testnet",
-    ).unwrap();
+    storage
+        .add_cid_to_timeline(
+            test_dfid,
+            "QmSecondCID456",
+            "second-tx-hash",
+            timestamp + 100,
+            "testnet",
+        )
+        .unwrap();
 
-    storage.add_cid_to_timeline(
-        test_dfid,
-        "QmThirdCID789",
-        "third-tx-hash",
-        timestamp + 200,
-        "mainnet",
-    ).unwrap();
+    storage
+        .add_cid_to_timeline(
+            test_dfid,
+            "QmThirdCID789",
+            "third-tx-hash",
+            timestamp + 200,
+            "mainnet",
+        )
+        .unwrap();
 
     let full_timeline = storage.get_cid_timeline(test_dfid).unwrap();
     assert_eq!(full_timeline.len(), 3);
@@ -925,9 +1049,9 @@ async fn test_timeline_registration() {
     println!("      • Total entries: {}", full_timeline.len());
 
     // Test 6.4: Timeline ordering (should be chronological)
-    let is_ordered = full_timeline.windows(2).all(|w| {
-        w[0].blockchain_timestamp <= w[1].blockchain_timestamp
-    });
+    let is_ordered = full_timeline
+        .windows(2)
+        .all(|w| w[0].blockchain_timestamp <= w[1].blockchain_timestamp);
     assert!(is_ordered);
     println!("    ✅ Timeline entries are chronologically ordered");
 
@@ -951,12 +1075,11 @@ async fn test_hash_retrieval() {
     let item = Item {
         dfid: test_dfid.to_string(),
         identifiers: vec![],
-        enhanced_identifiers: vec![
-            EnhancedIdentifier::canonical("test", "hash_id", "12345"),
-        ],
-        enriched_data: Some(HashMap::from([
-            ("test_field".to_string(), json!("test_value")),
-        ])),
+        enhanced_identifiers: vec![EnhancedIdentifier::canonical("test", "hash_id", "12345")],
+        enriched_data: Some(HashMap::from([(
+            "test_field".to_string(),
+            json!("test_value"),
+        )])),
         creation_timestamp: Utc::now(),
         last_modified: Utc::now(),
         source_entries: vec![],
@@ -979,16 +1102,17 @@ async fn test_hash_retrieval() {
         dfid: test_dfid.to_string(),
         timestamp: Utc::now(),
         actor: "test-actor".to_string(),
-        metadata: HashMap::from([
-            ("event_data".to_string(), json!("test")),
-        ]),
+        metadata: HashMap::from([("event_data".to_string(), json!("test"))]),
         visibility: EventVisibility::Public,
         evidence_hash: Some(format!("{}", blake3::hash(b"test evidence"))),
         related_events: vec![],
         circuit_id: None,
     };
 
-    println!("    ✅ Event evidence hash: {}", event.evidence_hash.as_ref().unwrap());
+    println!(
+        "    ✅ Event evidence hash: {}",
+        event.evidence_hash.as_ref().unwrap()
+    );
     storage.store_event(&event).unwrap();
 
     // Test 7.3: Storage record with blockchain hashes
@@ -997,7 +1121,8 @@ async fn test_hash_retrieval() {
         adapter_type: AdapterType::StellarTestnetIpfs,
         storage_location: StorageLocation::Stellar {
             transaction_id: "stellar-tx-12345".to_string(),
-            contract_address: "CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS".to_string(),
+            contract_address: "CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS"
+                .to_string(),
             asset_id: Some("QmIPFSHash12345".to_string()),
         },
         stored_at: Utc::now(),
@@ -1012,7 +1137,9 @@ async fn test_hash_retrieval() {
         ]),
     };
 
-    storage.add_storage_record(test_dfid, storage_record.clone()).unwrap();
+    storage
+        .add_storage_record(test_dfid, storage_record.clone())
+        .unwrap();
 
     // Test 7.4: Query all hashes
     println!("  7.4 Retrieving all hash information...");
@@ -1040,7 +1167,10 @@ async fn test_hash_retrieval() {
     let first_seen = item.creation_timestamp;
     println!("    ✅ Item first appeared: {}", first_seen.to_rfc3339());
     println!("    ✅ Event occurred: {}", event.timestamp.to_rfc3339());
-    println!("    ✅ Blockchain storage: {}", storage_record.stored_at.to_rfc3339());
+    println!(
+        "    ✅ Blockchain storage: {}",
+        storage_record.stored_at.to_rfc3339()
+    );
 
     println!("✅ Hash retrieval tests completed!\n");
 }
@@ -1137,7 +1267,9 @@ async fn test_frontend_documentation() {
     println!("────────────────────────────────────────────────────────────────────────");
     println!("  Basic Tier:       [\"ipfs-ipfs\"]");
     println!("  Professional:     [\"ipfs-ipfs\", \"stellar_testnet-ipfs\"]");
-    println!("  Enterprise/Admin: [\"ipfs-ipfs\", \"stellar_testnet-ipfs\", \"stellar_mainnet-ipfs\"]\n");
+    println!(
+        "  Enterprise/Admin: [\"ipfs-ipfs\", \"stellar_testnet-ipfs\", \"stellar_mainnet-ipfs\"]\n"
+    );
 
     println!("  With sponsor_adapter_access=true:");
     println!("  → ANY circuit member can push regardless of their tier\n");
@@ -1194,7 +1326,10 @@ async fn test_api_key_authentication() {
         "user-professional",
         vec![Permission::Read, Permission::Write],
     );
-    println!("    ✅ Read-write API key created: {}...", &write_key[0..12]);
+    println!(
+        "    ✅ Read-write API key created: {}...",
+        &write_key[0..12]
+    );
 
     let admin_key = create_test_api_key(
         &app_state.shared_storage,
@@ -1210,14 +1345,19 @@ async fn test_api_key_authentication() {
     // In real test, you would use HTTP client with X-API-Key header
     let mut circuits_engine = app_state.circuits_engine.lock().unwrap();
 
-    let api_circuit = circuits_engine.create_circuit(
-        "API Key Test Circuit".to_string(),
-        Some("Created with API key authentication".to_string()),
-        "user-professional".to_string(),
-        None,
-        None,
-    ).unwrap();
-    println!("    ✅ Circuit created with API key: {}", api_circuit.circuit_id);
+    let api_circuit = circuits_engine
+        .create_circuit(
+            "API Key Test Circuit".to_string(),
+            Some("Created with API key authentication".to_string()),
+            "user-professional".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
+    println!(
+        "    ✅ Circuit created with API key: {}",
+        api_circuit.circuit_id
+    );
 
     // Test 9.3: API key rate limiting
     println!("  9.3 Testing API key rate limits...");
@@ -1248,12 +1388,15 @@ async fn test_api_key_authentication() {
     let item = Item {
         dfid: format!("LID-{}", local_id),
         identifiers: vec![],
-        enhanced_identifiers: vec![
-            EnhancedIdentifier::canonical("test", "api_key_test", &Uuid::new_v4().to_string()),
-        ],
-        enriched_data: Some(HashMap::from([
-            ("created_with".to_string(), json!("api_key")),
-        ])),
+        enhanced_identifiers: vec![EnhancedIdentifier::canonical(
+            "test",
+            "api_key_test",
+            &Uuid::new_v4().to_string(),
+        )],
+        enriched_data: Some(HashMap::from([(
+            "created_with".to_string(),
+            json!("api_key"),
+        )])),
         creation_timestamp: Utc::now(),
         last_modified: Utc::now(),
         source_entries: vec![],
@@ -1288,7 +1431,8 @@ async fn test_api_key_authentication() {
     storage.store_api_key(expired_key.clone()).unwrap();
 
     // Check if key is expired
-    let is_expired = expired_key.expires_at
+    let is_expired = expired_key
+        .expires_at
         .map(|exp| exp < Utc::now())
         .unwrap_or(false);
     assert!(is_expired);

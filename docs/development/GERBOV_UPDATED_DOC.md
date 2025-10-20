@@ -21,8 +21,8 @@ Tier: Professional
 ## 🎯 Your Working Circuit
 
 ```
-Circuit ID: 3896c2bc-5964-4a28-8110-54849919710b
-Circuit Name: Gerbov Simple Test 1760950027
+Circuit ID: 002ea6db-6b7b-4a69-8780-1f01ae074265
+Circuit Name: Gerbov Test Circuit 1760958678
 Owner: gerbov (you)
 Status: Active and Working
 ```
@@ -34,7 +34,7 @@ Status: Active and Working
 ### Step 1: Login and Get JWT Token
 
 ```bash
-curl -X POST "https://connect.defarm.net/api/auth/login" \
+curl -X POST "https://defarm-engines-api-production.up.railway.app/api/auth/login" \
   -H "Content-Type: application/json" \
   -d '{
     "username": "gerbov",
@@ -58,7 +58,7 @@ Save the token for all subsequent requests!
 ### Step 2: Create a Local Item
 
 ```bash
-curl -X POST "https://connect.defarm.net/api/items/local" \
+curl -X POST "https://defarm-engines-api-production.up.railway.app/api/items/local" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE" \
   -H "Content-Type: application/json" \
   -d '{
@@ -94,7 +94,7 @@ curl -X POST "https://connect.defarm.net/api/items/local" \
 ### Step 3: Push Item to Circuit (Tokenization)
 
 ```bash
-curl -X POST "https://connect.defarm.net/api/circuits/3896c2bc-5964-4a28-8110-54849919710b/push-local" \
+curl -X POST "https://defarm-engines-api-production.up.railway.app/api/circuits/002ea6db-6b7b-4a69-8780-1f01ae074265/push-local" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE" \
   -H "Content-Type: application/json" \
   -d '{
@@ -122,7 +122,7 @@ curl -X POST "https://connect.defarm.net/api/circuits/3896c2bc-5964-4a28-8110-54
 ### Step 4: View Storage History
 
 ```bash
-curl -X GET "https://connect.defarm.net/api/items/YOUR_DFID/storage-history" \
+curl -X GET "https://defarm-engines-api-production.up.railway.app/api/items/YOUR_DFID/storage-history" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
@@ -149,7 +149,7 @@ curl -X GET "https://connect.defarm.net/api/items/YOUR_DFID/storage-history" \
 ### Step 5: View Timeline
 
 ```bash
-curl -X GET "https://connect.defarm.net/api/items/YOUR_DFID/timeline" \
+curl -X GET "https://defarm-engines-api-production.up.railway.app/api/items/YOUR_DFID/timeline" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
@@ -178,28 +178,28 @@ curl -X GET "https://connect.defarm.net/api/items/YOUR_DFID/timeline" \
 ### Check for Duplicate Items
 
 ```bash
-curl -X GET "https://connect.defarm.net/api/items/local/duplicates" \
+curl -X GET "https://defarm-engines-api-production.up.railway.app/api/items/local/duplicates" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
 ### List All Your Circuits
 
 ```bash
-curl -X GET "https://connect.defarm.net/api/circuits" \
+curl -X GET "https://defarm-engines-api-production.up.railway.app/api/circuits" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
 ### Get Circuit Details
 
 ```bash
-curl -X GET "https://connect.defarm.net/api/circuits/3896c2bc-5964-4a28-8110-54849919710b" \
+curl -X GET "https://defarm-engines-api-production.up.railway.app/api/circuits/3896c2bc-5964-4a28-8110-54849919710b" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
 ### Get Item by DFID
 
 ```bash
-curl -X GET "https://connect.defarm.net/api/items/YOUR_DFID" \
+curl -X GET "https://defarm-engines-api-production.up.railway.app/api/items/YOUR_DFID" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
@@ -228,7 +228,7 @@ Save this as `test-gerbov.sh` and run it:
 ```bash
 #!/bin/bash
 
-API="https://connect.defarm.net/api"
+API="https://defarm-engines-api-production.up.railway.app/api"
 
 # 1. Login
 echo "Logging in..."
@@ -257,7 +257,7 @@ echo "Local ID: $LOCAL_ID"
 
 # 3. Push to circuit
 echo "Pushing to circuit..."
-DFID=$(curl -s -X POST "$API/circuits/3896c2bc-5964-4a28-8110-54849919710b/push-local" \
+DFID=$(curl -s -X POST "$API/circuits/002ea6db-6b7b-4a69-8780-1f01ae074265/push-local" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"local_id\": \"$LOCAL_ID\"}" | jq -r '.data.dfid')

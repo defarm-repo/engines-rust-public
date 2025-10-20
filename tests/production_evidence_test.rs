@@ -15,7 +15,10 @@ use uuid::Uuid;
 async fn test_production_evidence() {
     println!("\n");
     println!("═══════════════════════════════════════════════════════════════════════");
-    println!("              🚀 PRODUCTION EVIDENCE TEST - {}", Utc::now().to_rfc3339());
+    println!(
+        "              🚀 PRODUCTION EVIDENCE TEST - {}",
+        Utc::now().to_rfc3339()
+    );
     println!("═══════════════════════════════════════════════════════════════════════");
     println!();
 
@@ -58,21 +61,26 @@ async fn test_production_evidence() {
     println!("────────────────────────────────────────────────────────────────────");
 
     let circuit_id = Uuid::new_v4();
-    let circuit_name = format!("Production Evidence Circuit {}", Utc::now().format("%Y%m%d-%H%M%S"));
+    let circuit_name = format!(
+        "Production Evidence Circuit {}",
+        Utc::now().format("%Y%m%d-%H%M%S")
+    );
 
-    let circuit = circuits_engine.create_circuit(
-        circuit_name.clone(),
-        "Testing production with real blockchain evidence".to_string(),
-        "production-test-user".to_string(),
-        None,
-        Some(CircuitAliasConfig {
-            required_canonical: vec!["test_id".to_string()],
-            required_contextual: vec!["batch".to_string()],
-            allowed_namespaces: Some(vec!["generic".to_string()]),
-            auto_apply_namespace: true,
-            use_fingerprint: false,
-        }),
-    ).unwrap();
+    let circuit = circuits_engine
+        .create_circuit(
+            circuit_name.clone(),
+            "Testing production with real blockchain evidence".to_string(),
+            "production-test-user".to_string(),
+            None,
+            Some(CircuitAliasConfig {
+                required_canonical: vec!["test_id".to_string()],
+                required_contextual: vec!["batch".to_string()],
+                allowed_namespaces: Some(vec!["generic".to_string()]),
+                auto_apply_namespace: true,
+                use_fingerprint: false,
+            }),
+        )
+        .unwrap();
 
     println!("   ✅ Circuit created:");
     println!("      ID: {}", circuit.circuit_id);
@@ -80,14 +88,16 @@ async fn test_production_evidence() {
     println!("      Owner: production-test-user");
 
     // Configure IPFS adapter
-    circuits_engine.set_circuit_adapter_config(
-        &circuit.circuit_id,
-        "production-test-user",
-        Some(AdapterType::IpfsIpfs),
-        false,
-        false,
-        true, // Sponsor access
-    ).unwrap();
+    circuits_engine
+        .set_circuit_adapter_config(
+            &circuit.circuit_id,
+            "production-test-user",
+            Some(AdapterType::IpfsIpfs),
+            false,
+            false,
+            true, // Sponsor access
+        )
+        .unwrap();
 
     println!("   ✅ IPFS adapter configured");
     println!();
@@ -99,7 +109,10 @@ async fn test_production_evidence() {
     println!("────────────────────────────────────────────────────────────────────");
 
     let local_id = Uuid::new_v4();
-    let unique_id = format!("PROD-EVIDENCE-{}", Uuid::new_v4().to_string()[0..8].to_uppercase());
+    let unique_id = format!(
+        "PROD-EVIDENCE-{}",
+        Uuid::new_v4().to_string()[0..8].to_uppercase()
+    );
     let timestamp = Utc::now();
 
     // Create test data that will be hashed
@@ -132,7 +145,11 @@ async fn test_production_evidence() {
 
     let identifiers = vec![
         EnhancedIdentifier::canonical("generic", "test_id", &unique_id),
-        EnhancedIdentifier::contextual("generic", "batch", &format!("BATCH-{}", timestamp.timestamp())),
+        EnhancedIdentifier::contextual(
+            "generic",
+            "batch",
+            &format!("BATCH-{}", timestamp.timestamp()),
+        ),
     ];
 
     let item = Item {
@@ -156,7 +173,9 @@ async fn test_production_evidence() {
 
     let mut storage_guard = storage.lock().unwrap();
     storage_guard.store_item(&item).unwrap();
-    storage_guard.store_lid_dfid_mapping(&local_id, &item.dfid).unwrap();
+    storage_guard
+        .store_lid_dfid_mapping(&local_id, &item.dfid)
+        .unwrap();
     drop(storage_guard);
 
     println!("   ✅ Local item created and stored");
@@ -168,16 +187,22 @@ async fn test_production_evidence() {
     println!("3️⃣  PUSHING TO CIRCUIT (IPFS UPLOAD)");
     println!("────────────────────────────────────────────────────────────────────");
 
-    let push_result = circuits_engine.push_local_item_to_circuit(
-        &local_id,
-        identifiers.clone(),
-        Some(HashMap::from([
-            ("push_timestamp".to_string(), json!(timestamp.to_rfc3339())),
-            ("push_evidence".to_string(), json!("Production evidence test")),
-        ])),
-        &circuit.circuit_id,
-        "production-test-user",
-    ).await.unwrap();
+    let push_result = circuits_engine
+        .push_local_item_to_circuit(
+            &local_id,
+            identifiers.clone(),
+            Some(HashMap::from([
+                ("push_timestamp".to_string(), json!(timestamp.to_rfc3339())),
+                (
+                    "push_evidence".to_string(),
+                    json!("Production evidence test"),
+                ),
+            ])),
+            &circuit.circuit_id,
+            "production-test-user",
+        )
+        .await
+        .unwrap();
 
     println!("   ✅ Item pushed to circuit!");
     println!("      DFID assigned: {}", push_result.dfid);
@@ -192,7 +217,9 @@ async fn test_production_evidence() {
     println!("────────────────────────────────────────────────────────────────────");
 
     let storage_guard = storage.lock().unwrap();
-    let storage_history = storage_guard.get_storage_history(&push_result.dfid).unwrap();
+    let storage_history = storage_guard
+        .get_storage_history(&push_result.dfid)
+        .unwrap();
 
     if let Some(history) = storage_history {
         println!("   ✅ Storage history found!");
@@ -226,7 +253,11 @@ async fn test_production_evidence() {
                         println!("      (Would fetch from IPFS to verify content matches)");
                     }
                 }
-                defarm_engine::adapters::base::StorageLocation::Stellar { transaction_id, contract_address, asset_id } => {
+                defarm_engine::adapters::base::StorageLocation::Stellar {
+                    transaction_id,
+                    contract_address,
+                    asset_id,
+                } => {
                     println!();
                     println!("   ⭐ STELLAR EVIDENCE:");
                     println!("      Transaction: {}", transaction_id);
@@ -235,7 +266,10 @@ async fn test_production_evidence() {
                         println!("      Asset ID: {}", asset);
                     }
                     println!("      Explorer URL:");
-                    println!("        • https://stellar.expert/explorer/testnet/tx/{}", transaction_id);
+                    println!(
+                        "        • https://stellar.expert/explorer/testnet/tx/{}",
+                        transaction_id
+                    );
                 }
                 _ => {
                     println!("      Location: {:?}", record.storage_location);
@@ -281,7 +315,10 @@ async fn test_production_evidence() {
         ],
         enriched_data: HashMap::from([
             ("duplicate_test".to_string(), json!(true)),
-            ("new_field".to_string(), json!("This should enrich the existing item")),
+            (
+                "new_field".to_string(),
+                json!("This should enrich the existing item"),
+            ),
         ]),
         creation_timestamp: Utc::now(),
         last_modified: Utc::now(),
@@ -291,19 +328,22 @@ async fn test_production_evidence() {
 
     let mut storage_guard = storage.lock().unwrap();
     storage_guard.store_item(&duplicate_item).unwrap();
-    storage_guard.store_lid_dfid_mapping(&local_id_2, &duplicate_item.dfid).unwrap();
+    storage_guard
+        .store_lid_dfid_mapping(&local_id_2, &duplicate_item.dfid)
+        .unwrap();
     drop(storage_guard);
 
     // Push duplicate
-    let duplicate_push = circuits_engine.push_local_item_to_circuit(
-        &local_id_2,
-        duplicate_item.enhanced_identifiers.clone(),
-        Some(HashMap::from([
-            ("duplicate_push".to_string(), json!(true)),
-        ])),
-        &circuit.circuit_id,
-        "production-test-user",
-    ).await.unwrap();
+    let duplicate_push = circuits_engine
+        .push_local_item_to_circuit(
+            &local_id_2,
+            duplicate_item.enhanced_identifiers.clone(),
+            Some(HashMap::from([("duplicate_push".to_string(), json!(true))])),
+            &circuit.circuit_id,
+            "production-test-user",
+        )
+        .await
+        .unwrap();
 
     println!("   Pushed duplicate item:");
     println!("      Original DFID: {}", push_result.dfid);
@@ -329,13 +369,15 @@ async fn test_production_evidence() {
     let test_cid = "QmProductionTestCID123456789";
     let test_tx = "production-test-tx-hash";
 
-    storage_guard.add_cid_to_timeline(
-        &push_result.dfid,
-        test_cid,
-        test_tx,
-        timestamp.timestamp(),
-        "testnet",
-    ).unwrap();
+    storage_guard
+        .add_cid_to_timeline(
+            &push_result.dfid,
+            test_cid,
+            test_tx,
+            timestamp.timestamp(),
+            "testnet",
+        )
+        .unwrap();
 
     // Try to retrieve timeline
     // Note: get_cid_timeline might not exist, checking what's available
@@ -390,7 +432,14 @@ async fn test_production_evidence() {
     println!("   Data hash: {}", data_hash);
     println!();
     println!("✅ DEDUPLICATION:");
-    println!("   Status: {}", if duplicate_push.dfid == push_result.dfid { "WORKING" } else { "FAILED" });
+    println!(
+        "   Status: {}",
+        if duplicate_push.dfid == push_result.dfid {
+            "WORKING"
+        } else {
+            "FAILED"
+        }
+    );
     println!();
     println!("✅ TIMELINE:");
     println!("   Entries added: YES");
@@ -403,7 +452,9 @@ async fn test_production_evidence() {
     let storage_guard = storage.lock().unwrap();
     if let Ok(Some(history)) = storage_guard.get_storage_history(&push_result.dfid) {
         if let Some(record) = history.storage_records.first() {
-            if let defarm_engine::adapters::base::StorageLocation::IPFS { cid, .. } = &record.storage_location {
+            if let defarm_engine::adapters::base::StorageLocation::IPFS { cid, .. } =
+                &record.storage_location
+            {
                 println!("🌐 IPFS EVIDENCE:");
                 println!("   CID: {}", cid);
                 println!("   Verify at: https://ipfs.io/ipfs/{}", cid);
