@@ -2538,15 +2538,9 @@ async fn get_circuit_adapter_config(
         Ok(Some(circuit)) => {
             if let Some(adapter_config) = circuit.adapter_config {
                 // Convert AdapterType enum to hyphenated string format
-                let adapter_type_str = adapter_config.adapter_type.map(|adapter| {
-                    format!("{adapter:?}")
-                        .replace("Ipfs", "-ipfs")
-                        .replace("StellarTestnet", "stellar_testnet")
-                        .replace("StellarMainnet", "stellar_mainnet")
-                        .replace("LocalLocal", "local-local")
-                        .replace("LocalIpfs", "local-ipfs")
-                        .to_lowercase()
-                });
+                let adapter_type_str = adapter_config
+                    .adapter_type
+                    .map(|adapter| adapter_type_to_string(&adapter));
 
                 Ok(Json(GetAdapterConfigResponse {
                     adapter_type: adapter_type_str,
@@ -2576,6 +2570,19 @@ async fn get_circuit_adapter_config(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": format!("Failed to get circuit: {}", e)})),
         )),
+    }
+}
+
+/// Helper function to convert AdapterType enum to hyphenated string format
+fn adapter_type_to_string(adapter: &AdapterType) -> String {
+    match format!("{adapter:?}").as_str() {
+        "IpfsIpfs" => "ipfs-ipfs".to_string(),
+        "LocalLocal" => "local-local".to_string(),
+        "LocalIpfs" => "local-ipfs".to_string(),
+        other => other
+            .replace("StellarTestnet", "stellar_testnet")
+            .replace("StellarMainnet", "stellar_mainnet")
+            .to_lowercase(),
     }
 }
 
@@ -2616,15 +2623,9 @@ async fn set_circuit_adapter_config(
     ) {
         Ok(adapter_config) => {
             // Convert AdapterType enum to hyphenated string format
-            let adapter_type_str = adapter_config.adapter_type.map(|adapter| {
-                format!("{adapter:?}")
-                    .replace("Ipfs", "-ipfs")
-                    .replace("StellarTestnet", "stellar_testnet")
-                    .replace("StellarMainnet", "stellar_mainnet")
-                    .replace("LocalLocal", "local-local")
-                    .replace("LocalIpfs", "local-ipfs")
-                    .to_lowercase()
-            });
+            let adapter_type_str = adapter_config
+                .adapter_type
+                .map(|adapter| adapter_type_to_string(&adapter));
 
             Ok(Json(GetAdapterConfigResponse {
                 adapter_type: adapter_type_str,
