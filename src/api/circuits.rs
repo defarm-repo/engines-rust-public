@@ -2579,10 +2579,9 @@ fn adapter_type_to_string(adapter: &AdapterType) -> String {
         "IpfsIpfs" => "ipfs-ipfs".to_string(),
         "LocalLocal" => "local-local".to_string(),
         "LocalIpfs" => "local-ipfs".to_string(),
-        other => other
-            .replace("StellarTestnet", "stellar_testnet")
-            .replace("StellarMainnet", "stellar_mainnet")
-            .to_lowercase(),
+        "StellarTestnetIpfs" => "stellar_testnet-ipfs".to_string(),
+        "StellarMainnetIpfs" => "stellar_mainnet-ipfs".to_string(),
+        other => other.to_lowercase(),
     }
 }
 
