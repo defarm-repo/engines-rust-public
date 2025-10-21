@@ -490,12 +490,7 @@ impl PostgresPersistence {
     }
 
     async fn persist_circuit_once(&self, circuit: &Circuit) -> Result<(), String> {
-        // Wait for connection with a 10-second timeout
-        if let Err(e) = self.wait_for_connection(10).await {
-            tracing::debug!("⏳ Waiting for PostgreSQL connection before persisting circuit...");
-            return Err(e);
-        }
-
+        // Get connection from pool (includes timeout handling)
         let client = self.get_client().await?;
 
         let permissions_json = serde_json::to_value(&circuit.permissions)
