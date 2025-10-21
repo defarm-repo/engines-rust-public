@@ -570,7 +570,80 @@ impl PostgresPersistence {
             .await
             .map_err(|e| format!("Failed to persist circuit: {e}"))?;
 
-        tracing::debug!("✅ Persisted circuit {} to PostgreSQL", circuit.circuit_id);
+        // Persist circuit members
+        // First delete existing members for this circuit
+        client
+            .execute(
+                "DELETE FROM circuit_members WHERE circuit_id = $1",
+                &[&circuit.circuit_id],
+            )
+            .await
+            .map_err(|e| format!("Failed to delete old circuit members: {e}"))?;
+
+        // Insert all current members
+        for member in &circuit.members {
+            let role_str = format!("{:?}", member.role);
+            let permissions_str: Vec<String> = member
+                .permissions
+                .iter()
+                .map(|p| format!("{:?}", p))
+                .collect();
+
+            client
+                .execute(
+                    "INSERT INTO circuit_members (circuit_id, member_id, role, permissions, joined_at_ts)
+                     VALUES ($1, $2, $3, $4, $5)",
+                    &[
+                        &circuit.circuit_id,
+                        &member.member_id,
+                        &role_str,
+                        &permissions_str,
+                        &member.joined_timestamp.timestamp(),
+                    ],
+                )
+                .await
+                .map_err(|e| format!("Failed to persist circuit member {}: {e}", member.member_id))?;
+        }
+
+        // Persist custom roles
+        // First delete existing custom roles for this circuit
+        client
+            .execute(
+                "DELETE FROM circuit_custom_roles WHERE circuit_id = $1",
+                &[&circuit.circuit_id],
+            )
+            .await
+            .map_err(|e| format!("Failed to delete old custom roles: {e}"))?;
+
+        // Insert all current custom roles
+        for role in &circuit.custom_roles {
+            let permissions_str: Vec<String> = role
+                .permissions
+                .iter()
+                .map(|p| format!("{:?}", p))
+                .collect();
+
+            client
+                .execute(
+                    "INSERT INTO circuit_custom_roles (id, circuit_id, role_name, permissions)
+                     VALUES ($1, $2, $3, $4)",
+                    &[
+                        &role.role_id,
+                        &circuit.circuit_id,
+                        &role.role_name,
+                        &permissions_str,
+                    ],
+                )
+                .await
+                .map_err(|e| format!("Failed to persist custom role {}: {e}", role.role_name))?;
+        }
+
+        tracing::debug!(
+            "✅ Persisted circuit {} with {} members and {} custom roles to PostgreSQL",
+            circuit.circuit_id,
+            circuit.members.len(),
+            circuit.custom_roles.len()
+        );
         Ok(())
     }
 
@@ -598,7 +671,29 @@ impl PostgresPersistence {
         let mut circuits = Vec::new();
         for row in rows {
             match self.row_to_circuit(&row) {
-                Ok(circuit) => circuits.push(circuit),
+                Ok(mut circuit) => {
+                    // Load members for this circuit
+                    match self.load_circuit_members(&client, &circuit.circuit_id).await {
+                        Ok(members) => circuit.members = members,
+                        Err(e) => tracing::warn!(
+                            "⚠️  Failed to load members for circuit {}: {}",
+                            circuit.circuit_id,
+                            e
+                        ),
+                    }
+
+                    // Load custom roles for this circuit
+                    match self.load_circuit_custom_roles(&client, &circuit.circuit_id).await {
+                        Ok(roles) => circuit.custom_roles = roles,
+                        Err(e) => tracing::warn!(
+                            "⚠️  Failed to load custom roles for circuit {}: {}",
+                            circuit.circuit_id,
+                            e
+                        ),
+                    }
+
+                    circuits.push(circuit);
+                }
                 Err(e) => tracing::warn!("⚠️  Failed to parse circuit: {}", e),
             }
         }
@@ -665,6 +760,137 @@ impl PostgresPersistence {
             adapter_config,
             post_action_settings,
         })
+    }
+
+    /// Load circuit members from PostgreSQL
+    async fn load_circuit_members(
+        &self,
+        client: &tokio_postgres::Client,
+        circuit_id: &uuid::Uuid,
+    ) -> Result<Vec<CircuitMember>, String> {
+        use crate::types::{CircuitMember, MemberRole, Permission};
+
+        let rows = client
+            .query(
+                "SELECT member_id, role, permissions, joined_at_ts
+                 FROM circuit_members
+                 WHERE circuit_id = $1",
+                &[circuit_id],
+            )
+            .await
+            .map_err(|e| format!("Failed to load circuit members: {e}"))?;
+
+        let mut members = Vec::new();
+        for row in rows {
+            let member_id: String = row.get("member_id");
+            let role_str: String = row.get("role");
+            let permissions_str: Vec<String> = row.get("permissions");
+            let joined_at_ts: i64 = row.get("joined_at_ts");
+
+            // Parse role
+            let role = match role_str.as_str() {
+                "Owner" => MemberRole::Owner,
+                "Admin" => MemberRole::Admin,
+                "Member" => MemberRole::Member,
+                "Viewer" => MemberRole::Viewer,
+                _ => {
+                    tracing::warn!("Unknown role '{}', defaulting to Member", role_str);
+                    MemberRole::Member
+                }
+            };
+
+            // Parse permissions
+            let permissions: Vec<Permission> = permissions_str
+                .iter()
+                .filter_map(|p| match p.as_str() {
+                    "Push" => Some(Permission::Push),
+                    "Pull" => Some(Permission::Pull),
+                    "Invite" => Some(Permission::Invite),
+                    "ManageMembers" => Some(Permission::ManageMembers),
+                    "ManagePermissions" => Some(Permission::ManagePermissions),
+                    "ManageRoles" => Some(Permission::ManageRoles),
+                    "Delete" => Some(Permission::Delete),
+                    "Certify" => Some(Permission::Certify),
+                    "Audit" => Some(Permission::Audit),
+                    _ => {
+                        tracing::warn!("Unknown permission: {}", p);
+                        None
+                    }
+                })
+                .collect();
+
+            members.push(CircuitMember {
+                member_id,
+                role,
+                custom_role_name: None, // Not stored in DB yet
+                permissions,
+                joined_timestamp: DateTime::from_timestamp(joined_at_ts, 0)
+                    .unwrap_or_else(Utc::now),
+            });
+        }
+
+        Ok(members)
+    }
+
+    /// Load circuit custom roles from PostgreSQL
+    async fn load_circuit_custom_roles(
+        &self,
+        client: &tokio_postgres::Client,
+        circuit_id: &uuid::Uuid,
+    ) -> Result<Vec<CustomRole>, String> {
+        use crate::types::{CustomRole, Permission};
+
+        let rows = client
+            .query(
+                "SELECT id, role_name, permissions, created_at
+                 FROM circuit_custom_roles
+                 WHERE circuit_id = $1",
+                &[circuit_id],
+            )
+            .await
+            .map_err(|e| format!("Failed to load custom roles: {e}"))?;
+
+        let mut roles = Vec::new();
+        for row in rows {
+            let role_id: uuid::Uuid = row.get("id");
+            let role_name: String = row.get("role_name");
+            let permissions_str: Vec<String> = row.get("permissions");
+            let created_at: chrono::DateTime<chrono::Utc> = row.get("created_at");
+
+            // Parse permissions
+            let permissions: Vec<Permission> = permissions_str
+                .iter()
+                .filter_map(|p| match p.as_str() {
+                    "Push" => Some(Permission::Push),
+                    "Pull" => Some(Permission::Pull),
+                    "Invite" => Some(Permission::Invite),
+                    "ManageMembers" => Some(Permission::ManageMembers),
+                    "ManagePermissions" => Some(Permission::ManagePermissions),
+                    "ManageRoles" => Some(Permission::ManageRoles),
+                    "Delete" => Some(Permission::Delete),
+                    "Certify" => Some(Permission::Certify),
+                    "Audit" => Some(Permission::Audit),
+                    _ => {
+                        tracing::warn!("Unknown permission: {}", p);
+                        None
+                    }
+                })
+                .collect();
+
+            roles.push(CustomRole {
+                role_id,
+                circuit_id: *circuit_id,
+                role_name,
+                permissions,
+                description: String::new(), // Not in DB schema yet
+                color: None,                // Not in DB schema yet
+                created_timestamp: created_at,
+                created_by: "system".to_string(), // Not in DB schema yet
+                is_default: false,                // Not in DB schema yet
+            });
+        }
+
+        Ok(roles)
     }
 
     /// Persist user account to PostgreSQL
