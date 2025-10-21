@@ -10,7 +10,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::{sleep, timeout};
 
 use chrono::{DateTime, Utc};
@@ -23,9 +23,9 @@ use crate::types::*;
 /// PostgreSQL persistence manager with circuit breaker
 #[derive(Clone)]
 pub struct PostgresPersistence {
-    pool: Option<Pool>,
+    pool: Arc<RwLock<Option<Pool>>>,
     database_url: String,
-    connection_state: Arc<tokio::sync::RwLock<ConnectionState>>,
+    connection_state: Arc<RwLock<ConnectionState>>,
     queue_tx: mpsc::Sender<PersistJob>,
     metrics: Arc<PersistMetrics>,
 }
@@ -94,9 +94,9 @@ impl PostgresPersistence {
     pub fn new(database_url: String) -> Self {
         let (queue_tx, queue_rx) = mpsc::channel(PERSIST_QUEUE_CAPACITY);
         let persistence = Self {
-            pool: None,
+            pool: Arc::new(RwLock::new(None)),
             database_url,
-            connection_state: Arc::new(tokio::sync::RwLock::new(ConnectionState::Connecting)),
+            connection_state: Arc::new(RwLock::new(ConnectionState::Connecting)),
             queue_tx: queue_tx.clone(),
             metrics: Arc::new(PersistMetrics::default()),
         };
@@ -127,7 +127,10 @@ impl PostgresPersistence {
         for attempt in 1..=max_retries {
             match self.try_connect().await {
                 Ok(pool) => {
-                    self.pool = Some(pool);
+                    {
+                        let mut pool_guard = self.pool.write().await;
+                        *pool_guard = Some(pool.clone());
+                    }
                     *self.connection_state.write().await = ConnectionState::Connected;
                     tracing::info!(
                         "✅ PostgreSQL connected successfully on attempt {}",
@@ -205,10 +208,12 @@ impl PostgresPersistence {
     pub async fn run_migrations(&self) -> Result<(), String> {
         tracing::info!("🔄 Running database migrations...");
 
-        let pool = self
-            .pool
-            .as_ref()
-            .ok_or_else(|| "PostgreSQL not connected".to_string())?;
+        let pool = {
+            let pool_guard = self.pool.read().await;
+            pool_guard
+                .clone()
+                .ok_or_else(|| "PostgreSQL not connected".to_string())?
+        };
 
         let client = timeout(Duration::from_secs(10), pool.get())
             .await
@@ -258,7 +263,12 @@ impl PostgresPersistence {
     /// Check if PostgreSQL is connected and operational
     pub async fn is_connected(&self) -> bool {
         let state = *self.connection_state.read().await;
-        state == ConnectionState::Connected && self.pool.is_some()
+        if state != ConnectionState::Connected {
+            return false;
+        }
+
+        let pool_guard = self.pool.read().await;
+        pool_guard.is_some()
     }
 
     /// Wait for PostgreSQL connection to be established
@@ -311,10 +321,12 @@ impl PostgresPersistence {
 
     /// Get a database client from the pool with timeout
     async fn get_client(&self) -> Result<deadpool_postgres::Client, String> {
-        let pool = self
-            .pool
-            .as_ref()
-            .ok_or_else(|| "PostgreSQL not connected".to_string())?;
+        let pool = {
+            let pool_guard = self.pool.read().await;
+            pool_guard
+                .clone()
+                .ok_or_else(|| "PostgreSQL not connected".to_string())?
+        };
 
         timeout(Duration::from_secs(15), pool.get()) // Increased from 5 to 15 seconds
             .await
@@ -490,11 +502,22 @@ impl PostgresPersistence {
     }
 
     async fn persist_circuit_once(&self, circuit: &Circuit) -> Result<(), String> {
+        // Gracefully wait for a live connection if initialization is still in progress.
+        if let Err(e) = self.wait_for_connection(10).await {
+            tracing::debug!(
+                "⏳ Waiting for PostgreSQL connection before persisting circuit {}...",
+                circuit.circuit_id
+            );
+            return Err(e);
+        }
+
         // Get connection from pool (includes timeout handling)
         let mut client = self.get_client().await?;
 
         // Start a PostgreSQL transaction for atomicity
-        let transaction = client.transaction().await
+        let transaction = client
+            .transaction()
+            .await
             .map_err(|e| format!("Failed to start transaction: {e}"))?;
 
         let permissions_json = serde_json::to_value(&circuit.permissions)
@@ -637,7 +660,9 @@ impl PostgresPersistence {
         }
 
         // Commit the transaction atomically
-        transaction.commit().await
+        transaction
+            .commit()
+            .await
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
         tracing::info!(
@@ -709,7 +734,10 @@ impl PostgresPersistence {
             }
         }
 
-        tracing::info!("✅ Loaded {} circuits from PostgreSQL (optimized single-query load)", circuits.len());
+        tracing::info!(
+            "✅ Loaded {} circuits from PostgreSQL (optimized single-query load)",
+            circuits.len()
+        );
         Ok(circuits)
     }
 
@@ -794,10 +822,7 @@ impl PostgresPersistence {
                         .unwrap_or("")
                         .to_string();
 
-                    let role_str = obj
-                        .get("role")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Member");
+                    let role_str = obj.get("role").and_then(|v| v.as_str()).unwrap_or("Member");
 
                     let role = match role_str {
                         "Owner" => MemberRole::Owner,
@@ -808,7 +833,9 @@ impl PostgresPersistence {
                     };
 
                     // Parse permissions array
-                    let permissions = if let Some(perms_array) = obj.get("permissions").and_then(|v| v.as_array()) {
+                    let permissions = if let Some(perms_array) =
+                        obj.get("permissions").and_then(|v| v.as_array())
+                    {
                         perms_array
                             .iter()
                             .filter_map(|p| {
@@ -854,13 +881,10 @@ impl PostgresPersistence {
             let mut custom_roles = Vec::new();
             for role_obj in roles_array {
                 if let Some(obj) = role_obj.as_object() {
-                    let role_id_str = obj
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let role_id_str = obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
 
-                    let role_id = uuid::Uuid::parse_str(role_id_str)
-                        .unwrap_or_else(|_| uuid::Uuid::new_v4());
+                    let role_id =
+                        uuid::Uuid::parse_str(role_id_str).unwrap_or_else(|_| uuid::Uuid::new_v4());
 
                     let role_name = obj
                         .get("role_name")
@@ -869,7 +893,9 @@ impl PostgresPersistence {
                         .to_string();
 
                     // Parse permissions array
-                    let permissions = if let Some(perms_array) = obj.get("permissions").and_then(|v| v.as_array()) {
+                    let permissions = if let Some(perms_array) =
+                        obj.get("permissions").and_then(|v| v.as_array())
+                    {
                         perms_array
                             .iter()
                             .filter_map(|p| {
@@ -891,10 +917,8 @@ impl PostgresPersistence {
                         Vec::new()
                     };
 
-                    let created_at_str = obj
-                        .get("created_at")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let created_at_str =
+                        obj.get("created_at").and_then(|v| v.as_str()).unwrap_or("");
 
                     let created_timestamp = DateTime::parse_from_rfc3339(created_at_str)
                         .map(|dt| dt.with_timezone(&Utc))
