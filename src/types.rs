@@ -963,6 +963,17 @@ impl Circuit {
             CustomRole::default_member(circuit_id),
         ];
 
+        // Initialize adapter_config with default "none" configuration
+        let default_adapter_config = CircuitAdapterConfig {
+            circuit_id,
+            adapter_type: None,
+            configured_by: "system".to_string(),
+            configured_at: now,
+            requires_approval: false,
+            auto_migrate_existing: false,
+            sponsor_adapter_access: false,
+        };
+
         Self {
             circuit_id,
             name,
@@ -978,7 +989,7 @@ impl Circuit {
             pending_requests: Vec::new(),
             custom_roles: default_roles,
             public_settings: None,
-            adapter_config: None,
+            adapter_config: Some(default_adapter_config),
             post_action_settings: None,
         }
     }

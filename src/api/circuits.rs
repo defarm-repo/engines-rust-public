@@ -2582,9 +2582,11 @@ async fn get_circuit_adapter_config(
         Ok(Some(circuit)) => {
             if let Some(adapter_config) = circuit.adapter_config {
                 // Convert AdapterType enum to hyphenated string format
+                // If adapter_type is None, return "none"
                 let adapter_type_str = adapter_config
                     .adapter_type
-                    .map(|adapter| adapter_type_to_string(&adapter));
+                    .map(|adapter| adapter_type_to_string(&adapter))
+                    .or(Some("none".to_string()));
 
                 Ok(Json(GetAdapterConfigResponse {
                     adapter_type: adapter_type_str,
@@ -2595,7 +2597,8 @@ async fn get_circuit_adapter_config(
                     configured_at: adapter_config.configured_at.to_rfc3339(),
                 }))
             } else {
-                // Return default "None" adapter config instead of 404
+                // This branch should never be reached now that circuits are initialized with default adapter_config
+                // But keep it for backward compatibility with old circuits
                 Ok(Json(GetAdapterConfigResponse {
                     adapter_type: Some("none".to_string()),
                     sponsor_adapter_access: false,
