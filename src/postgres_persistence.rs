@@ -491,7 +491,11 @@ impl PostgresPersistence {
 
     async fn persist_circuit_once(&self, circuit: &Circuit) -> Result<(), String> {
         // Get connection from pool (includes timeout handling)
-        let client = self.get_client().await?;
+        let mut client = self.get_client().await?;
+
+        // Start a PostgreSQL transaction for atomicity
+        let transaction = client.transaction().await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
 
         let permissions_json = serde_json::to_value(&circuit.permissions)
             .map_err(|e| format!("Failed to serialize permissions: {e}"))?;
@@ -530,7 +534,8 @@ impl PostgresPersistence {
             CircuitStatus::Archived => "Archived",
         };
 
-        client
+        // 1. INSERT/UPDATE the main circuit record
+        transaction
             .execute(
                 "INSERT INTO circuits (
                 circuit_id, name, description, owner_id, status,
@@ -565,9 +570,8 @@ impl PostgresPersistence {
             .await
             .map_err(|e| format!("Failed to persist circuit: {e}"))?;
 
-        // Persist circuit members
-        // First delete existing members for this circuit
-        client
+        // 2. Delete existing members for this circuit (CASCADE)
+        transaction
             .execute(
                 "DELETE FROM circuit_members WHERE circuit_id = $1",
                 &[&circuit.circuit_id],
@@ -575,7 +579,7 @@ impl PostgresPersistence {
             .await
             .map_err(|e| format!("Failed to delete old circuit members: {e}"))?;
 
-        // Insert all current members
+        // 3. Insert all current members
         for member in &circuit.members {
             let role_str = format!("{:?}", member.role);
             let permissions_str: Vec<String> = member
@@ -584,7 +588,7 @@ impl PostgresPersistence {
                 .map(|p| format!("{:?}", p))
                 .collect();
 
-            client
+            transaction
                 .execute(
                     "INSERT INTO circuit_members (circuit_id, member_id, role, permissions, joined_at_ts)
                      VALUES ($1, $2, $3, $4, $5)",
@@ -600,9 +604,8 @@ impl PostgresPersistence {
                 .map_err(|e| format!("Failed to persist circuit member {}: {e}", member.member_id))?;
         }
 
-        // Persist custom roles
-        // First delete existing custom roles for this circuit
-        client
+        // 4. Delete existing custom roles for this circuit (CASCADE)
+        transaction
             .execute(
                 "DELETE FROM circuit_custom_roles WHERE circuit_id = $1",
                 &[&circuit.circuit_id],
@@ -610,7 +613,7 @@ impl PostgresPersistence {
             .await
             .map_err(|e| format!("Failed to delete old custom roles: {e}"))?;
 
-        // Insert all current custom roles
+        // 5. Insert all current custom roles
         for role in &circuit.custom_roles {
             let permissions_str: Vec<String> = role
                 .permissions
@@ -618,7 +621,7 @@ impl PostgresPersistence {
                 .map(|p| format!("{:?}", p))
                 .collect();
 
-            client
+            transaction
                 .execute(
                     "INSERT INTO circuit_custom_roles (id, circuit_id, role_name, permissions)
                      VALUES ($1, $2, $3, $4)",
@@ -633,8 +636,12 @@ impl PostgresPersistence {
                 .map_err(|e| format!("Failed to persist custom role {}: {e}", role.role_name))?;
         }
 
-        tracing::debug!(
-            "✅ Persisted circuit {} with {} members and {} custom roles to PostgreSQL",
+        // Commit the transaction atomically
+        transaction.commit().await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+
+        tracing::info!(
+            "✅ Persisted circuit {} with {} members and {} custom roles to PostgreSQL (atomic transaction)",
             circuit.circuit_id,
             circuit.members.len(),
             circuit.custom_roles.len()
