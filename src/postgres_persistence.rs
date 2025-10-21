@@ -648,6 +648,7 @@ impl PostgresPersistence {
     }
 
     /// Load all circuits from PostgreSQL on startup
+    /// OPTIMIZED: Uses a single JOIN query instead of N+1 queries
     pub async fn load_circuits(&self) -> Result<Vec<Circuit>, String> {
         if !self.is_connected().await {
             return Err("PostgreSQL not connected".to_string());
@@ -655,14 +656,42 @@ impl PostgresPersistence {
 
         let client = self.get_client().await?;
 
+        // Single optimized query using JOINs and JSON aggregation
+        // This replaces the N+1 query pattern (1 circuit query + 2 queries per circuit)
         let rows = client
             .query(
-                "SELECT circuit_id, name, description, owner_id, status,
-                    created_at_ts, last_modified_ts, permissions,
-                    alias_config, adapter_config, public_settings, post_action_settings
-             FROM circuits
-             WHERE status != 'Archived'
-             ORDER BY created_at_ts DESC",
+                "SELECT
+                    c.circuit_id, c.name, c.description, c.owner_id, c.status,
+                    c.created_at_ts, c.last_modified_ts, c.permissions,
+                    c.alias_config, c.adapter_config, c.public_settings, c.post_action_settings,
+                    COALESCE(
+                        json_agg(
+                            DISTINCT jsonb_build_object(
+                                'member_id', cm.member_id,
+                                'role', cm.role,
+                                'permissions', cm.permissions,
+                                'joined_at_ts', cm.joined_at_ts
+                            )
+                        ) FILTER (WHERE cm.member_id IS NOT NULL),
+                        '[]'
+                    ) as members,
+                    COALESCE(
+                        json_agg(
+                            DISTINCT jsonb_build_object(
+                                'id', ccr.id,
+                                'role_name', ccr.role_name,
+                                'permissions', ccr.permissions,
+                                'created_at', ccr.created_at
+                            )
+                        ) FILTER (WHERE ccr.id IS NOT NULL),
+                        '[]'
+                    ) as custom_roles
+                FROM circuits c
+                LEFT JOIN circuit_members cm ON c.circuit_id = cm.circuit_id
+                LEFT JOIN circuit_custom_roles ccr ON c.circuit_id = ccr.circuit_id
+                WHERE c.status != 'Archived'
+                GROUP BY c.circuit_id
+                ORDER BY c.created_at_ts DESC",
                 &[],
             )
             .await
@@ -670,35 +699,15 @@ impl PostgresPersistence {
 
         let mut circuits = Vec::new();
         for row in rows {
-            match self.row_to_circuit(&row) {
-                Ok(mut circuit) => {
-                    // Load members for this circuit
-                    match self.load_circuit_members(&client, &circuit.circuit_id).await {
-                        Ok(members) => circuit.members = members,
-                        Err(e) => tracing::warn!(
-                            "⚠️  Failed to load members for circuit {}: {}",
-                            circuit.circuit_id,
-                            e
-                        ),
-                    }
-
-                    // Load custom roles for this circuit
-                    match self.load_circuit_custom_roles(&client, &circuit.circuit_id).await {
-                        Ok(roles) => circuit.custom_roles = roles,
-                        Err(e) => tracing::warn!(
-                            "⚠️  Failed to load custom roles for circuit {}: {}",
-                            circuit.circuit_id,
-                            e
-                        ),
-                    }
-
+            match self.row_to_circuit_with_relations(&row) {
+                Ok(circuit) => {
                     circuits.push(circuit);
                 }
                 Err(e) => tracing::warn!("⚠️  Failed to parse circuit: {}", e),
             }
         }
 
-        tracing::info!("✅ Loaded {} circuits from PostgreSQL", circuits.len());
+        tracing::info!("✅ Loaded {} circuits from PostgreSQL (optimized single-query load)", circuits.len());
         Ok(circuits)
     }
 
@@ -762,7 +771,156 @@ impl PostgresPersistence {
         })
     }
 
+    /// Parse circuit row with members and custom_roles from JOIN query
+    /// This is used by the optimized load_circuits() method
+    fn row_to_circuit_with_relations(&self, row: &Row) -> Result<Circuit, String> {
+        use crate::types::{CircuitMember, CustomRole, MemberRole, Permission};
+
+        // Parse base circuit data (reuse existing logic)
+        let mut circuit = self.row_to_circuit(row)?;
+
+        // Parse members JSON array
+        let members_json: serde_json::Value = row.get("members");
+        if let Some(members_array) = members_json.as_array() {
+            let mut members = Vec::new();
+            for member_obj in members_array {
+                if let Some(obj) = member_obj.as_object() {
+                    // Extract member fields
+                    let member_id = obj
+                        .get("member_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    let role_str = obj
+                        .get("role")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Member");
+
+                    let role = match role_str {
+                        "Owner" => MemberRole::Owner,
+                        "Admin" => MemberRole::Admin,
+                        "Member" => MemberRole::Member,
+                        "Viewer" => MemberRole::Viewer,
+                        _ => MemberRole::Member,
+                    };
+
+                    // Parse permissions array
+                    let permissions = if let Some(perms_array) = obj.get("permissions").and_then(|v| v.as_array()) {
+                        perms_array
+                            .iter()
+                            .filter_map(|p| {
+                                p.as_str().and_then(|s| match s {
+                                    "Push" => Some(Permission::Push),
+                                    "Pull" => Some(Permission::Pull),
+                                    "Invite" => Some(Permission::Invite),
+                                    "ManageMembers" => Some(Permission::ManageMembers),
+                                    "ManagePermissions" => Some(Permission::ManagePermissions),
+                                    "ManageRoles" => Some(Permission::ManageRoles),
+                                    "Delete" => Some(Permission::Delete),
+                                    "Certify" => Some(Permission::Certify),
+                                    "Audit" => Some(Permission::Audit),
+                                    _ => None,
+                                })
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+
+                    let joined_at_ts = obj
+                        .get("joined_at_ts")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or_else(|| Utc::now().timestamp());
+
+                    members.push(CircuitMember {
+                        member_id,
+                        role,
+                        custom_role_name: None,
+                        permissions,
+                        joined_timestamp: DateTime::from_timestamp(joined_at_ts, 0)
+                            .unwrap_or_else(Utc::now),
+                    });
+                }
+            }
+            circuit.members = members;
+        }
+
+        // Parse custom_roles JSON array
+        let roles_json: serde_json::Value = row.get("custom_roles");
+        if let Some(roles_array) = roles_json.as_array() {
+            let mut custom_roles = Vec::new();
+            for role_obj in roles_array {
+                if let Some(obj) = role_obj.as_object() {
+                    let role_id_str = obj
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    let role_id = uuid::Uuid::parse_str(role_id_str)
+                        .unwrap_or_else(|_| uuid::Uuid::new_v4());
+
+                    let role_name = obj
+                        .get("role_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    // Parse permissions array
+                    let permissions = if let Some(perms_array) = obj.get("permissions").and_then(|v| v.as_array()) {
+                        perms_array
+                            .iter()
+                            .filter_map(|p| {
+                                p.as_str().and_then(|s| match s {
+                                    "Push" => Some(Permission::Push),
+                                    "Pull" => Some(Permission::Pull),
+                                    "Invite" => Some(Permission::Invite),
+                                    "ManageMembers" => Some(Permission::ManageMembers),
+                                    "ManagePermissions" => Some(Permission::ManagePermissions),
+                                    "ManageRoles" => Some(Permission::ManageRoles),
+                                    "Delete" => Some(Permission::Delete),
+                                    "Certify" => Some(Permission::Certify),
+                                    "Audit" => Some(Permission::Audit),
+                                    _ => None,
+                                })
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+
+                    let created_at_str = obj
+                        .get("created_at")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    let created_timestamp = DateTime::parse_from_rfc3339(created_at_str)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now());
+
+                    custom_roles.push(CustomRole {
+                        role_id,
+                        circuit_id: circuit.circuit_id,
+                        role_name,
+                        permissions,
+                        description: String::new(),
+                        color: None,
+                        created_timestamp,
+                        created_by: "system".to_string(),
+                        is_default: false,
+                    });
+                }
+            }
+            circuit.custom_roles = custom_roles;
+        }
+
+        Ok(circuit)
+    }
+
     /// Load circuit members from PostgreSQL
+    /// Note: This method is kept for potential individual circuit operations
+    /// The bulk load_circuits() now uses a JOIN query instead
+    #[allow(dead_code)]
     async fn load_circuit_members(
         &self,
         client: &tokio_postgres::Client,
@@ -833,6 +991,9 @@ impl PostgresPersistence {
     }
 
     /// Load circuit custom roles from PostgreSQL
+    /// Note: This method is kept for potential individual circuit operations
+    /// The bulk load_circuits() now uses a JOIN query instead
+    #[allow(dead_code)]
     async fn load_circuit_custom_roles(
         &self,
         client: &tokio_postgres::Client,
