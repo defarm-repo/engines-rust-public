@@ -275,18 +275,22 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>) {
             tracing::info!("✅ PostgreSQL persistence enabled");
 
             // Load or initialize data (same logic as background version)
+            // CRITICAL: If load fails, server MUST NOT start with empty cache
             let data_loaded = match load_data_from_postgres(&pg_persistence, &app_state).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("✅ Loaded {} users from PostgreSQL", count);
                     true
                 }
                 Ok(_) => {
-                    tracing::info!("💡 PostgreSQL database is empty");
+                    tracing::info!("💡 PostgreSQL database is empty - will initialize");
                     false
                 }
                 Err(e) => {
-                    tracing::warn!("⚠️  Could not load data from PostgreSQL: {}", e);
-                    false
+                    tracing::error!("❌ FATAL: Failed to load data from PostgreSQL: {}", e);
+                    tracing::error!("❌ Cannot start server with empty InMemory cache");
+                    tracing::error!("❌ This would cause data loss and inconsistencies");
+                    tracing::error!("❌ Please check PostgreSQL connection and schema");
+                    std::process::exit(1);
                 }
             };
 
@@ -301,11 +305,16 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>) {
                 }
 
                 // Load the newly created data into in-memory storage
+                // CRITICAL: Must load after initialization
                 match load_data_from_postgres(&pg_persistence, &app_state).await {
                     Ok(count) => {
                         tracing::info!("✅ Loaded {} users into in-memory cache", count)
                     }
-                    Err(e) => tracing::warn!("⚠️  Could not load data: {}", e),
+                    Err(e) => {
+                        tracing::error!("❌ FATAL: Failed to load initialized data: {}", e);
+                        tracing::error!("❌ Data was initialized but could not be loaded to cache");
+                        std::process::exit(1);
+                    }
                 }
             } else {
                 // Check and initialize adapters if needed
@@ -324,9 +333,13 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>) {
                             }
                         }
                         // Reload adapters into memory
+                        // CRITICAL: Must load adapters after initialization
                         match load_data_from_postgres(&pg_persistence, &app_state).await {
                             Ok(_) => tracing::info!("✅ Adapters loaded into memory"),
-                            Err(e) => tracing::warn!("⚠️  Could not reload adapters: {}", e),
+                            Err(e) => {
+                                tracing::error!("❌ FATAL: Failed to reload adapters: {}", e);
+                                std::process::exit(1);
+                            }
                         }
                     }
                     Ok(adapters) => {
@@ -385,18 +398,22 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                 tracing::info!("✅ PostgreSQL persistence enabled");
 
                 // Try to load existing data from PostgreSQL
+                // CRITICAL: If load fails, server MUST NOT start with empty cache
                 let data_loaded = match load_data_from_postgres(&pg_persistence, &app_state).await {
                     Ok(count) if count > 0 => {
                         tracing::info!("✅ Loaded {} users from PostgreSQL", count);
                         true
                     }
                     Ok(_) => {
-                        tracing::info!("💡 PostgreSQL database is empty");
+                        tracing::info!("💡 PostgreSQL database is empty - will initialize");
                         false
                     }
                     Err(e) => {
-                        tracing::warn!("⚠️  Could not load data from PostgreSQL: {}", e);
-                        false
+                        tracing::error!("❌ FATAL: Failed to load data from PostgreSQL: {}", e);
+                        tracing::error!("❌ Cannot start server with empty InMemory cache");
+                        tracing::error!("❌ This would cause data loss and inconsistencies");
+                        tracing::error!("❌ Please check PostgreSQL connection and schema");
+                        std::process::exit(1);
                     }
                 };
 
@@ -411,11 +428,16 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                     }
 
                     // Load the newly created data into in-memory storage
+                    // CRITICAL: Must load after initialization
                     match load_data_from_postgres(&pg_persistence, &app_state).await {
                         Ok(count) => {
                             tracing::info!("✅ Loaded {} users into in-memory cache", count)
                         }
-                        Err(e) => tracing::warn!("⚠️  Could not load data: {}", e),
+                        Err(e) => {
+                            tracing::error!("❌ FATAL: Failed to load initialized data: {}", e);
+                            tracing::error!("❌ Data was initialized but could not be loaded to cache");
+                            std::process::exit(1);
+                        }
                     }
                 } else {
                     // Database has existing data - check if adapters exist
@@ -434,9 +456,13 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                                 }
                             }
                             // Reload adapters into memory
+                            // CRITICAL: Must load adapters after initialization
                             match load_data_from_postgres(&pg_persistence, &app_state).await {
                                 Ok(_) => tracing::info!("✅ Adapters loaded into memory"),
-                                Err(e) => tracing::warn!("⚠️  Could not reload adapters: {}", e),
+                                Err(e) => {
+                                    tracing::error!("❌ FATAL: Failed to reload adapters: {}", e);
+                                    std::process::exit(1);
+                                }
                             }
                         }
                         Ok(adapters) => {
