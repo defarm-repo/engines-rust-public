@@ -435,7 +435,9 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                         }
                         Err(e) => {
                             tracing::error!("❌ FATAL: Failed to load initialized data: {}", e);
-                            tracing::error!("❌ Data was initialized but could not be loaded to cache");
+                            tracing::error!(
+                                "❌ Data was initialized but could not be loaded to cache"
+                            );
                             std::process::exit(1);
                         }
                     }
