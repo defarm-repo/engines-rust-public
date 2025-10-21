@@ -2665,6 +2665,42 @@ async fn set_circuit_adapter_config(
         payload.sponsor_adapter_access,
     ) {
         Ok(adapter_config) => {
+            // Get circuit and clone for PostgreSQL persistence
+            if let Ok(Some(circuit)) = engine.get_circuit(&circuit_id) {
+                let state_clone = Arc::clone(&state);
+                let circuit_clone = circuit.clone();
+
+                // Spawn background task for PostgreSQL persistence
+                tokio::spawn(async move {
+                    let pg_lock = state_clone.postgres_persistence.read().await;
+                    if let Some(pg) = &*pg_lock {
+                        tracing::info!(
+                            "🔄 Persisting adapter config update for circuit {}...",
+                            circuit_clone.circuit_id
+                        );
+                        match pg.persist_circuit(&circuit_clone).await {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "✅ Adapter config persisted to PostgreSQL for circuit {}",
+                                    circuit_clone.circuit_id
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "❌ Failed to persist adapter config to PostgreSQL: {}",
+                                    e
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            "⚠️  PostgreSQL not available, adapter config {} only in memory!",
+                            circuit_clone.circuit_id
+                        );
+                    }
+                });
+            }
+
             // Convert AdapterType enum to hyphenated string format
             let adapter_type_str = adapter_config
                 .adapter_type
