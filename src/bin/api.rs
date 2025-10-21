@@ -15,6 +15,7 @@ use defarm_engine::api::{
 };
 use defarm_engine::auth_middleware::jwt_auth_middleware;
 use defarm_engine::postgres_persistence::PostgresPersistence;
+use defarm_engine::StorageBackend;
 use std::sync::Arc;
 
 // Removed in-memory fallback - PostgreSQL is now required for data persistence
