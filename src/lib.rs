@@ -1,3 +1,4 @@
+pub mod activity_engine;
 pub mod adapters;
 pub mod audit_engine;
 pub mod blockchain_event_listener;
@@ -42,6 +43,7 @@ pub mod webhook_engine;
 #[cfg(test)]
 mod test_safe_json_numbers;
 
+pub use activity_engine::*;
 pub use api_key_engine::*;
 pub use api_key_middleware::*;
 pub use api_key_storage::*;

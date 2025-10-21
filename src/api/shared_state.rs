@@ -6,7 +6,8 @@ use crate::postgres_persistence::PostgresPersistence;
 use crate::rate_limiter::RateLimiter;
 use crate::storage_history_reader::StorageHistoryReader;
 use crate::{
-    AuditEngine, CircuitsEngine, EventsEngine, InMemoryStorage, ItemsEngine, NotificationEngine,
+    ActivityEngine, AuditEngine, CircuitsEngine, EventsEngine, InMemoryStorage, ItemsEngine,
+    NotificationEngine,
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, RwLock};
@@ -16,6 +17,7 @@ pub struct AppState<S: ApiKeyStorage = crate::api_key_storage::InMemoryApiKeySto
     pub items_engine: Arc<Mutex<ItemsEngine<Arc<Mutex<InMemoryStorage>>>>>,
     pub events_engine: Arc<Mutex<EventsEngine<InMemoryStorage>>>,
     pub audit_engine: AuditEngine<InMemoryStorage>,
+    pub activity_engine: Arc<Mutex<ActivityEngine<InMemoryStorage>>>,
     pub shared_storage: Arc<Mutex<InMemoryStorage>>,
     pub storage_history_reader: StorageHistoryReader<InMemoryStorage>,
     pub logging: Arc<Mutex<LoggingEngine>>,
@@ -48,11 +50,13 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
         let storage_for_items = Arc::clone(&shared_storage);
         let storage_for_events = Arc::clone(&shared_storage);
         let storage_for_audit = Arc::clone(&shared_storage);
+        let storage_for_activity = Arc::clone(&shared_storage);
 
         let circuits_engine = Arc::new(Mutex::new(CircuitsEngine::new(storage_for_circuits)));
         let items_engine = Arc::new(Mutex::new(ItemsEngine::new(storage_for_items)));
         let events_engine = Arc::new(Mutex::new(EventsEngine::new(storage_for_events)));
         let audit_engine = AuditEngine::new(storage_for_audit);
+        let activity_engine = Arc::new(Mutex::new(ActivityEngine::new(storage_for_activity)));
 
         let storage_for_history = Arc::clone(&shared_storage);
         let storage_history_reader = StorageHistoryReader::new(storage_for_history);
@@ -85,6 +89,7 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
             items_engine,
             events_engine,
             audit_engine,
+            activity_engine,
             shared_storage,
             storage_history_reader,
             logging,

@@ -51,12 +51,25 @@ pub struct AdapterQuery {
 
 async fn list_available_adapters(
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     // Get user account to check adapter permissions
     let storage = app_state.shared_storage.lock().unwrap();
     let user = storage
-        .get_user_account(&claims.user_id)
+        .get_user_account(&user_id)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -93,7 +106,7 @@ async fn list_available_adapters(
     Ok(Json(json!({
         "success": true,
         "adapters": adapter_infos,
-        "user_id": claims.user_id,
+        "user_id": user_id,
         "tier": format!("{:?}", user.tier),
         "using_custom_adapters": user.available_adapters.is_some(),
         "count": adapter_infos.len()
@@ -102,13 +115,26 @@ async fn list_available_adapters(
 
 async fn select_adapter(
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(request): Json<SelectAdapterRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     // Get user account to check adapter permissions
     let storage = app_state.shared_storage.lock().unwrap();
     let user = storage
-        .get_user_account(&claims.user_id)
+        .get_user_account(&user_id)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -141,7 +167,7 @@ async fn select_adapter(
     Ok(Json(json!({
         "success": true,
         "message": "Adapter selected successfully",
-        "user_id": claims.user_id,
+        "user_id": user_id,
         "adapter_type": request.adapter_type,
         "description": request.adapter_type.description(),
         "updated_at": Utc::now()

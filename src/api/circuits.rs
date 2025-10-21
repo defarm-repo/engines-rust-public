@@ -17,7 +17,8 @@ use crate::identifier_types::{CircuitAliasConfig, EnhancedIdentifier};
 use crate::storage::StorageBackend;
 use crate::types::{
     Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitItem, CircuitPermissions,
-    CustomRole, Permission, PublicSettings,
+    CustomRole, Permission, PublicSettings, UserActivity, UserActivityCategory, UserActivityType,
+    UserResourceType,
 };
 use crate::{Circuit, CircuitOperation, CircuitsEngine, InMemoryStorage, ItemsEngine, MemberRole};
 
@@ -782,6 +783,28 @@ async fn create_circuit(
         }
     }
     drop(pg_lock);
+
+    // Record user activity
+    let circuit_id_str = circuit.circuit_id.to_string();
+    let _ = state.activity_engine.lock().ok().and_then(|engine| {
+        let activity = UserActivity {
+            activity_id: Uuid::new_v4().to_string(),
+            user_id: owner_id.clone(),
+            workspace_id: "default-workspace".to_string(), // TODO: Get from context
+            timestamp: Utc::now(),
+            activity_type: UserActivityType::Create,
+            category: UserActivityCategory::Circuits,
+            resource_type: UserResourceType::Circuit,
+            resource_id: circuit_id_str.clone(),
+            action: "create_circuit".to_string(),
+            description: format!("Created circuit: {}", circuit.name),
+            metadata: serde_json::Value::Null,
+            success: true,
+            ip_address: None, // TODO: Extract from request
+            user_agent: None, // TODO: Extract from request
+        };
+        engine.record_activity(&activity).ok()
+    });
 
     Ok(Json(circuit_to_response(circuit)))
 }

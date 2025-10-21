@@ -29,10 +29,7 @@ use bcrypt::{hash, DEFAULT_COST};
 // ============================================================================
 
 /// Verify that the authenticated user is an admin
-fn verify_admin(
-    claims: &Claims,
-    app_state: &Arc<AppState>,
-) -> Result<(), (StatusCode, Json<Value>)> {
+fn verify_admin(user_id: &str, app_state: &Arc<AppState>) -> Result<(), (StatusCode, Json<Value>)> {
     let storage = app_state.shared_storage.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -40,7 +37,7 @@ fn verify_admin(
         )
     })?;
     let user = storage
-        .get_user_account(&claims.user_id)
+        .get_user_account(user_id)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -170,11 +167,23 @@ pub struct UpdateAdapterConfigRequest {
 
 async fn create_user(
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(request): Json<CreateUserRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
-    let admin_user_id = claims.user_id;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
 
     // Validate password complexity
     if let Err(e) = validate_password_complexity(&request.password) {
@@ -285,7 +294,23 @@ async fn create_user(
 async fn get_user(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate authenticated user_id from context (JWT or API key)
+    let auth_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&auth_user_id, &app_state)?;
+
     let storage = app_state.shared_storage.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -331,11 +356,23 @@ async fn get_user(
 async fn update_user(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(request): Json<UpdateUserRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
-    let admin_user_id = claims.user_id;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
     let mut storage = app_state.shared_storage.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -531,10 +568,22 @@ async fn update_user(
 async fn freeze_user(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
-    let admin_user_id = claims.user_id;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
     let mut storage = app_state.shared_storage.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -649,10 +698,22 @@ async fn freeze_user(
 async fn unfreeze_user(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
-    let admin_user_id = claims.user_id;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
     let mut storage = app_state.shared_storage.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -765,9 +826,22 @@ async fn unfreeze_user(
 async fn list_users(
     Query(query): Query<UserSearchQuery>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
     let storage = app_state.shared_storage.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -842,11 +916,23 @@ async fn list_users(
 async fn adjust_user_credits(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(request): Json<CreditAdjustmentRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
-    let admin_user_id = claims.user_id;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
     let credit_engine = CreditEngine::new(Arc::clone(&app_state.shared_storage));
 
     let description = format!("{} (Admin: {})", request.reason, request.amount);
@@ -943,11 +1029,23 @@ async fn adjust_user_credits(
 
 async fn bulk_grant_credits(
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(request): Json<BulkCreditGrantRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
-    let admin_user_id = claims.user_id;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
     let credit_engine = CreditEngine::new(Arc::clone(&app_state.shared_storage));
 
     let mut successful = Vec::new();
@@ -1017,9 +1115,22 @@ async fn get_user_credit_history(
     Path(user_id): Path<String>,
     Query(params): Query<std::collections::HashMap<String, String>>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
     let credit_engine = CreditEngine::new(Arc::clone(&app_state.shared_storage));
 
     let limit = params
@@ -1046,9 +1157,22 @@ async fn get_user_credit_history(
 
 async fn get_admin_dashboard_stats(
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
     let storage = app_state.shared_storage.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1135,9 +1259,22 @@ async fn get_admin_dashboard_stats(
 async fn get_admin_actions(
     Query(params): Query<std::collections::HashMap<String, String>>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
     let storage = app_state.shared_storage.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1170,10 +1307,23 @@ async fn get_admin_actions(
 
 async fn create_adapter_config(
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(request): Json<CreateAdapterConfigRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
 
     // Create logger for adapter manager
     let logger = LoggingEngine::new();
@@ -1185,7 +1335,7 @@ async fn create_adapter_config(
         request.adapter_type,
         request.connection_details,
         request.contract_configs,
-        claims.user_id,
+        admin_user_id,
     ) {
         Ok(config) => Ok(Json(json!({
             "success": true,
@@ -1202,9 +1352,22 @@ async fn create_adapter_config(
 async fn list_adapter_configs(
     Query(params): Query<std::collections::HashMap<String, String>>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
 
     let logger = LoggingEngine::new();
     let adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
@@ -1230,9 +1393,22 @@ async fn list_adapter_configs(
 async fn get_adapter_config(
     Path(config_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
 
     let config_uuid = Uuid::parse_str(&config_id).map_err(|_| {
         (
@@ -1259,10 +1435,23 @@ async fn get_adapter_config(
 async fn update_adapter_config(
     Path(config_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(request): Json<UpdateAdapterConfigRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
 
     let config_uuid = Uuid::parse_str(&config_id).map_err(|_| {
         (
@@ -1297,9 +1486,22 @@ async fn update_adapter_config(
 async fn delete_adapter_config(
     Path(config_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
 
     let config_uuid = Uuid::parse_str(&config_id).map_err(|_| {
         (
@@ -1326,9 +1528,22 @@ async fn delete_adapter_config(
 async fn set_default_adapter(
     Path(config_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    verify_admin(&claims, &app_state)?;
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let admin_user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    verify_admin(&admin_user_id, &app_state)?;
 
     let config_uuid = Uuid::parse_str(&config_id).map_err(|_| {
         (

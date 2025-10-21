@@ -3037,3 +3037,166 @@ pub struct IndexingProgress {
     pub total_events_indexed: i64,
     pub last_error_at: Option<DateTime<Utc>>,
 }
+
+// ============================================================================
+// User Activity Tracking System
+// ============================================================================
+
+/// Activity action type for user actions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum UserActivityType {
+    Create,
+    Read,
+    Update,
+    Delete,
+    Login,
+    Logout,
+    Export,
+    Import,
+    Share,
+    Approve,
+    Reject,
+}
+
+/// Activity category for grouping
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum UserActivityCategory {
+    Authentication,
+    Items,
+    Circuits,
+    Events,
+    Admin,
+    ApiKeys,
+    Workspaces,
+}
+
+/// Resource type for the activity
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum UserResourceType {
+    Item,
+    Circuit,
+    Event,
+    ApiKey,
+    User,
+    Workspace,
+    Adapter,
+}
+
+/// User activity record - tracks all user actions in the system
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserActivity {
+    pub activity_id: String,
+    pub user_id: String,
+    pub workspace_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub activity_type: UserActivityType,
+    pub category: UserActivityCategory,
+    pub resource_type: UserResourceType,
+    pub resource_id: String,
+    pub action: String,
+    pub description: String,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+    #[serde(default)]
+    pub success: bool,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+impl UserActivity {
+    pub fn new(
+        user_id: String,
+        workspace_id: String,
+        activity_type: UserActivityType,
+        category: UserActivityCategory,
+        resource_type: UserResourceType,
+        resource_id: String,
+        action: String,
+        description: String,
+    ) -> Self {
+        Self {
+            activity_id: format!(
+                "ACT-{}-{}",
+                Utc::now().format("%Y%m%d%H%M%S"),
+                Uuid::new_v4()
+                    .to_string()
+                    .split('-')
+                    .next()
+                    .unwrap()
+                    .to_uppercase()
+            ),
+            user_id,
+            workspace_id,
+            timestamp: Utc::now(),
+            activity_type,
+            category,
+            resource_type,
+            resource_id,
+            action,
+            description,
+            metadata: serde_json::Value::Null,
+            success: true,
+            ip_address: None,
+            user_agent: None,
+        }
+    }
+
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    pub fn with_success(mut self, success: bool) -> Self {
+        self.success = success;
+        self
+    }
+
+    pub fn with_ip_address(mut self, ip_address: String) -> Self {
+        self.ip_address = Some(ip_address);
+        self
+    }
+
+    pub fn with_user_agent(mut self, user_agent: String) -> Self {
+        self.user_agent = Some(user_agent);
+        self
+    }
+}
+
+/// Activity query filters
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UserActivityFilters {
+    pub category: Option<UserActivityCategory>,
+    pub activity_type: Option<UserActivityType>,
+    pub resource_type: Option<UserResourceType>,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub search_query: Option<String>,
+    pub user_id: Option<String>,
+    pub page: Option<usize>,
+    pub per_page: Option<usize>,
+}
+
+/// Activity statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserActivityStats {
+    pub total_actions: usize,
+    pub by_category: HashMap<String, usize>,
+    pub by_type: HashMap<String, usize>,
+    pub most_active_hours: Vec<(usize, usize)>,
+    pub success_rate: f64,
+    pub period_start: DateTime<Utc>,
+    pub period_end: DateTime<Utc>,
+}
+
+/// Activity list response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserActivityListResponse {
+    pub activities: Vec<UserActivity>,
+    pub total: usize,
+    pub page: usize,
+    pub per_page: usize,
+    pub total_pages: usize,
+}

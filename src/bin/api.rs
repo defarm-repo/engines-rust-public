@@ -10,8 +10,8 @@ use defarm_engine::api::{
     activity_routes, adapter_routes, admin_routes, audit_routes, auth_routes, circuit_routes,
     event_routes, get_indexing_progress, get_item_timeline, get_timeline_entry, item_routes,
     notifications_rest_routes, notifications_ws_route, receipt_routes, shared_state::AppState,
-    storage_history_routes, test_blockchain_routes, user_credits_routes, workspace_routes,
-    zk_proof_routes, TimelineState,
+    storage_history_routes, test_blockchain_routes, user_activity_routes, user_credits_routes,
+    workspace_routes, zk_proof_routes, TimelineState,
 };
 use defarm_engine::auth_middleware::jwt_auth_middleware;
 use defarm_engine::db_init::setup_development_data;
@@ -134,6 +134,10 @@ async fn main() {
         .nest("/api/items", item_routes(app_state.clone()))
         .nest("/api/workspaces", workspace_routes())
         .nest("/api/activities", activity_routes(app_state.clone()))
+        .nest(
+            "/api/user-activity",
+            user_activity_routes(app_state.clone()),
+        )
         .nest("/audit", audit_routes(app_state.clone()))
         .nest("/api/proofs", zk_proof_routes(app_state.clone()))
         .nest("/api/adapters", adapter_routes(app_state.clone()))

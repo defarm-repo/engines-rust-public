@@ -8,7 +8,7 @@ use crate::types::{
     EventVisibility, Identifier, IdentifierMapping, IndexingProgress, Item, ItemShare, ItemStatus,
     ItemStorageHistory, Notification, PendingItem, PendingPriority, PendingReason,
     ProcessingStatus, Receipt, SecurityIncident, SecurityIncidentSummary, StorageRecord,
-    SystemStatistics, TimelineEntry, UserAccount, WebhookDelivery,
+    SystemStatistics, TimelineEntry, UserAccount, UserActivity, WebhookDelivery,
 };
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -509,6 +509,11 @@ pub trait StorageBackend {
         webhook_id: &Uuid,
         limit: Option<usize>,
     ) -> Result<Vec<WebhookDelivery>, StorageError>;
+
+    // User Activity operations
+    fn store_user_activity(&mut self, activity: &UserActivity) -> Result<(), StorageError>;
+    fn list_user_activities(&self) -> Result<Vec<UserActivity>, StorageError>;
+    fn clear_user_activities(&mut self) -> Result<(), StorageError>;
 }
 
 pub struct InMemoryStorage {
@@ -555,6 +560,8 @@ pub struct InMemoryStorage {
     cid_timeline: HashMap<String, Vec<TimelineEntry>>, // dfid -> timeline entries
     event_cid_mappings: HashMap<Uuid, EventCidMapping>, // event_id -> mapping
     indexing_progress: HashMap<String, IndexingProgress>, // network -> progress
+    // User Activity tracking
+    user_activities: Vec<UserActivity>,
 }
 
 impl InMemoryStorage {
@@ -600,6 +607,7 @@ impl InMemoryStorage {
             cid_timeline: HashMap::new(),
             event_cid_mappings: HashMap::new(),
             indexing_progress: HashMap::new(),
+            user_activities: Vec::new(),
         }
     }
 }
@@ -2505,6 +2513,21 @@ impl StorageBackend for InMemoryStorage {
             Ok(vec![])
         }
     }
+
+    // User Activity operations
+    fn store_user_activity(&mut self, activity: &UserActivity) -> Result<(), StorageError> {
+        self.user_activities.push(activity.clone());
+        Ok(())
+    }
+
+    fn list_user_activities(&self) -> Result<Vec<UserActivity>, StorageError> {
+        Ok(self.user_activities.clone())
+    }
+
+    fn clear_user_activities(&mut self) -> Result<(), StorageError> {
+        self.user_activities.clear();
+        Ok(())
+    }
 }
 
 impl Default for InMemoryStorage {
@@ -3712,6 +3735,25 @@ impl StorageBackend for EncryptedFileStorage {
             "Webhook delivery operations not yet implemented for file storage".to_string(),
         ))
     }
+
+    // User Activity operations
+    fn store_user_activity(&mut self, _activity: &UserActivity) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "User activity operations not yet implemented for file storage".to_string(),
+        ))
+    }
+
+    fn list_user_activities(&self) -> Result<Vec<UserActivity>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "User activity operations not yet implemented for file storage".to_string(),
+        ))
+    }
+
+    fn clear_user_activities(&mut self) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "User activity operations not yet implemented for file storage".to_string(),
+        ))
+    }
 }
 
 // Implementation of StorageBackend for Arc<Mutex<InMemoryStorage>>
@@ -4887,5 +4929,24 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
         self.lock()
             .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
             .get_webhook_deliveries_by_webhook(webhook_id, limit)
+    }
+
+    // User Activity operations
+    fn store_user_activity(&mut self, activity: &UserActivity) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_user_activity(activity)
+    }
+
+    fn list_user_activities(&self) -> Result<Vec<UserActivity>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_user_activities()
+    }
+
+    fn clear_user_activities(&mut self) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .clear_user_activities()
     }
 }

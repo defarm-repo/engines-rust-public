@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     response::Json,
     routing::{delete, get, post, put},
-    Router,
+    Extension, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -13,9 +13,11 @@ use std::sync::{Arc, Mutex};
 use crate::identifier_types::EnhancedIdentifier;
 use crate::items_engine::ResolutionAction;
 use crate::storage::StorageBackend;
+use crate::types::{UserActivity, UserActivityCategory, UserActivityType, UserResourceType};
 use crate::{
     Identifier, InMemoryStorage, Item, ItemStatus, ItemsEngine, PendingItem, PendingReason,
 };
+use chrono::Utc;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -400,8 +402,22 @@ fn item_to_response(item: Item) -> ItemResponse {
 
 async fn create_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(payload): Json<CreateItemRequest>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -433,8 +449,22 @@ async fn create_item(
 
 async fn create_items_batch(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(payload): Json<CreateItemsBatchRequest>,
 ) -> Result<Json<CreateItemsBatchResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -498,8 +528,22 @@ async fn create_items_batch(
 
 async fn get_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -522,9 +566,23 @@ async fn get_item(
 
 async fn update_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(dfid): Path<String>,
     Json(payload): Json<UpdateItemRequest>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -580,8 +638,22 @@ async fn update_item(
 
 async fn delete_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -600,8 +672,22 @@ async fn delete_item(
 
 async fn list_items(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Query(params): Query<ItemQueryParams>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -647,9 +733,23 @@ async fn list_items(
 
 async fn merge_items(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(primary_dfid): Path<String>,
     Json(secondary_dfid): Json<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -668,9 +768,23 @@ async fn merge_items(
 
 async fn split_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(dfid): Path<String>,
     Json(split_request): Json<SplitItemRequest>,
 ) -> Result<Json<SplitItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -698,8 +812,22 @@ async fn split_item(
 
 async fn deprecate_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -718,15 +846,31 @@ async fn deprecate_item(
 
 async fn search_items(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Query(params): Query<ItemQueryParams>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
-    // Reuse list_items logic for search
-    list_items(State(state), Query(params)).await
+    // Reuse list_items logic for search (which now includes authentication)
+    list_items(State(state), claims, api_key_ctx, Query(params)).await
 }
 
 async fn get_item_stats(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<ItemStatsResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -774,8 +918,22 @@ async fn get_item_stats(
 
 async fn get_items_by_identifier(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path((key, value)): Path<(String, String)>,
 ) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -799,19 +957,29 @@ async fn get_items_by_identifier(
 // Sharing endpoints
 async fn share_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(dfid): Path<String>,
     Json(payload): Json<ShareItemRequest>,
 ) -> Result<Json<ShareItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let shared_by = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Items engine mutex poisoned"})),
         )
     })?;
-
-    // For now, use a placeholder for the shared_by user ID
-    // In a real application, this would come from authentication
-    let shared_by = "current_user".to_string();
 
     match engine.share_item(
         &dfid,
@@ -834,8 +1002,22 @@ async fn share_item(
 
 async fn check_item_shared_with_user(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path((dfid, user_id)): Path<(String, String)>,
 ) -> Result<Json<SharedWithCheckResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -872,8 +1054,22 @@ async fn check_item_shared_with_user(
 
 pub async fn get_shared_items_for_user(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<SharedItemListResponse>>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -905,8 +1101,22 @@ pub async fn get_shared_items_for_user(
 // Pending Items Handlers
 async fn list_pending_items(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Query(params): Query<PendingItemQueryParams>,
 ) -> Result<Json<Vec<PendingItemResponse>>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -951,8 +1161,22 @@ async fn list_pending_items(
 
 async fn get_pending_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<PendingItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -985,9 +1209,23 @@ async fn get_pending_item(
 
 async fn resolve_pending_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(id): Path<String>,
     Json(payload): Json<ResolvePendingItemRequest>,
 ) -> Result<Json<ResolvePendingItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1087,8 +1325,22 @@ fn pending_item_to_response(pending_item: PendingItem) -> PendingItemResponse {
 // Local item creation handlers
 async fn create_local_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(payload): Json<CreateLocalItemRequest>,
 ) -> Result<Json<CreateLocalItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     // Create item in in-memory storage (must not hold lock across await)
     let item = {
         let mut engine = state.items_engine.lock().map_err(|_| {
@@ -1165,6 +1417,27 @@ async fn create_local_item(
         }
     });
 
+    // Record user activity
+    let _ = state.activity_engine.lock().ok().and_then(|engine| {
+        let activity = UserActivity {
+            activity_id: Uuid::new_v4().to_string(),
+            user_id: _user_id.clone(),
+            workspace_id: "default-workspace".to_string(), // TODO: Get from claims
+            timestamp: Utc::now(),
+            activity_type: UserActivityType::Create,
+            category: UserActivityCategory::Items,
+            resource_type: UserResourceType::Item,
+            resource_id: local_id.to_string(),
+            action: "create_local_item".to_string(),
+            description: format!("Created local item with ID: {}", local_id),
+            metadata: serde_json::Value::Null,
+            success: true,
+            ip_address: None, // TODO: Extract from request
+            user_agent: None, // TODO: Extract from request
+        };
+        engine.record_activity(&activity).ok()
+    });
+
     Ok(Json(CreateLocalItemResponse {
         success: true,
         data: LocalItemData {
@@ -1176,8 +1449,22 @@ async fn create_local_item(
 
 async fn merge_local_items(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(payload): Json<MergeLocalItemsRequest>,
 ) -> Result<Json<MergeLocalItemsResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     // Parse master_lid
     let master_lid = Uuid::parse_str(&payload.master_lid).map_err(|_| {
         (
@@ -1272,7 +1559,21 @@ async fn merge_local_items(
 
 async fn find_duplicate_local_items(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<DuplicateDetectionResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1360,8 +1661,22 @@ async fn find_duplicate_local_items(
 
 async fn organize_local_items(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(payload): Json<OrganizeLocalItemsRequest>,
 ) -> Result<Json<OrganizeLocalItemsResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     // Validate action
     if payload.action != "deduplicate" && payload.action != "merge_all" {
         return Err((
@@ -1497,8 +1812,22 @@ async fn organize_local_items(
 
 async fn unmerge_local_item(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(payload): Json<UnmergeLocalItemRequest>,
 ) -> Result<Json<UnmergeLocalItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     // Parse merged_lid
     let merged_lid = Uuid::parse_str(&payload.merged_lid).map_err(|_| {
         (
@@ -1582,8 +1911,22 @@ async fn unmerge_local_item(
 
 async fn get_lid_dfid_mapping(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(local_id_str): Path<String>,
 ) -> Result<Json<LidDfidMappingResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let engine = state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1656,9 +1999,23 @@ struct StorageRecordResponse {
 /// GET /api/items/:dfid/storage-history
 /// Retrieve all storage records for a DFID (NFT mint transactions, IPCM updates, IPFS CIDs)
 async fn get_storage_history(
-    Path(dfid): Path<String>,
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(dfid): Path<String>,
 ) -> Result<Json<StorageHistoryResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     // Get storage history from shared storage
     let storage_guard = state.shared_storage.lock().map_err(|_| {
         (

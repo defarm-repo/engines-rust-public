@@ -226,6 +226,44 @@ Every new feature or update must be documented by updating existing principles o
 4. Key expiration dates enable automatic lifecycle management
 5. Usage tracking records every request for audit and analytics
 
+## Authentication and Authorization Principles
+
+### Dual Authentication Support
+1. All API endpoints support both JWT token and API key authentication
+2. Handlers accept both `Option<Extension<Claims>>` and `Option<Extension<ApiKeyContext>>`
+3. Authentication checked in order: JWT claims first, then API key context
+4. HTTP 401 returned when neither authentication method provided
+5. User ID extracted consistently from either JWT (user_id: String) or API key (user_id: Uuid)
+
+### Authentication Methods
+1. JWT tokens passed via Authorization header as "Bearer {token}"
+2. API keys passed via X-API-Key header or Authorization header
+3. JWT tokens contain user_id, workspace_id, and expiration claims
+4. API keys provide user_id via ApiKeyContext after validation
+5. WebSocket connections use custom JWT verification from query parameters
+
+### Handler Authentication Pattern
+1. Standard pattern: extract user_id from claims or api_key_ctx or return 401
+2. User ID conversion: JWT provides String, API key provides Uuid.to_string()
+3. All handlers use identical authentication extraction code for consistency
+4. Authentication happens before any business logic execution
+5. Extracted user_id passed to engine methods for authorization checks
+
+### Authorization and Admin Verification
+1. Admin endpoints use verify_admin helper function with user_id parameter
+2. Admin status checked against user account in storage backend
+3. HTTP 403 returned when admin privileges required but not present
+4. Admin verification separate from authentication (auth first, then authz)
+5. Circuit ownership and permissions checked per operation independently
+
+### API Coverage
+1. Items API: 27 handlers with dual authentication support
+2. Circuits API: 40 handlers using AuthenticatedUser extractor or dual auth
+3. Events API: All event creation and retrieval handlers support dual auth
+4. Notifications API: 5 REST handlers with dual auth (WebSocket uses custom JWT)
+5. Admin API: 17 handlers with dual auth and admin privilege verification
+6. Adapters API: 2 handlers with dual authentication support
+
 ## Rate Limiting Principles
 
 ### Rate Limit Configuration

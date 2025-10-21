@@ -67,9 +67,22 @@ pub fn notifications_ws_route(notification_tx: NotificationSender) -> Router<Arc
 // GET /api/notifications - Get user's notifications
 async fn get_notifications(
     State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Query(params): Query<NotificationQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let notification_engine = state.notification_engine.lock().unwrap();
 
     let since = params
@@ -78,7 +91,7 @@ async fn get_notifications(
 
     let notifications = notification_engine
         .get_user_notifications(
-            &claims.user_id,
+            &user_id,
             since,
             params.limit,
             params.unread_only.unwrap_or(false),
@@ -100,12 +113,25 @@ async fn get_notifications(
 // GET /api/notifications/unread-count - Get count of unread notifications
 async fn get_unread_count(
     State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let notification_engine = state.notification_engine.lock().unwrap();
 
     let count = notification_engine
-        .get_unread_count(&claims.user_id)
+        .get_unread_count(&user_id)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -122,13 +148,26 @@ async fn get_unread_count(
 // PATCH /api/notifications/:id/read - Mark notification as read
 async fn mark_notification_read(
     State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let notification_engine = state.notification_engine.lock().unwrap();
 
     let notification = notification_engine
-        .mark_as_read(&id, &claims.user_id)
+        .mark_as_read(&id, &user_id)
         .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
@@ -145,13 +184,26 @@ async fn mark_notification_read(
 // DELETE /api/notifications/:id - Delete notification
 async fn delete_notification(
     State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let notification_engine = state.notification_engine.lock().unwrap();
 
     notification_engine
-        .delete_notification(&id, &claims.user_id)
+        .delete_notification(&id, &user_id)
         .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
@@ -168,12 +220,25 @@ async fn delete_notification(
 // PATCH /api/notifications/mark-all-read - Mark all notifications as read
 async fn mark_all_read(
     State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let notification_engine = state.notification_engine.lock().unwrap();
 
     let count = notification_engine
-        .mark_all_as_read(&claims.user_id)
+        .mark_all_as_read(&user_id)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

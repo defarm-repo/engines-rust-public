@@ -13,8 +13,9 @@ use std::sync::Arc;
 use crate::api::auth::Claims;
 use crate::api::shared_state::AppState;
 
-/// Extractor for authenticated user ID from JWT claims
+/// Extractor for authenticated user ID from JWT claims or API key
 /// Use this in handlers to get the authenticated user's ID automatically
+/// Supports both JWT token authentication and API key authentication
 pub struct AuthenticatedUser(pub String);
 
 #[async_trait]
@@ -25,18 +26,24 @@ where
     type Rejection = (StatusCode, Json<serde_json::Value>);
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // Extract claims from request extensions (inserted by jwt_auth_middleware)
-        let claims = parts
-            .extensions
-            .get::<Claims>()
-            .ok_or_else(|| {
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "Missing authentication. This endpoint requires JWT authentication."})),
-                )
-            })?;
+        // Try to extract JWT claims first
+        if let Some(claims) = parts.extensions.get::<Claims>() {
+            return Ok(AuthenticatedUser(claims.user_id.clone()));
+        }
 
-        Ok(AuthenticatedUser(claims.user_id.clone()))
+        // Try to extract API key context
+        if let Some(api_key_ctx) = parts
+            .extensions
+            .get::<crate::api_key_middleware::ApiKeyContext>()
+        {
+            return Ok(AuthenticatedUser(api_key_ctx.user_id.to_string()));
+        }
+
+        // Neither JWT nor API key found
+        Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ))
     }
 }
 
