@@ -777,10 +777,18 @@ async fn create_circuit(
     // Write-through cache: Also persist to PostgreSQL if available
     let pg_lock = state.postgres_persistence.read().await;
     if let Some(pg) = &*pg_lock {
-        if let Err(e) = pg.persist_circuit(&circuit).await {
-            tracing::warn!("Failed to persist circuit to PostgreSQL: {}", e);
-            // Don't fail the request - in-memory write succeeded
+        tracing::info!("🔄 Attempting to persist circuit {} to PostgreSQL...", circuit.circuit_id);
+        match pg.persist_circuit(&circuit).await {
+            Ok(()) => {
+                tracing::info!("✅ Successfully persisted circuit {} to PostgreSQL", circuit.circuit_id);
+            }
+            Err(e) => {
+                tracing::error!("❌ CRITICAL: Failed to persist circuit {} to PostgreSQL: {}", circuit.circuit_id, e);
+                // Don't fail the request - in-memory write succeeded
+            }
         }
+    } else {
+        tracing::warn!("⚠️  PostgreSQL not available, circuit {} only in memory!", circuit.circuit_id);
     }
     drop(pg_lock);
 
