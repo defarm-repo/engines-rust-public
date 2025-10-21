@@ -14,39 +14,10 @@ use defarm_engine::api::{
     workspace_routes, zk_proof_routes, TimelineState,
 };
 use defarm_engine::auth_middleware::jwt_auth_middleware;
-use defarm_engine::db_init::setup_development_data;
 use defarm_engine::postgres_persistence::PostgresPersistence;
-use defarm_engine::StorageBackend;
 use std::sync::Arc;
 
-fn allow_in_memory_fallback() -> bool {
-    std::env::var("ALLOW_IN_MEMORY_FALLBACK")
-        .map(|value| matches!(value.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false)
-}
-
-fn handle_postgres_failure(app_state: &Arc<AppState>) -> bool {
-    if allow_in_memory_fallback() {
-        tracing::warn!(
-            "⚠️  ALLOW_IN_MEMORY_FALLBACK enabled — continuing with in-memory storage only"
-        );
-        tracing::warn!("⚠️  Data will not persist between restarts");
-
-        if let Ok(mut storage) = app_state.shared_storage.lock() {
-            if let Err(e) = setup_development_data(&mut storage) {
-                tracing::error!("Failed to setup development data: {}", e);
-            }
-        }
-
-        true
-    } else {
-        tracing::error!(
-            "❌ PostgreSQL connection is required when DATABASE_URL is set. \
-             Set ALLOW_IN_MEMORY_FALLBACK=true if you want to force in-memory mode."
-        );
-        false
-    }
-}
+// Removed in-memory fallback - PostgreSQL is now required for data persistence
 
 #[tokio::main]
 async fn main() {
@@ -279,17 +250,20 @@ async fn health_check_db(
 
 /// Initialize PostgreSQL synchronously, blocking until connected
 async fn initialize_postgres_sync(app_state: Arc<AppState>) {
-    // Check if DATABASE_URL is set
+    // Require DATABASE_URL to be set - no in-memory fallback
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(url) if !url.is_empty() => url,
         _ => {
-            tracing::info!("💡 DATABASE_URL not set - running with in-memory storage only");
-            tracing::warn!("⚠️  Data will not persist between restarts");
-            return;
+            tracing::error!(
+                "❌ DATABASE_URL environment variable is required for data persistence"
+            );
+            tracing::error!("❌ Set DATABASE_URL to your PostgreSQL connection string");
+            tracing::error!("❌ Example: postgresql://user:password@localhost:5432/database");
+            std::process::exit(1);
         }
     };
 
-    tracing::info!("🗄️  DATABASE_URL detected - initializing PostgreSQL persistence...");
+    tracing::info!("🗄️  Connecting to PostgreSQL for persistent storage...");
 
     // Create PostgreSQL persistence instance
     let mut pg_persistence = PostgresPersistence::new(database_url);
@@ -376,9 +350,9 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>) {
         }
         Err(e) => {
             tracing::error!("❌ PostgreSQL connection failed: {}", e);
-            if !handle_postgres_failure(&app_state) {
-                std::process::exit(1);
-            }
+            tracing::error!("❌ Cannot start server without database connection");
+            tracing::error!("❌ Please check your DATABASE_URL and ensure PostgreSQL is running");
+            std::process::exit(1);
         }
     }
 }
@@ -386,17 +360,20 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>) {
 /// Initialize PostgreSQL in background without blocking server startup
 fn initialize_postgres_background(app_state: Arc<AppState>) {
     tokio::spawn(async move {
-        // Check if DATABASE_URL is set
+        // Require DATABASE_URL to be set - no in-memory fallback
         let database_url = match std::env::var("DATABASE_URL") {
             Ok(url) if !url.is_empty() => url,
             _ => {
-                tracing::info!("💡 DATABASE_URL not set - running with in-memory storage only");
-                tracing::warn!("⚠️  Data will not persist between restarts");
-                return;
+                tracing::error!(
+                    "❌ DATABASE_URL environment variable is required for data persistence"
+                );
+                tracing::error!("❌ Set DATABASE_URL to your PostgreSQL connection string");
+                tracing::error!("❌ Example: postgresql://user:password@localhost:5432/database");
+                std::process::exit(1);
             }
         };
 
-        tracing::info!("🗄️  DATABASE_URL detected - initializing PostgreSQL persistence...");
+        tracing::info!("🗄️  Connecting to PostgreSQL for persistent storage...");
 
         // Create PostgreSQL persistence instance
         let mut pg_persistence = PostgresPersistence::new(database_url);
@@ -488,9 +465,11 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
             }
             Err(e) => {
                 tracing::error!("❌ PostgreSQL connection failed: {}", e);
-                if !handle_postgres_failure(&app_state) {
-                    std::process::exit(1);
-                }
+                tracing::error!("❌ Cannot start server without database connection");
+                tracing::error!(
+                    "❌ Please check your DATABASE_URL and ensure PostgreSQL is running"
+                );
+                std::process::exit(1);
             }
         }
     });
