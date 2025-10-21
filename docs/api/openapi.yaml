@@ -190,33 +190,55 @@ components:
       type: object
       properties:
         adapter_type:
-          $ref: '#/components/schemas/AdapterType'
+          type: string
+          description: |
+            Storage adapter type (hyphenated format for API requests):
+            - "none" - No blockchain storage
+            - "ipfs-ipfs" - IPFS storage only
+            - "stellar_testnet-ipfs" - Stellar testnet + IPFS
+            - "stellar_mainnet-ipfs" - Stellar mainnet + IPFS (production)
+          enum:
+            - none
+            - ipfs-ipfs
+            - stellar_testnet-ipfs
+            - stellar_mainnet-ipfs
+          example: "stellar_mainnet-ipfs"
         requires_approval:
           type: boolean
           default: false
-          description: Whether push operations require approval
+          description: Whether adapter migrations require approval (future use)
         auto_migrate_existing:
           type: boolean
           default: false
-          description: Auto-migrate existing items to new adapter
+          description: Auto-migrate existing items when adapter changes
         sponsor_adapter_access:
           type: boolean
           default: false
-          description: Circuit sponsors adapter access for all members
+          description: Circuit sponsors adapter access for all members (overrides tier limits)
+        configured_by:
+          type: string
+          description: User ID who configured the adapter
+          readOnly: true
+          example: "hen-admin-001"
+        configured_at:
+          type: string
+          format: date-time
+          description: When the adapter was configured
+          readOnly: true
 
     AdapterType:
       type: string
       enum:
-        - None
-        - IpfsOnly
-        - StellarTestnetIpfs
-        - StellarMainnetIpfs
+        - none
+        - ipfs-ipfs
+        - stellar_testnet-ipfs
+        - stellar_mainnet-ipfs
       description: |
-        Storage adapter types:
-        - None: No blockchain storage
-        - IpfsOnly: IPFS storage only
-        - StellarTestnetIpfs: Stellar testnet + IPFS
-        - StellarMainnetIpfs: Stellar mainnet + IPFS (production)
+        Storage adapter types (hyphenated format):
+        - none: No blockchain storage
+        - ipfs-ipfs: IPFS storage only
+        - stellar_testnet-ipfs: Stellar testnet + IPFS
+        - stellar_mainnet-ipfs: Stellar mainnet + IPFS (production)
 
     CircuitAliasConfig:
       type: object
@@ -309,15 +331,19 @@ components:
         allow_public_visibility:
           type: boolean
           default: false
-        require_approval_to_push:
+          description: Whether circuit data is publicly visible
+        require_approval_for_push:
           type: boolean
           default: false
-        require_approval_to_pull:
+          description: Whether push operations require admin approval
+        require_approval_for_pull:
           type: boolean
           default: false
-        allow_member_invites:
+          description: Whether pull operations require admin approval
+        allow_member_invite:
           type: boolean
           default: true
+          description: Whether members can invite others to the circuit
 
     PublicSettings:
       type: object
@@ -2095,7 +2121,10 @@ paths:
       tags:
         - Circuits
       summary: Update circuit adapter configuration
-      description: Update adapter settings (owner/admin only, requires tier access)
+      description: |
+        Update adapter settings for a circuit. Only circuit owner or admins can configure adapters.
+        The requester must have access to the specified adapter type in their tier.
+        Changes are persisted to PostgreSQL immediately.
       operationId: updateCircuitAdapter
       parameters:
         - name: circuit_id
@@ -2104,19 +2133,83 @@ paths:
           schema:
             type: string
             format: uuid
+          description: UUID of the circuit to update
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AdapterConfig'
+              type: object
+              required:
+                - adapter_type
+                - sponsor_adapter_access
+                - requires_approval
+                - auto_migrate_existing
+              properties:
+                adapter_type:
+                  type: string
+                  enum: [none, ipfs-ipfs, stellar_testnet-ipfs, stellar_mainnet-ipfs]
+                  example: "stellar_mainnet-ipfs"
+                sponsor_adapter_access:
+                  type: boolean
+                  example: true
+                  description: If true, circuit pays for adapter access for all members
+                requires_approval:
+                  type: boolean
+                  example: false
+                  description: Whether migrations require approval
+                auto_migrate_existing:
+                  type: boolean
+                  example: false
+                  description: Auto-migrate items on adapter change
+            examples:
+              stellar_mainnet:
+                summary: Configure Stellar Mainnet adapter
+                value:
+                  adapter_type: "stellar_mainnet-ipfs"
+                  sponsor_adapter_access: false
+                  requires_approval: false
+                  auto_migrate_existing: false
+              ipfs_sponsored:
+                summary: IPFS with sponsored access
+                value:
+                  adapter_type: "ipfs-ipfs"
+                  sponsor_adapter_access: true
+                  requires_approval: false
+                  auto_migrate_existing: false
       responses:
         '200':
-          description: Adapter configuration updated
+          description: Adapter configuration updated successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
+                type: object
+                properties:
+                  adapter_type:
+                    type: string
+                    example: "stellar_mainnet-ipfs"
+                  sponsor_adapter_access:
+                    type: boolean
+                    example: false
+                  requires_approval:
+                    type: boolean
+                    example: false
+                  auto_migrate_existing:
+                    type: boolean
+                    example: false
+                  configured_by:
+                    type: string
+                    example: "hen-admin-001"
+                  configured_at:
+                    type: string
+                    format: date-time
+                    example: "2025-10-21T23:33:49.631504998+00:00"
+        '403':
+          description: Permission denied - user doesn't have adapter access or isn't circuit owner/admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /circuits/{circuit_id}/public-settings:
     get:
