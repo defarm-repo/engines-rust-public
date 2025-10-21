@@ -1033,6 +1033,11 @@ impl Circuit {
     }
 
     pub fn is_member(&self, member_id: &str) -> bool {
+        // Owner is always considered a member
+        if self.owner_id == member_id {
+            return true;
+        }
+
         self.members.iter().any(|m| m.member_id == member_id)
     }
 
