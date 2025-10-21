@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     response::Json,
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -18,7 +18,7 @@ use crate::{Event, EventType, EventVisibility};
 pub struct CreateEventRequest {
     pub dfid: String,
     pub event_type: String,
-    pub source: String,
+    // Note: 'source' field removed - now auto-populated from authentication context
     pub visibility: String,
     pub metadata: Option<HashMap<String, serde_json::Value>>,
 }
@@ -95,6 +95,8 @@ fn event_to_response(event: Event) -> EventResponse {
 
 async fn create_event(
     State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(payload): Json<CreateEventRequest>,
 ) -> Result<Json<EventResponse>, (StatusCode, Json<Value>)> {
     let event_type = parse_event_type(&payload.event_type)
@@ -103,9 +105,21 @@ async fn create_event(
     let visibility = parse_event_visibility(&payload.visibility)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
+    // Auto-populate source from authenticated context (JWT or API key)
+    let source = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let mut engine = state.events_engine.lock().unwrap();
 
-    match engine.create_event(payload.dfid, event_type, payload.source, visibility) {
+    match engine.create_event(payload.dfid, event_type, source, visibility) {
         Ok(mut event) => {
             // Add metadata if provided
             if let Some(metadata) = payload.metadata {

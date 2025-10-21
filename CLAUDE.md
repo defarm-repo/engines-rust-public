@@ -10,6 +10,25 @@
 
 **Railway Dashboard Setup**: See [RAILWAY_DASHBOARD_SETUP.md](./RAILWAY_DASHBOARD_SETUP.md) for step-by-step Railway deployment using the web dashboard (recommended for initial setup).
 
+## 🔐 Demo Accounts - Testing Credentials
+
+Production Railway API includes pre-configured demo accounts for all user tiers. These accounts are used for testing, documentation examples, and client demonstrations.
+
+| Username | Password | Tier | User ID | Purpose |
+|----------|----------|------|---------|---------|
+| hen | demo123 | Admin | hen-admin-001 | Admin operations and system management |
+| chick | Demo123! | Basic | 97b51073-0ec5-40f9-822a-ea93ed1ec008 | Basic tier feature testing |
+| pullet | demo123 | Professional | pullet-user-001 | Professional tier feature testing |
+| cock | demo123 | Enterprise | cock-user-001 | Enterprise tier feature testing |
+| gerbov | Gerbov2024!Test | Professional | user-2da9af70-c4c3-4b13-9180-dc1c7094b27c | Client demo and documentation |
+
+### Notes
+1. All accounts are verified working on production Railway API
+2. Password requirements: 8+ characters, uppercase letter, special character
+3. Gerbov account has pre-configured working circuit: 002ea6db-6b7b-4a69-8780-1f01ae074265
+4. These credentials should NEVER be used in production client applications
+5. For documentation updates, see: docs/development/GERBOV_UPDATED_DOC.md and docs/development/GERBOV_TEST_CREDENTIALS.md
+
 ## System Documentation Rule
 Every new feature or update must be documented by updating existing principles or appending new ones in the appropriate section. Keep principles simple - one row per principle maximum.
 
@@ -125,6 +144,13 @@ Every new feature or update must be documented by updating existing principles o
 2. Events support public, private, and circuit-only visibility levels
 3. Private events are encrypted for confidentiality protection
 4. Events maintain full audit trail of item history
+
+### Event Security
+1. Event source field is auto-populated from authenticated context (never user-provided)
+2. Source is extracted from JWT token (user_id) or API key (user_id) automatically
+3. Event creation requires authentication (JWT or API key) to prevent anonymous events
+4. This prevents audit trail tampering by malicious actors
+5. All events include cryptographically verified source attribution
 
 ### Event Types
 1. Created events track new item creation with identifiers
