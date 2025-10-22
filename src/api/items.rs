@@ -418,33 +418,60 @@ async fn create_item(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let item = {
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
 
-    let source_entry = uuid::Uuid::parse_str(&payload.source_entry).map_err(|_| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid source entry UUID"})),
-        )
-    })?;
+        let source_entry = uuid::Uuid::parse_str(&payload.source_entry).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid source entry UUID"})),
+            )
+        })?;
 
-    let identifiers: Vec<Identifier> = payload
-        .identifiers
-        .into_iter()
-        .map(|id| Identifier::new(id.key, id.value))
-        .collect();
+        let identifiers: Vec<Identifier> = payload
+            .identifiers
+            .into_iter()
+            .map(|id| Identifier::new(id.key, id.value))
+            .collect();
 
-    match engine.create_item_with_generated_dfid(identifiers, source_entry, payload.enriched_data) {
-        Ok(item) => Ok(Json(item_to_response(item))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Failed to create item: {}", e)})),
-        )),
-    }
+        match engine.create_item_with_generated_dfid(
+            identifiers,
+            source_entry,
+            payload.enriched_data,
+        ) {
+            Ok(item) => item,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to create item: {}", e)})),
+                ))
+            }
+        }
+    };
+
+    let item_clone = item.clone();
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            if let Err(e) = pg.persist_item(&item_clone).await {
+                tracing::warn!(
+                    "Failed to persist item {} to PostgreSQL: {}",
+                    item_clone.dfid,
+                    e
+                );
+            } else {
+                tracing::debug!("✅ Item {} persisted to PostgreSQL", item_clone.dfid);
+            }
+        }
+    });
+
+    Ok(Json(item_to_response(item)))
 }
 
 async fn create_items_batch(
@@ -465,58 +492,82 @@ async fn create_items_batch(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
-    let mut results = Vec::new();
-    let mut success_count = 0;
-    let mut failed_count = 0;
+    let (results, success_count, failed_count, items_to_persist) = {
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
 
-    for item_request in payload.items {
-        let result = match uuid::Uuid::parse_str(&item_request.source_entry) {
-            Ok(source_entry) => {
-                let identifiers: Vec<Identifier> = item_request
-                    .identifiers
-                    .into_iter()
-                    .map(|id| Identifier::new(id.key, id.value))
-                    .collect();
+        let mut results = Vec::new();
+        let mut success_count = 0;
+        let mut failed_count = 0;
+        let mut items_to_persist: Vec<Item> = Vec::new();
 
-                match engine.create_item_with_generated_dfid(
-                    identifiers,
-                    source_entry,
-                    item_request.enriched_data,
-                ) {
-                    Ok(item) => {
-                        success_count += 1;
-                        BatchItemResult {
-                            success: true,
-                            item: Some(item_to_response(item)),
-                            error: None,
+        for item_request in payload.items {
+            let result = match uuid::Uuid::parse_str(&item_request.source_entry) {
+                Ok(source_entry) => {
+                    let identifiers: Vec<Identifier> = item_request
+                        .identifiers
+                        .into_iter()
+                        .map(|id| Identifier::new(id.key, id.value))
+                        .collect();
+
+                    match engine.create_item_with_generated_dfid(
+                        identifiers,
+                        source_entry,
+                        item_request.enriched_data,
+                    ) {
+                        Ok(item) => {
+                            success_count += 1;
+                            let item_clone = item.clone();
+                            items_to_persist.push(item_clone);
+                            BatchItemResult {
+                                success: true,
+                                item: Some(item_to_response(item)),
+                                error: None,
+                            }
                         }
-                    }
-                    Err(e) => {
-                        failed_count += 1;
-                        BatchItemResult {
-                            success: false,
-                            item: None,
-                            error: Some(format!("Failed to create item: {e}")),
+                        Err(e) => {
+                            failed_count += 1;
+                            BatchItemResult {
+                                success: false,
+                                item: None,
+                                error: Some(format!("Failed to create item: {e}")),
+                            }
                         }
                     }
                 }
-            }
-            Err(_) => {
-                failed_count += 1;
-                BatchItemResult {
-                    success: false,
-                    item: None,
-                    error: Some("Invalid source entry UUID".to_string()),
+                Err(_) => {
+                    failed_count += 1;
+                    BatchItemResult {
+                        success: false,
+                        item: None,
+                        error: Some("Invalid source entry UUID".to_string()),
+                    }
+                }
+            };
+            results.push(result);
+        }
+
+        (results, success_count, failed_count, items_to_persist)
+    };
+
+    if !items_to_persist.is_empty() {
+        let postgres_persistence = Arc::clone(&state.postgres_persistence);
+        tokio::spawn(async move {
+            let pg_lock = postgres_persistence.read().await;
+            if let Some(pg) = &*pg_lock {
+                for item in items_to_persist {
+                    if let Err(e) = pg.persist_item(&item).await {
+                        tracing::warn!("Failed to persist item {} to PostgreSQL: {}", item.dfid, e);
+                    } else {
+                        tracing::debug!("✅ Item {} persisted to PostgreSQL", item.dfid);
+                    }
                 }
             }
-        };
-        results.push(result);
+        });
     }
 
     Ok(Json(CreateItemsBatchResponse {
@@ -583,57 +634,80 @@ async fn update_item(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let UpdateItemRequest {
+        enriched_data,
+        identifiers,
+    } = payload;
 
-    // Update enriched data if provided
-    if let Some(enriched_data) = payload.enriched_data {
-        let source_entry = uuid::Uuid::new_v4(); // Generate a new UUID for the enrichment
-        match engine.enrich_item(&dfid, enriched_data, source_entry) {
-            Ok(_) => {}
-            Err(e) => {
+    let updated_item = {
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
+
+        // Update enriched data if provided
+        if let Some(enriched_data) = enriched_data {
+            let source_entry = uuid::Uuid::new_v4(); // Generate a new UUID for the enrichment
+            if let Err(e) = engine.enrich_item(&dfid, enriched_data, source_entry) {
                 return Err((
                     StatusCode::BAD_REQUEST,
                     Json(json!({"error": format!("Failed to enrich item: {}", e)})),
-                ))
+                ));
             }
         }
-    }
 
-    // Add identifiers if provided
-    if let Some(identifier_requests) = payload.identifiers {
-        let identifiers: Vec<Identifier> = identifier_requests
-            .into_iter()
-            .map(|id| Identifier::new(id.key, id.value))
-            .collect();
+        // Add identifiers if provided
+        if let Some(identifier_requests) = identifiers {
+            let identifiers: Vec<Identifier> = identifier_requests
+                .into_iter()
+                .map(|id| Identifier::new(id.key, id.value))
+                .collect();
 
-        match engine.add_identifiers(&dfid, identifiers) {
-            Ok(_) => {}
-            Err(e) => {
+            if let Err(e) = engine.add_identifiers(&dfid, identifiers) {
                 return Err((
                     StatusCode::BAD_REQUEST,
                     Json(json!({"error": format!("Failed to add identifiers: {}", e)})),
+                ));
+            }
+        }
+
+        match engine.get_item(&dfid) {
+            Ok(Some(item)) => item,
+            Ok(None) => {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Item not found after update"})),
+                ))
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to get updated item: {}", e)})),
                 ))
             }
         }
-    }
+    };
 
-    // Return updated item
-    match engine.get_item(&dfid) {
-        Ok(Some(item)) => Ok(Json(item_to_response(item))),
-        Ok(None) => Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Item not found after update"})),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to get updated item: {}", e)})),
-        )),
-    }
+    let item_clone = updated_item.clone();
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            if let Err(e) = pg.persist_item(&item_clone).await {
+                tracing::warn!(
+                    "Failed to persist item {} to PostgreSQL: {}",
+                    item_clone.dfid,
+                    e
+                );
+            } else {
+                tracing::debug!("✅ Item {} persisted to PostgreSQL", item_clone.dfid);
+            }
+        }
+    });
+
+    Ok(Json(item_to_response(updated_item)))
 }
 
 async fn delete_item(
@@ -750,20 +824,57 @@ async fn merge_items(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let (response, items_to_persist) = {
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
 
-    match engine.merge_items(&primary_dfid, &secondary_dfid) {
-        Ok(item) => Ok(Json(item_to_response(item))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Failed to merge items: {}", e)})),
-        )),
-    }
+        match engine.merge_items(&primary_dfid, &secondary_dfid) {
+            Ok(primary_item) => {
+                let mut items_to_persist = vec![primary_item.clone()];
+
+                match engine.get_item(&secondary_dfid) {
+                    Ok(Some(secondary_item)) => items_to_persist.push(secondary_item),
+                    Ok(None) => tracing::warn!(
+                        "Secondary item {} missing after merge; skipping persistence",
+                        secondary_dfid
+                    ),
+                    Err(e) => tracing::warn!(
+                        "Failed to fetch secondary item {} for persistence: {}",
+                        secondary_dfid,
+                        e
+                    ),
+                }
+
+                (item_to_response(primary_item), items_to_persist)
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to merge items: {}", e)})),
+                ))
+            }
+        }
+    };
+
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            for item in items_to_persist {
+                if let Err(e) = pg.persist_item(&item).await {
+                    tracing::warn!("Failed to persist item {} to PostgreSQL: {}", item.dfid, e);
+                } else {
+                    tracing::debug!("✅ Item {} persisted to PostgreSQL", item.dfid);
+                }
+            }
+        }
+    });
+
+    Ok(Json(response))
 }
 
 async fn split_item(
@@ -785,29 +896,56 @@ async fn split_item(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let (response, items_to_persist) = {
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
 
-    let identifiers: Vec<Identifier> = split_request
-        .identifiers_for_new_item
-        .into_iter()
-        .map(|id| Identifier::new(id.key, id.value))
-        .collect();
+        let identifiers: Vec<Identifier> = split_request
+            .identifiers_for_new_item
+            .into_iter()
+            .map(|id| Identifier::new(id.key, id.value))
+            .collect();
 
-    match engine.split_item_with_generated_dfid(&dfid, identifiers) {
-        Ok((original_item, new_item)) => Ok(Json(SplitItemResponse {
-            original_item: item_to_response(original_item),
-            new_item: item_to_response(new_item),
-        })),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Failed to split item: {}", e)})),
-        )),
-    }
+        match engine.split_item_with_generated_dfid(&dfid, identifiers) {
+            Ok((original_item, new_item)) => {
+                let items_to_persist = vec![original_item.clone(), new_item.clone()];
+
+                (
+                    SplitItemResponse {
+                        original_item: item_to_response(original_item),
+                        new_item: item_to_response(new_item),
+                    },
+                    items_to_persist,
+                )
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to split item: {}", e)})),
+                ))
+            }
+        }
+    };
+
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            for item in items_to_persist {
+                if let Err(e) = pg.persist_item(&item).await {
+                    tracing::warn!("Failed to persist item {} to PostgreSQL: {}", item.dfid, e);
+                } else {
+                    tracing::debug!("✅ Item {} persisted to PostgreSQL", item.dfid);
+                }
+            }
+        }
+    });
+
+    Ok(Json(response))
 }
 
 async fn deprecate_item(
@@ -828,20 +966,43 @@ async fn deprecate_item(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let item = {
+        let mut engine = state.items_engine.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Items engine mutex poisoned"})),
+            )
+        })?;
 
-    match engine.deprecate_item(&dfid) {
-        Ok(item) => Ok(Json(item_to_response(item))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Failed to deprecate item: {}", e)})),
-        )),
-    }
+        match engine.deprecate_item(&dfid) {
+            Ok(item) => item,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to deprecate item: {}", e)})),
+                ))
+            }
+        }
+    };
+
+    let item_clone = item.clone();
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            if let Err(e) = pg.persist_item(&item_clone).await {
+                tracing::warn!(
+                    "Failed to persist item {} to PostgreSQL: {}",
+                    item_clone.dfid,
+                    e
+                );
+            } else {
+                tracing::debug!("✅ Item {} persisted to PostgreSQL", item_clone.dfid);
+            }
+        }
+    });
+
+    Ok(Json(item_to_response(item)))
 }
 
 async fn search_items(
@@ -1514,7 +1675,7 @@ async fn merge_local_items(
     };
 
     // Perform merge
-    let master_item = {
+    let (master_item, items_to_persist) = {
         let mut engine = state.items_engine.lock().map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1522,7 +1683,7 @@ async fn merge_local_items(
             )
         })?;
 
-        engine
+        let master_item = engine
             .merge_local_items(&master_lid, merge_lids.clone(), strategy)
             .map_err(|e| {
                 let status_code = match e {
@@ -1532,8 +1693,40 @@ async fn merge_local_items(
                     _ => StatusCode::INTERNAL_SERVER_ERROR,
                 };
                 (status_code, Json(json!({"error": format!("{}", e)})))
-            })?
+            })?;
+
+        let mut items_to_persist = vec![master_item.clone()];
+        for lid in &merge_lids {
+            match engine.get_item_by_lid(lid) {
+                Ok(Some(item)) => items_to_persist.push(item.clone()),
+                Ok(None) => tracing::warn!(
+                    "Merged local item {} missing after merge; skipping persistence",
+                    lid
+                ),
+                Err(e) => tracing::warn!(
+                    "Failed to fetch merged local item {} for persistence: {}",
+                    lid,
+                    e
+                ),
+            }
+        }
+
+        (master_item, items_to_persist)
     };
+
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            for item in items_to_persist {
+                if let Err(e) = pg.persist_item(&item).await {
+                    tracing::warn!("Failed to persist item {} to PostgreSQL: {}", item.dfid, e);
+                } else {
+                    tracing::debug!("✅ Item {} persisted to PostgreSQL", item.dfid);
+                }
+            }
+        }
+    });
 
     // Build response
     let master_item_info = MergedItemInfo {
@@ -1901,12 +2094,31 @@ async fn unmerge_local_item(
         last_modified: restored_item.last_modified.to_rfc3339(),
     };
 
-    Ok(Json(UnmergeLocalItemResponse {
+    let response = UnmergeLocalItemResponse {
         success: true,
         restored_lid: merged_lid.to_string(),
         previous_master_lid: previous_master,
         restored_item: restored_item_info,
-    }))
+    };
+
+    let item_clone = restored_item.clone();
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            if let Err(e) = pg.persist_item(&item_clone).await {
+                tracing::warn!(
+                    "Failed to persist item {} to PostgreSQL: {}",
+                    item_clone.dfid,
+                    e
+                );
+            } else {
+                tracing::debug!("✅ Item {} persisted to PostgreSQL", item_clone.dfid);
+            }
+        }
+    });
+
+    Ok(Json(response))
 }
 
 async fn get_lid_dfid_mapping(
@@ -2054,7 +2266,7 @@ async fn get_storage_history(
                         .and_then(|v| v.as_str().map(String::from));
 
                     StorageRecordResponse {
-                        adapter_type: format!("{:?}", record.adapter_type),
+                        adapter_type: record.adapter_type.to_string(),
                         network,
                         nft_mint_tx,
                         ipcm_update_tx,
