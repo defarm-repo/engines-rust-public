@@ -1215,7 +1215,10 @@ impl PostgresPersistence {
     async fn persist_item_once(&self, item: &crate::types::Item) -> Result<(), String> {
         // Wait for connection with a 10-second timeout
         if let Err(e) = self.wait_for_connection(10).await {
-            tracing::debug!("⏳ Waiting for PostgreSQL connection before persisting item...");
+            tracing::debug!(
+                "⏳ Waiting for PostgreSQL connection before persisting item {}...",
+                item.dfid
+            );
             return Err(e);
         }
 
@@ -1306,7 +1309,10 @@ impl PostgresPersistence {
     async fn persist_event_once(&self, event: &crate::types::Event) -> Result<(), String> {
         // Wait for connection with a 10-second timeout
         if let Err(e) = self.wait_for_connection(10).await {
-            tracing::debug!("⏳ Waiting for PostgreSQL connection before persisting event...");
+            tracing::debug!(
+                "⏳ Waiting for PostgreSQL connection before persisting event {}...",
+                event.event_id
+            );
             return Err(e);
         }
 
