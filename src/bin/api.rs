@@ -556,6 +556,30 @@ async fn load_data_from_postgres(
         tracing::info!("📥 Loaded {} users from PostgreSQL", user_count);
     }
 
+    // Load items
+    let items = pg.load_items().await?;
+    let item_count = items.len();
+    if !items.is_empty() {
+        let mut storage = app_state
+            .shared_storage
+            .lock()
+            .map_err(|e| format!("Failed to lock storage: {e}"))?;
+
+        for item in items {
+            storage
+                .store_item(&item)
+                .map_err(|e| format!("Failed to store item: {e}"))?;
+
+            if let Some(local_id) = item.local_id {
+                storage
+                    .store_lid_dfid_mapping(&local_id, &item.dfid)
+                    .map_err(|e| format!("Failed to store LID mapping: {e}"))?;
+            }
+        }
+
+        tracing::info!("📥 Loaded {} items from PostgreSQL", item_count);
+    }
+
     // Load circuits
     let circuits = pg.load_circuits().await?;
     let circuit_count = circuits.len();

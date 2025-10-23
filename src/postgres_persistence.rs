@@ -6,6 +6,7 @@
 /// - Migration execution with timeout handling
 /// - Circuit breaker pattern for failed connections
 /// - Background sync from in-memory to PostgreSQL
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -18,7 +19,9 @@ use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use tokio_postgres::{NoTls, Row};
 use uuid::Uuid;
 
+use crate::identifier_types::{ExternalAlias, IdentifierType};
 use crate::types::*;
+use serde_json::json;
 
 /// PostgreSQL persistence manager with circuit breaker
 #[derive(Clone)]
@@ -1216,6 +1219,99 @@ impl PostgresPersistence {
             .await
     }
 
+    fn item_status_to_code(status: &ItemStatus) -> String {
+        match status {
+            ItemStatus::Active => "Active".to_string(),
+            ItemStatus::Deprecated => "Deprecated".to_string(),
+            ItemStatus::Merged => "Merged".to_string(),
+            ItemStatus::Split => "Split".to_string(),
+            ItemStatus::MergedInto(target) => format!("MergedInto:{target}"),
+        }
+    }
+
+    fn item_status_from_code(code: &str) -> Result<ItemStatus, String> {
+        match code {
+            "Active" => Ok(ItemStatus::Active),
+            "Deprecated" => Ok(ItemStatus::Deprecated),
+            "Merged" => Ok(ItemStatus::Merged),
+            "Split" => Ok(ItemStatus::Split),
+            other if other.starts_with("MergedInto:") => Ok(ItemStatus::MergedInto(
+                other.trim_start_matches("MergedInto:").to_string(),
+            )),
+            other if other.starts_with("MergedInto(\"") && other.ends_with("\")") => {
+                let inner = &other["MergedInto(\"".len()..other.len() - 2];
+                Ok(ItemStatus::MergedInto(inner.to_string()))
+            }
+            other => Err(format!("Unknown item status code: {other}")),
+        }
+    }
+
+    fn serialize_identifier_type(id_type: &IdentifierType) -> (String, serde_json::Value) {
+        match id_type {
+            IdentifierType::Canonical {
+                registry,
+                verified,
+                verification_date,
+            } => (
+                "Canonical".to_string(),
+                json!({
+                    "registry": registry,
+                    "verified": verified,
+                    "verification_date": verification_date.map(|dt| dt.to_rfc3339()),
+                }),
+            ),
+            IdentifierType::Contextual { scope } => (
+                "Contextual".to_string(),
+                json!({
+                    "scope": scope,
+                }),
+            ),
+        }
+    }
+
+    fn deserialize_identifier_type(
+        id_type: &str,
+        metadata: Option<serde_json::Value>,
+        key: &str,
+    ) -> IdentifierType {
+        let metadata = metadata.unwrap_or(serde_json::Value::Null);
+        match id_type.to_lowercase().as_str() {
+            "canonical" => {
+                let registry = metadata
+                    .get("registry")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(key)
+                    .to_string();
+                let verified = metadata
+                    .get("verified")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let verification_date = metadata
+                    .get("verification_date")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.with_timezone(&Utc));
+
+                IdentifierType::Canonical {
+                    registry,
+                    verified,
+                    verification_date,
+                }
+            }
+            "contextual" => {
+                let scope = metadata
+                    .get("scope")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("user")
+                    .to_string();
+                IdentifierType::Contextual { scope }
+            }
+            _ => IdentifierType::Contextual {
+                scope: "user".to_string(),
+            },
+        }
+    }
+
     async fn persist_item_once(&self, item: &crate::types::Item) -> Result<(), String> {
         // Wait for connection with a 10-second timeout
         if let Err(e) = self.wait_for_connection(10).await {
@@ -1250,21 +1346,34 @@ impl PostgresPersistence {
         }
 
         // Insert/update main item record
+        let status_code = Self::item_status_to_code(&item.status);
+        let enriched_json =
+            serde_json::to_value(&item.enriched_data).unwrap_or(serde_json::Value::Null);
+        let aliases_json = serde_json::to_value(&item.aliases).unwrap_or(serde_json::Value::Null);
+
         client.execute(
-            "INSERT INTO items (dfid, item_hash, status, created_at_ts, last_updated_ts, enriched_data)
-             VALUES ($1, $2, $3, $4, $5, $6)
+            "INSERT INTO items (dfid, item_hash, status, created_at_ts, last_updated_ts, enriched_data, legacy_mode, fingerprint, aliases, confidence_score)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              ON CONFLICT (dfid) DO UPDATE SET
                 status = EXCLUDED.status,
                 last_updated_ts = EXCLUDED.last_updated_ts,
                 enriched_data = EXCLUDED.enriched_data,
+                legacy_mode = EXCLUDED.legacy_mode,
+                fingerprint = EXCLUDED.fingerprint,
+                aliases = EXCLUDED.aliases,
+                confidence_score = EXCLUDED.confidence_score,
                 updated_at = NOW()",
             &[
                 &item.dfid,
                 &item_hash,
-                &format!("{:?}", item.status),
+                &status_code,
                 &item.creation_timestamp.timestamp(),
                 &item.last_modified.timestamp(),
-                &serde_json::to_value(&item.enriched_data).unwrap_or(serde_json::Value::Null),
+                &enriched_json,
+                &item.legacy_mode,
+                &item.fingerprint,
+                &aliases_json,
+                &item.confidence_score,
             ],
         ).await
         .map_err(|e| format!("Failed to persist item: {e}"))?;
@@ -1279,10 +1388,20 @@ impl PostgresPersistence {
             .map_err(|e| format!("Failed to delete old identifiers: {e}"))?;
 
         for identifier in &item.identifiers {
+            let (id_type, metadata) = Self::serialize_identifier_type(&identifier.id_type);
+
             client
                 .execute(
-                    "INSERT INTO item_identifiers (dfid, key, value) VALUES ($1, $2, $3)",
-                    &[&item.dfid, &identifier.key, &identifier.value],
+                    "INSERT INTO item_identifiers (dfid, namespace, key, value, id_type, type_metadata)
+                     VALUES ($1, $2, $3, $4, $5, $6)",
+                    &[
+                        &item.dfid,
+                        &identifier.namespace,
+                        &identifier.key,
+                        &identifier.value,
+                        &id_type,
+                        &metadata,
+                    ],
                 )
                 .await
                 .map_err(|e| format!("Failed to insert identifier: {e}"))?;
@@ -1326,6 +1445,156 @@ impl PostgresPersistence {
     pub async fn persist_event(&self, event: &crate::types::Event) -> Result<(), String> {
         self.enqueue_persist("persist_event", PersistCommand::Event(event.clone()))
             .await
+    }
+
+    pub async fn load_items(&self) -> Result<Vec<Item>, String> {
+        let client = self.get_client().await?;
+
+        let item_rows = client
+            .query(
+                "SELECT dfid, status, created_at_ts, last_updated_ts, enriched_data, legacy_mode,
+                        fingerprint, aliases, confidence_score
+                 FROM items",
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to load items: {e}"))?;
+
+        let mut items_map: HashMap<String, Item> = HashMap::new();
+
+        for row in item_rows {
+            let dfid: String = row.get("dfid");
+            let status_code: String = row.get("status");
+            let status = Self::item_status_from_code(&status_code)
+                .map_err(|e| format!("Failed to parse status for item {dfid}: {e}"))?;
+
+            let created_at_ts: i64 = row.get("created_at_ts");
+            let created_at = DateTime::<Utc>::from_timestamp(created_at_ts, 0)
+                .ok_or_else(|| format!("Invalid created_at_ts for item {dfid}"))?;
+
+            let last_updated_ts: i64 = row.get("last_updated_ts");
+            let last_updated = DateTime::<Utc>::from_timestamp(last_updated_ts, 0)
+                .ok_or_else(|| format!("Invalid last_updated_ts for item {dfid}"))?;
+
+            let enriched_value: serde_json::Value = row.get("enriched_data");
+            let enriched_data = if enriched_value.is_null() {
+                HashMap::new()
+            } else {
+                match serde_json::from_value::<HashMap<String, serde_json::Value>>(enriched_value) {
+                    Ok(map) => map,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse enriched_data for item {}: {}", dfid, e);
+                        HashMap::new()
+                    }
+                }
+            };
+
+            let legacy_mode: bool = row.get("legacy_mode");
+            let fingerprint: Option<String> = row.get("fingerprint");
+            let aliases_value: Option<serde_json::Value> = row.get("aliases");
+            let aliases = match aliases_value {
+                Some(val) => match serde_json::from_value::<Vec<ExternalAlias>>(val) {
+                    Ok(aliases) => aliases,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse aliases for item {}: {}", dfid, e);
+                        Vec::new()
+                    }
+                },
+                None => Vec::new(),
+            };
+
+            let confidence_score: f64 = row.get("confidence_score");
+
+            let item = Item {
+                dfid: dfid.clone(),
+                local_id: None,
+                legacy_mode,
+                identifiers: Vec::new(),
+                aliases,
+                fingerprint,
+                enriched_data,
+                creation_timestamp: created_at,
+                last_modified: last_updated,
+                source_entries: Vec::new(),
+                confidence_score,
+                status,
+            };
+
+            items_map.insert(dfid, item);
+        }
+
+        if items_map.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let identifier_rows = client
+            .query(
+                "SELECT dfid, namespace, key, value, id_type, type_metadata
+                 FROM item_identifiers",
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to load item identifiers: {e}"))?;
+
+        for row in identifier_rows {
+            let dfid: String = row.get("dfid");
+            if let Some(item) = items_map.get_mut(&dfid) {
+                let namespace: String = row.get("namespace");
+                let key: String = row.get("key");
+                let value: String = row.get("value");
+                let id_type_str: String = row.get("id_type");
+                let metadata: Option<serde_json::Value> = row.get("type_metadata");
+
+                let id_type = Self::deserialize_identifier_type(&id_type_str, metadata, &key);
+
+                item.identifiers.push(Identifier {
+                    namespace,
+                    key,
+                    value,
+                    id_type,
+                });
+            }
+        }
+
+        let source_rows = client
+            .query(
+                "SELECT dfid, entry_id
+                 FROM item_source_entries",
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to load item source entries: {e}"))?;
+
+        for row in source_rows {
+            let dfid: String = row.get("dfid");
+            if let Some(item) = items_map.get_mut(&dfid) {
+                let entry_id: Uuid = row.get("entry_id");
+                item.source_entries.push(entry_id);
+            }
+        }
+
+        let lid_rows = client
+            .query(
+                "SELECT local_id, dfid
+                 FROM lid_dfid_mappings",
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to load LID mappings: {e}"))?;
+
+        for row in lid_rows {
+            let dfid: String = row.get("dfid");
+            if let Some(item) = items_map.get_mut(&dfid) {
+                let local_id: Uuid = row.get("local_id");
+                item.local_id = Some(local_id);
+            }
+        }
+
+        let mut items: Vec<Item> = items_map.into_values().collect();
+        items.sort_by_key(|item| item.creation_timestamp);
+
+        tracing::info!("✅ Loaded {} items from PostgreSQL", items.len());
+        Ok(items)
     }
 
     async fn persist_event_once(&self, event: &crate::types::Event) -> Result<(), String> {

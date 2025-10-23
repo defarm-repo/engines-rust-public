@@ -74,6 +74,10 @@ CREATE TABLE IF NOT EXISTS items (
     created_at_ts BIGINT NOT NULL,
     last_updated_ts BIGINT NOT NULL,
     enriched_data JSONB,
+    legacy_mode BOOLEAN NOT NULL DEFAULT TRUE,
+    fingerprint TEXT,
+    aliases JSONB,
+    confidence_score DOUBLE PRECISION NOT NULL DEFAULT 1.0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -84,13 +88,17 @@ CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at_ts DESC);
 CREATE TABLE IF NOT EXISTS item_identifiers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     dfid VARCHAR(255) NOT NULL REFERENCES items(dfid) ON DELETE CASCADE,
+    namespace VARCHAR(255) NOT NULL DEFAULT 'generic',
     key VARCHAR(255) NOT NULL,
     value TEXT NOT NULL,
+    id_type VARCHAR(50) NOT NULL DEFAULT 'Contextual',
+    type_metadata JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_item_identifiers_dfid ON item_identifiers(dfid);
 CREATE INDEX IF NOT EXISTS idx_item_identifiers_key_value ON item_identifiers(key, value);
+CREATE INDEX IF NOT EXISTS idx_item_identifiers_namespace ON item_identifiers(namespace);
 
 CREATE TABLE IF NOT EXISTS item_source_entries (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

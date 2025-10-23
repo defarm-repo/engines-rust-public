@@ -4,11 +4,11 @@ use crate::adapters::{
 };
 use crate::dfid_engine::DfidEngine;
 use crate::events_engine::EventsEngine;
-use crate::postgres_persistence::PostgresPersistence;
 use crate::identifier_types::{
     CircuitAliasConfig, EnhancedIdentifier, ExternalAlias, IdentifierType,
 };
 use crate::logging::LoggingEngine;
+use crate::postgres_persistence::PostgresPersistence;
 use crate::storage::StorageBackend;
 use crate::types::{
     Activity, ActivityDetails, ActivityStatus, ActivityType, AdapterType, BatchPushItemResult,

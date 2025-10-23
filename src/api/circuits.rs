@@ -369,25 +369,6 @@ fn spawn_persist_circuit(state: &Arc<AppState>, circuit: Circuit) {
     });
 }
 
-fn fetch_circuit(state: &Arc<AppState>, circuit_id: &Uuid) -> Option<Circuit> {
-    state
-        .shared_storage
-        .lock()
-        .ok()
-        .and_then(|storage| storage.get_circuit(circuit_id).ok()?.map(|c| c))
-}
-
-fn fetch_circuit_operation(
-    state: &Arc<AppState>,
-    operation_id: &Uuid,
-) -> Option<CircuitOperation> {
-    state
-        .shared_storage
-        .lock()
-        .ok()
-        .and_then(|storage| storage.get_circuit_operation(operation_id).ok()?.map(|op| op))
-}
-
 fn spawn_persist_circuit_operation(state: &Arc<AppState>, operation: CircuitOperation) {
     let state_clone = Arc::clone(state);
     tokio::spawn(async move {

@@ -48,10 +48,7 @@ impl<S: StorageBackend> ActivityEngine<S> {
         }
     }
 
-    pub fn with_postgres(
-        mut self,
-        postgres: Arc<RwLock<Option<PostgresPersistence>>>,
-    ) -> Self {
+    pub fn with_postgres(mut self, postgres: Arc<RwLock<Option<PostgresPersistence>>>) -> Self {
         self.postgres = Some(postgres);
         self
     }
