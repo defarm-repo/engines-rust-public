@@ -140,11 +140,7 @@ async fn test_concurrent_item_creation() {
         let storage = Arc::clone(&storage);
         async move {
             let mut items = ItemsEngine::new(storage);
-            let identifiers = vec![Identifier::contextual(
-                "test",
-                "id",
-                format!("item{id}")
-            )];
+            let identifiers = vec![Identifier::contextual("test", "id", format!("item{id}"))];
             items
                 .create_local_item(identifiers, None, Uuid::new_v4())
                 .expect("Should create item")
@@ -265,11 +261,7 @@ async fn test_high_concurrency_stress() {
             let storage = Arc::clone(&storage);
             tokio::spawn(async move {
                 let mut items = ItemsEngine::new(storage);
-                let identifiers = vec![Identifier::contextual(
-                    "stress",
-                    "id",
-                    format!("item{i}")
-                )];
+                let identifiers = vec![Identifier::contextual("stress", "id", format!("item{i}"))];
                 let _ = items.create_local_item(identifiers, None, Uuid::new_v4());
             })
         })

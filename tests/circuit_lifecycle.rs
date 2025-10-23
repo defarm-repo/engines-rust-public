@@ -117,9 +117,7 @@ async fn timeline_entries_can_be_added() {
         )
         .expect("add timeline entry");
 
-    let timeline = guard
-        .get_item_timeline(&push.dfid)
-        .expect("query timeline");
+    let timeline = guard.get_item_timeline(&push.dfid).expect("query timeline");
     assert_eq!(timeline.len(), 1);
     assert_eq!(timeline[0].cid, "QmTestCid");
 }

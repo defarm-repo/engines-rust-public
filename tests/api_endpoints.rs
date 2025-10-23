@@ -179,13 +179,7 @@ async fn test_full_circuit_push_workflow() {
 
     // Step 3: Push to circuit
     let result = circuits
-        .push_local_item_to_circuit(
-            &local_id,
-            identifiers,
-            None,
-            &circuit_id,
-            "user123",
-        )
+        .push_local_item_to_circuit(&local_id, identifiers, None, &circuit_id, "user123")
         .await;
 
     // This will fail without actual adapter, but we can verify the error is appropriate

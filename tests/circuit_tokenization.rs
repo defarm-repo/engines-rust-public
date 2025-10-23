@@ -1,7 +1,7 @@
 use defarm_engine::circuits_engine::{CircuitsEngine, PushStatus};
 use defarm_engine::identifier_types::{namespaces, CircuitAliasConfig};
-use defarm_engine::Identifier;
 use defarm_engine::storage::{InMemoryStorage, StorageBackend};
+use defarm_engine::Identifier;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -209,9 +209,7 @@ async fn test_auto_namespace_application() {
 
     // Check that the namespace was applied
     assert!(
-        item.identifiers
-            .iter()
-            .any(|id| id.namespace == "soja"),
+        item.identifiers.iter().any(|id| id.namespace == "soja"),
         "Namespace should be auto-applied to soja"
     );
 }
@@ -231,9 +229,7 @@ async fn test_lid_dfid_mapping() {
         .expect("circuit created");
 
     let lid = Uuid::new_v4();
-    let identifiers = vec![Identifier::contextual(
-        "generic", "test_id", "value1",
-    )];
+    let identifiers = vec![Identifier::contextual("generic", "test_id", "value1")];
 
     let result = engine
         .push_local_item_to_circuit(&lid, identifiers, None, &circuit.circuit_id, "owner1")
@@ -266,9 +262,7 @@ async fn test_non_owner_cannot_push() {
         .expect("circuit created");
 
     let lid = Uuid::new_v4();
-    let identifiers = vec![Identifier::contextual(
-        "generic", "test_id", "value1",
-    )];
+    let identifiers = vec![Identifier::contextual("generic", "test_id", "value1")];
 
     // Try to push as non-owner/non-member
     let result = engine

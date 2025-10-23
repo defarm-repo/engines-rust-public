@@ -120,7 +120,8 @@ async fn create_event(
     let mut engine = state.events_engine.lock().unwrap();
 
     match engine.create_event(payload.dfid, event_type, source, visibility) {
-        Ok(mut event) => {
+        Ok(event) => {
+            let mut created_event = event.clone();
             // Add metadata if provided
             if let Some(metadata) = payload.metadata {
                 for (key, value) in metadata {
@@ -137,12 +138,40 @@ async fn create_event(
                         })?;
                 }
                 // Refresh event data
-                event = engine.get_event(&event.event_id)
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to retrieve updated event: {}", e)}))))?
-                    .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Event not found after creation"}))))?;
+                created_event = engine
+                    .get_event(&event.event_id)
+                    .map_err(|e| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({"error": format!("Failed to retrieve updated event: {}", e)})),
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({"error": "Event not found after creation"})),
+                        )
+                    })?;
             }
 
-            Ok(Json(event_to_response(event)))
+            drop(engine);
+
+            let event_clone = created_event.clone();
+            let state_clone = Arc::clone(&state);
+            tokio::spawn(async move {
+                let pg_lock = state_clone.postgres_persistence.read().await;
+                if let Some(pg) = &*pg_lock {
+                    if let Err(e) = pg.persist_event(&event_clone).await {
+                        tracing::warn!(
+                            "Failed to persist event {} to PostgreSQL: {}",
+                            event_clone.event_id,
+                            e
+                        );
+                    }
+                }
+            });
+
+            Ok(Json(event_to_response(created_event)))
         }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,

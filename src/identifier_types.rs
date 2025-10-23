@@ -186,9 +186,7 @@ impl Identifier {
             namespace,
             key,
             value,
-            id_type: IdentifierType::Contextual {
-                scope,
-            },
+            id_type: IdentifierType::Contextual { scope },
         }
     }
 

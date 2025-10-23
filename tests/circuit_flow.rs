@@ -1,10 +1,6 @@
 use defarm_engine::{
-    circuits_engine::CircuitsEngine,
-    identifier_types::CircuitAliasConfig,
-    items_engine::ItemsEngine,
-    storage::InMemoryStorage,
-    StorageBackend,
-    Identifier,
+    circuits_engine::CircuitsEngine, identifier_types::CircuitAliasConfig,
+    items_engine::ItemsEngine, storage::InMemoryStorage, Identifier, StorageBackend,
 };
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -49,9 +45,7 @@ async fn circuit_push_creates_mapping_and_dfid() {
         )
         .expect("create local item");
 
-    let local_id = local_item
-        .local_id
-        .expect("local items always have a LID");
+    let local_id = local_item.local_id.expect("local items always have a LID");
 
     let result = circuits
         .push_local_item_to_circuit(

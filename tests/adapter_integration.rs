@@ -41,39 +41,39 @@ fn test_ipfs_adapter_stores_item_and_generates_cid() {
             }
         };
 
-    let item = create_test_item("DFID-TEST-001");
-    let result = adapter.store_item(&item).await;
+        let item = create_test_item("DFID-TEST-001");
+        let result = adapter.store_item(&item).await;
 
-    assert!(
-        result.is_ok(),
-        "IPFS adapter should successfully store item"
-    );
+        assert!(
+            result.is_ok(),
+            "IPFS adapter should successfully store item"
+        );
 
-    let adapter_result = result.unwrap();
-    let metadata = adapter_result.metadata;
+        let adapter_result = result.unwrap();
+        let metadata = adapter_result.metadata;
 
-    // Verify adapter type
-    assert_eq!(metadata.adapter_type, AdapterType::IpfsIpfs);
+        // Verify adapter type
+        assert_eq!(metadata.adapter_type, AdapterType::IpfsIpfs);
 
-    // Verify CID was generated
-    match &metadata.item_location {
-        StorageLocation::IPFS { cid, pinned } => {
-            assert!(!cid.is_empty(), "CID should not be empty");
-            assert!(
-                cid.starts_with("Qm") || cid.starts_with("bafy"),
-                "CID should have valid format"
-            );
-            assert!(*pinned, "Item should be pinned");
-            println!("✅ Generated CID: {cid}");
-            println!("✅ CID Length: {} characters", cid.len());
-            println!("✅ Item pinned on IPFS: {pinned}");
+        // Verify CID was generated
+        match &metadata.item_location {
+            StorageLocation::IPFS { cid, pinned } => {
+                assert!(!cid.is_empty(), "CID should not be empty");
+                assert!(
+                    cid.starts_with("Qm") || cid.starts_with("bafy"),
+                    "CID should have valid format"
+                );
+                assert!(*pinned, "Item should be pinned");
+                println!("✅ Generated CID: {cid}");
+                println!("✅ CID Length: {} characters", cid.len());
+                println!("✅ Item pinned on IPFS: {pinned}");
+            }
+            _ => panic!("Expected IPFS storage location"),
         }
-        _ => panic!("Expected IPFS storage location"),
-    }
 
-    // Verify timestamps
-    assert!(metadata.created_at <= chrono::Utc::now());
-    assert_eq!(metadata.created_at, metadata.updated_at);
+        // Verify timestamps
+        assert!(metadata.created_at <= chrono::Utc::now());
+        assert_eq!(metadata.created_at, metadata.updated_at);
     });
 }
 
@@ -87,28 +87,28 @@ fn test_ipfs_adapter_can_retrieve_stored_item() {
             Err(_) => {
                 println!("⚠️  Skipping: IPFS not available");
                 return;
-        }
-    };
+            }
+        };
 
-    // Store item
-    let item = create_test_item("DFID-TEST-002");
-    let store_result = adapter.store_item(&item).await.unwrap();
+        // Store item
+        let item = create_test_item("DFID-TEST-002");
+        let store_result = adapter.store_item(&item).await.unwrap();
 
-    // Extract CID
-    let cid = match &store_result.metadata.item_location {
-        StorageLocation::IPFS { cid, .. } => cid.clone(),
-        _ => panic!("Expected IPFS location"),
-    };
+        // Extract CID
+        let cid = match &store_result.metadata.item_location {
+            StorageLocation::IPFS { cid, .. } => cid.clone(),
+            _ => panic!("Expected IPFS location"),
+        };
 
-    // Retrieve item using CID
-    let retrieved = adapter.get_item(&cid).await;
+        // Retrieve item using CID
+        let retrieved = adapter.get_item(&cid).await;
 
-    assert!(retrieved.is_ok(), "Should retrieve item successfully");
-    let retrieved_result = retrieved.unwrap();
-    assert!(retrieved_result.is_some(), "Item should exist");
+        assert!(retrieved.is_ok(), "Should retrieve item successfully");
+        let retrieved_result = retrieved.unwrap();
+        assert!(retrieved_result.is_some(), "Item should exist");
 
-    let retrieved_item = retrieved_result.unwrap().data;
-    assert_eq!(retrieved_item.dfid, item.dfid);
+        let retrieved_item = retrieved_result.unwrap().data;
+        assert_eq!(retrieved_item.dfid, item.dfid);
     });
 }
 
@@ -122,16 +122,16 @@ fn test_ipfs_adapter_health_check() {
             Err(_) => {
                 println!("⚠️  Skipping: IPFS not available");
                 return;
+            }
+        };
+
+        let health = adapter.health_check().await;
+        assert!(health.is_ok(), "Health check should complete");
+
+        // If IPFS is running, health should be true
+        if let Ok(is_healthy) = health {
+            println!("IPFS health status: {is_healthy}");
         }
-    };
-
-    let health = adapter.health_check().await;
-    assert!(health.is_ok(), "Health check should complete");
-
-    // If IPFS is running, health should be true
-    if let Ok(is_healthy) = health {
-        println!("IPFS health status: {is_healthy}");
-    }
     });
 }
 
@@ -145,18 +145,18 @@ fn test_ipfs_adapter_sync_status() {
             Err(_) => {
                 println!("⚠️  Skipping: IPFS not available");
                 return;
-        }
-    };
+            }
+        };
 
-    let status = adapter.sync_status().await;
-    assert!(status.is_ok(), "Sync status should return successfully");
+        let status = adapter.sync_status().await;
+        assert!(status.is_ok(), "Sync status should return successfully");
 
-    let sync_status = status.unwrap();
-    assert_eq!(sync_status.adapter_type, AdapterType::IpfsIpfs);
+        let sync_status = status.unwrap();
+        assert_eq!(sync_status.adapter_type, AdapterType::IpfsIpfs);
 
-    // Check status details
-    assert!(sync_status.details.contains_key("implementation_status"));
-    assert!(sync_status.details.contains_key("ipfs_connected"));
+        // Check status details
+        assert!(sync_status.details.contains_key("implementation_status"));
+        assert!(sync_status.details.contains_key("ipfs_connected"));
     });
 }
 

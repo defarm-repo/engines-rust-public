@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::identifier_types::{IdentifierType, namespaces};
+use crate::identifier_types::{namespaces, IdentifierType};
 use crate::items_engine::ResolutionAction;
 use crate::storage::StorageBackend;
 use crate::types::{UserActivity, UserActivityCategory, UserActivityType, UserResourceType};
@@ -476,9 +476,7 @@ fn item_to_response(item: Item) -> ItemResponse {
     }
 }
 
-pub fn build_identifiers(
-    requests: Vec<IdentifierRequest>,
-) -> Result<Vec<Identifier>, String> {
+pub fn build_identifiers(requests: Vec<IdentifierRequest>) -> Result<Vec<Identifier>, String> {
     requests
         .into_iter()
         .map(|req| req.into_identifier())
@@ -624,11 +622,7 @@ async fn create_items_batch(
                 }
             };
 
-            match engine.create_item_with_generated_dfid(
-                identifiers,
-                source_entry,
-                enriched_data,
-            ) {
+            match engine.create_item_with_generated_dfid(identifiers, source_entry, enriched_data) {
                 Ok(item) => {
                     success_count += 1;
                     items_to_persist.push(item.clone());
@@ -1004,14 +998,13 @@ async fn split_item(
             )
         })?;
 
-        let identifiers = build_identifiers(split_request.identifiers_for_new_item).map_err(
-            |e| {
+        let identifiers =
+            build_identifiers(split_request.identifiers_for_new_item).map_err(|e| {
                 (
                     StatusCode::BAD_REQUEST,
                     Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
                 )
-            },
-        )?;
+            })?;
 
         match engine.split_item_with_generated_dfid(&dfid, identifiers) {
             Ok((original_item, new_item)) => {
@@ -1517,14 +1510,13 @@ async fn resolve_pending_item(
         "approve" => ResolutionAction::Approve,
         "reject" => ResolutionAction::Reject,
         "modify" => {
-            let identifiers = build_identifiers(new_identifiers.unwrap_or_default()).map_err(
-                |e| {
+            let identifiers =
+                build_identifiers(new_identifiers.unwrap_or_default()).map_err(|e| {
                     (
                         StatusCode::BAD_REQUEST,
                         Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
                     )
-                },
-            )?;
+                })?;
             ResolutionAction::Modify(identifiers, new_enriched_data)
         }
         _ => {
