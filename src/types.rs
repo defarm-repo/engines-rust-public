@@ -1,24 +1,10 @@
 use crate::adapters::base::StorageLocation;
-use crate::identifier_types::{CircuitAliasConfig, EnhancedIdentifier, ExternalAlias};
+pub use crate::identifier_types::Identifier;
+use crate::identifier_types::{CircuitAliasConfig, ExternalAlias};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct Identifier {
-    pub key: String,
-    pub value: String,
-}
-
-impl Identifier {
-    pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
-        Self {
-            key: key.into(),
-            value: value.into(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Receipt {
@@ -56,8 +42,7 @@ pub struct Item {
     pub dfid: String,
     pub local_id: Option<Uuid>,       // NOVO: LID do workspace
     pub legacy_mode: bool,            // NOVO: true se DFID gerado no workspace
-    pub identifiers: Vec<Identifier>, // Manter por compatibilidade
-    pub enhanced_identifiers: Vec<EnhancedIdentifier>, // NOVO
+    pub identifiers: Vec<Identifier>, // Identificadores unificados
     pub aliases: Vec<ExternalAlias>,  // NOVO
     pub fingerprint: Option<String>,  // NOVO: para dedup contextual
     pub enriched_data: HashMap<String, serde_json::Value>,
@@ -171,7 +156,6 @@ impl Item {
             local_id: None,
             legacy_mode: true, // By default, assume legacy mode for existing code
             identifiers,
-            enhanced_identifiers: vec![],
             aliases: vec![],
             fingerprint: None,
             enriched_data: HashMap::new(),
@@ -189,7 +173,6 @@ impl Item {
             local_id: Some(local_id),
             legacy_mode: false,
             identifiers,
-            enhanced_identifiers: vec![],
             aliases: vec![],
             fingerprint: None,
             enriched_data: HashMap::new(),
@@ -2074,7 +2057,7 @@ pub use crate::zk_proof_engine::{
 // ADAPTER TYPES
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AdapterType {
     None,
     IpfsIpfs,
@@ -2107,13 +2090,14 @@ impl std::fmt::Display for AdapterType {
 
 impl AdapterType {
     pub fn from_string(s: &str) -> Result<Self, String> {
-        match s {
+        let normalized = s.trim();
+        match normalized {
             "none" | "None" => Ok(AdapterType::None),
-            "ipfs-ipfs" => Ok(AdapterType::IpfsIpfs),
-            "stellar_testnet-ipfs" => Ok(AdapterType::StellarTestnetIpfs),
-            "stellar_mainnet-ipfs" => Ok(AdapterType::StellarMainnetIpfs),
-            "ethereum_goerli-ipfs" => Ok(AdapterType::EthereumGoerliIpfs),
-            "polygon-arweave" => Ok(AdapterType::PolygonArweave),
+            "ipfs-ipfs" | "IpfsIpfs" => Ok(AdapterType::IpfsIpfs),
+            "stellar_testnet-ipfs" | "StellarTestnetIpfs" => Ok(AdapterType::StellarTestnetIpfs),
+            "stellar_mainnet-ipfs" | "StellarMainnetIpfs" => Ok(AdapterType::StellarMainnetIpfs),
+            "ethereum_goerli-ipfs" | "EthereumGoerliIpfs" => Ok(AdapterType::EthereumGoerliIpfs),
+            "polygon-arweave" | "PolygonArweave" => Ok(AdapterType::PolygonArweave),
             custom if custom.starts_with("custom-") => {
                 Ok(AdapterType::Custom(custom[7..].to_string()))
             }
@@ -2168,6 +2152,25 @@ impl AdapterType {
             }
             AdapterType::Custom(_) => (StorageBackendType::Custom, StorageBackendType::Custom),
         }
+    }
+}
+
+impl serde::Serialize for AdapterType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for AdapterType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        AdapterType::from_string(&value).map_err(serde::de::Error::custom)
     }
 }
 

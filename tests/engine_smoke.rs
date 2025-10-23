@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use defarm_engine::identifier_types::EnhancedIdentifier;
 use defarm_engine::{
     CircuitsEngine, EventType, EventVisibility, EventsEngine, Identifier, InMemoryStorage,
     ItemsEngine, StorageBackend,
@@ -30,19 +29,19 @@ async fn circuits_items_and_events_smoke() {
         )
         .expect("circuit should be created");
 
-    let identifiers = vec![Identifier::new("secondary_id", "123")];
+    let identifiers = vec![Identifier::contextual("generic", "secondary_id", "123")];
     let item = items_engine
-        .create_local_item(identifiers.clone(), vec![], None, Uuid::new_v4())
+        .create_local_item(identifiers.clone(), None, Uuid::new_v4())
         .expect("local item should be created");
     assert!(item.dfid.starts_with("LID-"));
 
     let lid = Uuid::new_v4();
-    let enhanced = vec![
-        EnhancedIdentifier::canonical("bovino", "sisbov", "BR123"),
-        EnhancedIdentifier::contextual("bovino", "peso", "450kg"),
+    let push_identifiers = vec![
+        Identifier::canonical("bovino", "sisbov", "BR123"),
+        Identifier::contextual("bovino", "peso", "450kg"),
     ];
     let push_result = circuits_engine
-        .push_local_item_to_circuit(&lid, enhanced, None, &circuit.circuit_id, "user123")
+        .push_local_item_to_circuit(&lid, push_identifiers, None, &circuit.circuit_id, "user123")
         .await
         .expect("push should succeed");
 

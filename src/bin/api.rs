@@ -20,6 +20,15 @@ use std::sync::Arc;
 
 // Removed in-memory fallback - PostgreSQL is now required for data persistence
 
+#[allow(dead_code)]
+fn allow_in_memory_fallback() -> bool {
+    std::env::var("ALLOW_IN_MEMORY_FALLBACK")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .map(|lower| matches!(lower.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
 #[tokio::main]
 async fn main() {
     // Initialize tracing
@@ -909,14 +918,14 @@ mod tests {
 
     #[test]
     fn fallback_defaults_to_false() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");
         assert!(!allow_in_memory_fallback());
     }
 
     #[test]
     fn fallback_accepts_truthy_values() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
         for value in ["1", "true", "TRUE", "YeS"] {
             std::env::set_var("ALLOW_IN_MEMORY_FALLBACK", value);
             assert!(
@@ -929,7 +938,7 @@ mod tests {
 
     #[test]
     fn fallback_rejects_other_values() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
         for value in ["", "0", "false", "no", "sometimes"] {
             if value.is_empty() {
                 std::env::remove_var("ALLOW_IN_MEMORY_FALLBACK");

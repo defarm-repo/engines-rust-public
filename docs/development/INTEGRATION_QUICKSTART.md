@@ -80,7 +80,7 @@ curl -X POST https://defarm-engines-api-production.up.railway.app/api/items/loca
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "enhanced_identifiers": [
+    "identifiers": [
       {
         "namespace": "bovino",
         "key": "sisbov",
@@ -304,7 +304,7 @@ class DeFarmClient:
     def create_local_item(self, identifiers: list, data: dict) -> str:
         """Create a local item and return its LID"""
         payload = {
-            "enhanced_identifiers": identifiers,
+            "identifiers": identifiers,
             "enriched_data": data
         }
         response = requests.post(

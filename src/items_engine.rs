@@ -47,10 +47,34 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         let mut logger = LoggingEngine::new();
         logger.info("ItemsEngine", "initialization", "Items engine initialized");
 
+        let dfid_engine = DfidEngine::new();
+
+        if let Ok(existing_items) = storage.list_items() {
+            let mut max_sequence = 0u64;
+            for item in &existing_items {
+                if let Some(metadata) = dfid_engine.extract_metadata(&item.dfid) {
+                    if metadata.sequence > max_sequence {
+                        max_sequence = metadata.sequence;
+                    }
+                }
+            }
+
+            if max_sequence > 0 {
+                dfid_engine.ensure_min_sequence(max_sequence + 1);
+                logger
+                    .info(
+                        "ItemsEngine",
+                        "dfid_seed",
+                        "Initialized DFID engine from existing data",
+                    )
+                    .with_context("max_sequence", max_sequence.to_string());
+            }
+        }
+
         Self {
             storage,
             logger,
-            dfid_engine: DfidEngine::new(),
+            dfid_engine,
         }
     }
 
@@ -189,7 +213,6 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
     pub fn create_local_item(
         &mut self,
         identifiers: Vec<Identifier>,
-        enhanced_identifiers: Vec<crate::identifier_types::EnhancedIdentifier>,
         enriched_data: Option<HashMap<String, serde_json::Value>>,
         source_entry: Uuid,
     ) -> Result<Item, ItemsError> {
@@ -204,10 +227,6 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             )
             .with_context("local_id", local_id.to_string())
             .with_context("identifiers_count", identifiers.len().to_string())
-            .with_context(
-                "enhanced_identifiers_count",
-                enhanced_identifiers.len().to_string(),
-            )
             .with_context("source_entry", source_entry.to_string());
 
         // Create item with local_id and temporary DFID format
@@ -216,7 +235,6 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             local_id: Some(local_id),
             legacy_mode: false,
             identifiers,
-            enhanced_identifiers,
             aliases: vec![],
             fingerprint: None,
             enriched_data: enriched_data.unwrap_or_default(),
@@ -441,13 +459,10 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
 
         for item in local_items {
             // Look for canonical identifiers
-            for enh_id in &item.enhanced_identifiers {
-                if matches!(
-                    enh_id.id_type,
-                    crate::identifier_types::IdentifierType::Canonical { .. }
-                ) {
-                    let key_str = format!("{}:{}", enh_id.namespace, enh_id.key);
-                    let value_str = enh_id.value.clone();
+            for identifier in &item.identifiers {
+                if identifier.is_canonical() {
+                    let key_str = format!("{}:{}", identifier.namespace, identifier.key);
+                    let value_str = identifier.value.clone();
 
                     groups
                         .entry((key_str, value_str))

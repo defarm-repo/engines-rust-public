@@ -1,5 +1,6 @@
 use defarm_engine::circuits_engine::{CircuitsEngine, PushStatus};
-use defarm_engine::identifier_types::{namespaces, CircuitAliasConfig, EnhancedIdentifier};
+use defarm_engine::identifier_types::{namespaces, CircuitAliasConfig};
+use defarm_engine::Identifier;
 use defarm_engine::storage::{InMemoryStorage, StorageBackend};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -33,7 +34,7 @@ async fn test_canonical_identifier_deduplication() {
 
     // First push - creates new DFID
     let lid1 = Uuid::new_v4();
-    let identifiers1 = vec![EnhancedIdentifier::canonical(
+    let identifiers1 = vec![Identifier::canonical(
         "bovino",
         "sisbov",
         "BR123456789012", // BR + 12 digits = 14 chars total
@@ -50,8 +51,8 @@ async fn test_canonical_identifier_deduplication() {
     // Second push with same SISBOV - should enrich
     let lid2 = Uuid::new_v4();
     let identifiers2 = vec![
-        EnhancedIdentifier::canonical("bovino", "sisbov", "BR123456789012"), // Same SISBOV
-        EnhancedIdentifier::contextual("bovino", "peso", "450kg"),
+        Identifier::canonical("bovino", "sisbov", "BR123456789012"), // Same SISBOV
+        Identifier::contextual("bovino", "peso", "450kg"),
     ];
 
     let result2 = engine
@@ -91,8 +92,8 @@ async fn test_fingerprint_deduplication() {
     // Push without canonical - uses fingerprint
     let lid = Uuid::new_v4();
     let identifiers = vec![
-        EnhancedIdentifier::contextual("soja", "lote", "123"),
-        EnhancedIdentifier::contextual("soja", "safra", "2024/25"),
+        Identifier::contextual("soja", "lote", "123"),
+        Identifier::contextual("soja", "safra", "2024/25"),
     ];
 
     let result1 = engine
@@ -146,7 +147,7 @@ async fn test_namespace_validation() {
     // Try to push with wrong namespace
     let lid = Uuid::new_v4();
     let identifiers = vec![
-        EnhancedIdentifier::contextual("aves", "lote", "123"), // Wrong namespace!
+        Identifier::contextual("aves", "lote", "123"), // Wrong namespace!
     ];
 
     let result = engine
@@ -189,7 +190,7 @@ async fn test_auto_namespace_application() {
     // Push with empty namespace - should auto-apply
     let lid = Uuid::new_v4();
     let identifiers = vec![
-        EnhancedIdentifier::contextual("", "lote", "123"), // Empty namespace
+        Identifier::contextual("", "lote", "123"), // Empty namespace
     ];
 
     let result = engine
@@ -208,7 +209,7 @@ async fn test_auto_namespace_application() {
 
     // Check that the namespace was applied
     assert!(
-        item.enhanced_identifiers
+        item.identifiers
             .iter()
             .any(|id| id.namespace == "soja"),
         "Namespace should be auto-applied to soja"
@@ -230,7 +231,7 @@ async fn test_lid_dfid_mapping() {
         .expect("circuit created");
 
     let lid = Uuid::new_v4();
-    let identifiers = vec![EnhancedIdentifier::contextual(
+    let identifiers = vec![Identifier::contextual(
         "generic", "test_id", "value1",
     )];
 
@@ -265,7 +266,7 @@ async fn test_non_owner_cannot_push() {
         .expect("circuit created");
 
     let lid = Uuid::new_v4();
-    let identifiers = vec![EnhancedIdentifier::contextual(
+    let identifiers = vec![Identifier::contextual(
         "generic", "test_id", "value1",
     )];
 

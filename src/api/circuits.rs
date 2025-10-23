@@ -13,7 +13,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use uuid::Uuid;
 
 use crate::api::auth::Claims;
-use crate::identifier_types::{CircuitAliasConfig, EnhancedIdentifier};
+use crate::api::items::{build_identifiers, IdentifierRequest};
+use crate::identifier_types::CircuitAliasConfig;
 use crate::storage::StorageBackend;
 use crate::types::{
     Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitItem, CircuitPermissions,
@@ -65,14 +66,8 @@ pub struct RejectOperationRequest {
 
 #[derive(Debug, Serialize)]
 pub struct PendingItemPreview {
-    pub identifiers: Vec<IdentifierResponse>,
+    pub identifiers: Vec<IdentifierRequest>,
     pub enriched_data: serde_json::Value,
-}
-
-#[derive(Debug, Serialize)]
-pub struct IdentifierResponse {
-    pub key: String,
-    pub value: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -335,18 +330,10 @@ pub struct BatchPushRequest {
     // Note: requester_id is now extracted automatically from JWT token
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct EnhancedIdentifierRequest {
-    pub namespace: String,
-    pub key: String,
-    pub value: String,
-    pub id_type: String, // "Canonical" or "Contextual"
-}
-
 #[derive(Debug, Deserialize)]
 pub struct PushLocalItemRequest {
     pub local_id: String,
-    pub identifiers: Option<Vec<EnhancedIdentifierRequest>>,
+    pub identifiers: Option<Vec<IdentifierRequest>>,
     pub enriched_data: Option<std::collections::HashMap<String, serde_json::Value>>,
     // Note: requester_id is now extracted automatically from JWT token
     // No need to include it in the request body anymore
@@ -997,32 +984,26 @@ async fn push_local_item(
         )
     })?;
 
-    let local_id = Uuid::parse_str(&payload.local_id).map_err(|_| {
+    let PushLocalItemRequest {
+        local_id: local_id_str,
+        identifiers: identifier_requests,
+        enriched_data,
+    } = payload;
+
+    let local_id = Uuid::parse_str(&local_id_str).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid local_id format"})),
         )
     })?;
 
-    // Convert enhanced identifier requests to EnhancedIdentifier
-    let identifiers: Vec<EnhancedIdentifier> = payload
-        .identifiers
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|req| match req.id_type.as_str() {
-            "Canonical" => Some(EnhancedIdentifier::canonical(
-                &req.namespace,
-                &req.key,
-                &req.value,
-            )),
-            "Contextual" => Some(EnhancedIdentifier::contextual(
-                &req.namespace,
-                &req.key,
-                &req.value,
-            )),
-            _ => None,
-        })
-        .collect();
+    // Convert identifier requests into unified Identifier type
+    let identifiers = build_identifiers(identifier_requests.unwrap_or_default()).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+        )
+    })?;
 
     // Clone the Arc so we can use it after dropping the lock
     let engine_clone = Arc::clone(&state.circuits_engine);
@@ -1046,7 +1027,7 @@ async fn push_local_item(
                     .push_local_item_to_circuit(
                         &local_id,
                         identifiers,
-                        payload.enriched_data,
+                        enriched_data,
                         &circuit_id,
                         &requester_id, // Extracted from JWT token automatically
                     )
@@ -1066,6 +1047,30 @@ async fn push_local_item(
         })?
     };
 
+    // Capture the item with its latest DFID for persistence outside of the async lock scope
+    let item_to_persist = {
+        if let Ok(storage_guard) = state.shared_storage.lock() {
+            match storage_guard.get_item_by_dfid(&result.dfid) {
+                Ok(Some(item)) => Some(item),
+                Ok(None) => None,
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to fetch item {} from shared storage for persistence: {}",
+                        result.dfid,
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            tracing::warn!(
+                "Failed to acquire shared storage lock while preparing persistence for {}",
+                result.dfid
+            );
+            None
+        }
+    };
+
     // Write-through cache: Persist to PostgreSQL if available
     let pg_lock = state.postgres_persistence.read().await;
     if let Some(pg) = &*pg_lock {
@@ -1076,6 +1081,27 @@ async fn push_local_item(
                 e
             );
         } else {
+            // Persist latest item snapshot
+            if let Some(item) = item_to_persist.clone() {
+                if let Err(e) = pg.persist_item(&item).await {
+                    tracing::warn!(
+                        "Failed to persist tokenized item {} to PostgreSQL: {}",
+                        item.dfid,
+                        e
+                    );
+                } else {
+                    tracing::debug!(
+                        "✅ Persisted tokenized item {} to PostgreSQL",
+                        item.dfid
+                    );
+                }
+            } else {
+                tracing::warn!(
+                    "Item {} not found in shared storage after tokenization; skipping item persistence",
+                    result.dfid
+                );
+            }
+
             // Persist LID-DFID mapping
             if let Err(e) = pg
                 .persist_lid_dfid_mapping(&result.local_id, &result.dfid)
@@ -2456,10 +2482,7 @@ async fn get_circuit_pending_items(
                     identifiers: item
                         .identifiers
                         .into_iter()
-                        .map(|identifier| IdentifierResponse {
-                            key: identifier.key,
-                            value: identifier.value,
-                        })
+                        .map(|identifier| IdentifierRequest::from_identifier(&identifier))
                         .collect(),
                     enriched_data: serde_json::to_value(item.enriched_data)
                         .unwrap_or(serde_json::json!({})),
@@ -2622,14 +2645,7 @@ async fn get_circuit_adapter_config(
 
 /// Helper function to convert AdapterType enum to hyphenated string format
 fn adapter_type_to_string(adapter: &AdapterType) -> String {
-    match format!("{adapter:?}").as_str() {
-        "IpfsIpfs" => "ipfs-ipfs".to_string(),
-        "LocalLocal" => "local-local".to_string(),
-        "LocalIpfs" => "local-ipfs".to_string(),
-        "StellarTestnetIpfs" => "stellar_testnet-ipfs".to_string(),
-        "StellarMainnetIpfs" => "stellar_mainnet-ipfs".to_string(),
-        other => other.to_lowercase(),
-    }
+    adapter.to_string()
 }
 
 async fn set_circuit_adapter_config(

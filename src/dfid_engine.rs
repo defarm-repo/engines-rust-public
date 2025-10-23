@@ -94,6 +94,21 @@ impl DfidEngine {
     pub fn get_current_sequence(&self) -> u64 {
         self.sequence_counter.load(Ordering::SeqCst)
     }
+
+    pub fn ensure_min_sequence(&self, next: u64) {
+        let mut current = self.sequence_counter.load(Ordering::SeqCst);
+        while current < next {
+            match self.sequence_counter.compare_exchange(
+                current,
+                next,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
+    }
 }
 
 impl Default for DfidEngine {

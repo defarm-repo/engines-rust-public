@@ -48,7 +48,6 @@ async fn test_blockchain_push(
         local_id: Some(Uuid::new_v4()),
         legacy_mode: false,
         identifiers: vec![],
-        enhanced_identifiers: vec![],
         aliases: vec![],
         fingerprint: None,
         enriched_data,

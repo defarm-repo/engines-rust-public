@@ -2,10 +2,10 @@
 /// Tests IPFS upload, CID generation, hash validation, and storage metadata
 use defarm_engine::adapters::base::StorageLocation;
 use defarm_engine::adapters::{IpfsIpfsAdapter, StorageAdapter};
-use defarm_engine::identifier_types::EnhancedIdentifier;
 use defarm_engine::items_engine::ItemsEngine;
 use defarm_engine::storage::{InMemoryStorage, StorageBackend};
 use defarm_engine::types::{AdapterType, Item, ItemStatus};
+use defarm_engine::Identifier;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -15,8 +15,7 @@ fn create_test_item(dfid: &str) -> Item {
         dfid: dfid.to_string(),
         local_id: Some(Uuid::new_v4()),
         legacy_mode: false,
-        identifiers: vec![],
-        enhanced_identifiers: vec![EnhancedIdentifier::contextual("test", "item_id", "test123")],
+        identifiers: vec![Identifier::contextual("test", "item_id", "test123")],
         aliases: vec![],
         fingerprint: None,
         enriched_data: HashMap::new(),
@@ -28,16 +27,19 @@ fn create_test_item(dfid: &str) -> Item {
     }
 }
 
-#[tokio::test]
-async fn test_ipfs_adapter_stores_item_and_generates_cid() {
-    // Uses Pinata credentials from environment variables
-    let adapter = match IpfsIpfsAdapter::new() {
-        Ok(a) => a,
-        Err(_) => {
-            println!("⚠️  Skipping: IPFS not available");
-            return;
-        }
-    };
+#[ignore = "Requires IPFS credentials"]
+#[test]
+fn test_ipfs_adapter_stores_item_and_generates_cid() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        // Uses Pinata credentials from environment variables
+        let adapter = match IpfsIpfsAdapter::new() {
+            Ok(a) => a,
+            Err(_) => {
+                println!("⚠️  Skipping: IPFS not available");
+                return;
+            }
+        };
 
     let item = create_test_item("DFID-TEST-001");
     let result = adapter.store_item(&item).await;
@@ -72,15 +74,19 @@ async fn test_ipfs_adapter_stores_item_and_generates_cid() {
     // Verify timestamps
     assert!(metadata.created_at <= chrono::Utc::now());
     assert_eq!(metadata.created_at, metadata.updated_at);
+    });
 }
 
-#[tokio::test]
-async fn test_ipfs_adapter_can_retrieve_stored_item() {
-    let adapter = match IpfsIpfsAdapter::new() {
-        Ok(a) => a,
-        Err(_) => {
-            println!("⚠️  Skipping: IPFS not available");
-            return;
+#[ignore = "Requires IPFS credentials"]
+#[test]
+fn test_ipfs_adapter_can_retrieve_stored_item() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let adapter = match IpfsIpfsAdapter::new() {
+            Ok(a) => a,
+            Err(_) => {
+                println!("⚠️  Skipping: IPFS not available");
+                return;
         }
     };
 
@@ -103,15 +109,19 @@ async fn test_ipfs_adapter_can_retrieve_stored_item() {
 
     let retrieved_item = retrieved_result.unwrap().data;
     assert_eq!(retrieved_item.dfid, item.dfid);
+    });
 }
 
-#[tokio::test]
-async fn test_ipfs_adapter_health_check() {
-    let adapter = match IpfsIpfsAdapter::new() {
-        Ok(a) => a,
-        Err(_) => {
-            println!("⚠️  Skipping: IPFS not available");
-            return;
+#[ignore = "Requires IPFS credentials"]
+#[test]
+fn test_ipfs_adapter_health_check() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let adapter = match IpfsIpfsAdapter::new() {
+            Ok(a) => a,
+            Err(_) => {
+                println!("⚠️  Skipping: IPFS not available");
+                return;
         }
     };
 
@@ -122,15 +132,19 @@ async fn test_ipfs_adapter_health_check() {
     if let Ok(is_healthy) = health {
         println!("IPFS health status: {is_healthy}");
     }
+    });
 }
 
-#[tokio::test]
-async fn test_ipfs_adapter_sync_status() {
-    let adapter = match IpfsIpfsAdapter::new() {
-        Ok(a) => a,
-        Err(_) => {
-            println!("⚠️  Skipping: IPFS not available");
-            return;
+#[ignore = "Requires IPFS credentials"]
+#[test]
+fn test_ipfs_adapter_sync_status() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let adapter = match IpfsIpfsAdapter::new() {
+            Ok(a) => a,
+            Err(_) => {
+                println!("⚠️  Skipping: IPFS not available");
+                return;
         }
     };
 
@@ -143,24 +157,25 @@ async fn test_ipfs_adapter_sync_status() {
     // Check status details
     assert!(sync_status.details.contains_key("implementation_status"));
     assert!(sync_status.details.contains_key("ipfs_connected"));
+    });
 }
 
 #[test]
 fn test_adapter_type_serialization() {
     use serde_json;
 
-    // Test that adapter types serialize correctly
+    // Test that adapter types serialize to canonical hyphenated strings
     let ipfs = AdapterType::IpfsIpfs;
     let json = serde_json::to_string(&ipfs).unwrap();
-    assert!(json.contains("IpfsIpfs"));
+    assert_eq!(json, "\"ipfs-ipfs\"");
 
     let testnet = AdapterType::StellarTestnetIpfs;
     let json = serde_json::to_string(&testnet).unwrap();
-    assert!(json.contains("StellarTestnetIpfs"));
+    assert_eq!(json, "\"stellar_testnet-ipfs\"");
 
     let mainnet = AdapterType::StellarMainnetIpfs;
     let json = serde_json::to_string(&mainnet).unwrap();
-    assert!(json.contains("StellarMainnetIpfs"));
+    assert_eq!(json, "\"stellar_mainnet-ipfs\"");
 }
 
 #[tokio::test]
@@ -170,14 +185,13 @@ async fn test_storage_backend_stores_adapter_results() {
 
     // Create item
     let dfid = "DFID-ADAPTER-TEST-001".to_string();
-    let _identifiers = [EnhancedIdentifier::contextual("test", "id", "adapter001")];
     let source_entry = Uuid::new_v4();
 
     use defarm_engine::Identifier;
     let _item = items_engine
         .create_item(
             dfid.clone(),
-            vec![Identifier::new("test", "adapter001")],
+            vec![Identifier::contextual("test", "id", "adapter001")],
             source_entry,
         )
         .expect("Item creation should succeed");

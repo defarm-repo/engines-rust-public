@@ -126,16 +126,15 @@ async fn test_add_member_to_circuit_workflow() {
 async fn test_create_local_item_workflow() {
     let (_circuits, mut items, _storage) = create_test_engines();
 
-    use defarm_engine::{identifier_types::EnhancedIdentifier, Identifier};
+    use defarm_engine::identifier_types::Identifier;
     use uuid::Uuid;
 
-    let identifiers = vec![Identifier::new("test", "api_test_001")];
-    let enhanced_identifiers = vec![EnhancedIdentifier::contextual("test", "id", "api_test_001")];
+    let identifiers = vec![Identifier::contextual("test", "id", "api_test_001")];
     let source_entry = Uuid::new_v4();
 
     // Create local item (no DFID yet)
     let item = items
-        .create_local_item(identifiers, enhanced_identifiers, None, source_entry)
+        .create_local_item(identifiers, None, source_entry)
         .expect("Should create local item");
 
     assert!(item.local_id.is_some(), "Local item should have LID");
@@ -168,22 +167,25 @@ async fn test_full_circuit_push_workflow() {
     let circuit_id = circuit.circuit_id;
 
     // Step 2: Create local item
-    use defarm_engine::{identifier_types::EnhancedIdentifier, Identifier};
+    use defarm_engine::identifier_types::Identifier;
     use uuid::Uuid;
 
-    let identifiers = vec![Identifier::new("test", "e2e_001")];
-    let enhanced_ids_for_creation = vec![EnhancedIdentifier::contextual("test", "id", "e2e_001")];
+    let identifiers = vec![Identifier::contextual("test", "id", "e2e_001")];
     let source_entry = Uuid::new_v4();
     let item = items
-        .create_local_item(identifiers, enhanced_ids_for_creation, None, source_entry)
+        .create_local_item(identifiers.clone(), None, source_entry)
         .unwrap();
     let local_id = item.local_id.unwrap();
 
     // Step 3: Push to circuit
-    let enhanced_ids = vec![EnhancedIdentifier::contextual("test", "id", "e2e_001")];
-
     let result = circuits
-        .push_local_item_to_circuit(&local_id, enhanced_ids, None, &circuit_id, "user123")
+        .push_local_item_to_circuit(
+            &local_id,
+            identifiers,
+            None,
+            &circuit_id,
+            "user123",
+        )
         .await;
 
     // This will fail without actual adapter, but we can verify the error is appropriate

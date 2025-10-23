@@ -109,6 +109,7 @@ Response:
   "records": [
     {
       "adapter_type": "StellarTestnetIpfs",
+      "adapter_type": "stellar_testnet-ipfs",
       "network": "stellar-testnet",
       "nft_mint_tx": "abc123...",      // ✅ Real Stellar TX
       "ipcm_update_tx": "def456...",   // ✅ Real IPCM TX

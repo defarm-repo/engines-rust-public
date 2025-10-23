@@ -100,7 +100,7 @@
 ```json
 // Request
 {
-  "adapter_type": "StellarTestnetIpfs",
+  "adapter_type": "stellar_testnet-ipfs",
   "sponsor_adapter_access": bool
 }
 ```

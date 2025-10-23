@@ -1078,7 +1078,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
     fn generate_fingerprint(
         &self,
-        identifiers: &[EnhancedIdentifier],
+        identifiers: &[Identifier],
         requester_id: &str,
         local_id: &Uuid,
     ) -> String {
@@ -1099,7 +1099,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
     fn create_new_tokenized_item(
         &self,
-        identifiers: &[EnhancedIdentifier],
+        identifiers: &[Identifier],
         enriched_data: Option<HashMap<String, serde_json::Value>>,
         requester_id: &str,
         local_id: &Uuid,
@@ -1108,18 +1108,11 @@ impl<S: StorageBackend> CircuitsEngine<S> {
     ) -> Result<String, CircuitsError> {
         let dfid = self.dfid_engine.generate_dfid();
 
-        // Convert enhanced identifiers to legacy identifiers (for compatibility)
-        let legacy_identifiers: Vec<Identifier> = identifiers
-            .iter()
-            .map(|id| Identifier::new(&id.key, &id.value))
-            .collect();
-
         let mut item = Item {
             dfid: dfid.clone(),
             local_id: Some(*local_id),
             legacy_mode: false,
-            identifiers: legacy_identifiers,
-            enhanced_identifiers: identifiers.to_vec(),
+            identifiers: identifiers.to_vec(),
             aliases: vec![],
             fingerprint,
             enriched_data: enriched_data.unwrap_or_default(),
@@ -1157,7 +1150,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
     fn enrich_existing_item_internal(
         &self,
         dfid: &str,
-        new_identifiers: &[EnhancedIdentifier],
+        new_identifiers: &[Identifier],
         enriched_data: Option<HashMap<String, serde_json::Value>>,
         requester_id: &str,
         storage: &mut std::sync::MutexGuard<'_, S>,
@@ -1167,10 +1160,10 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::ItemNotFound)?;
 
-        // Add new enhanced identifiers
+        // Add new identifiers
         for id in new_identifiers {
-            if !item.enhanced_identifiers.contains(id) {
-                item.enhanced_identifiers.push(id.clone());
+            if !item.identifiers.contains(id) {
+                item.identifiers.push(id.clone());
             }
         }
 

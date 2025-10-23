@@ -11,18 +11,13 @@ use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-use crate::{Identifier, InMemoryStorage, ReceiptEngine, ReceiptError};
+use crate::api::items::{build_identifiers, IdentifierRequest};
+use crate::{InMemoryStorage, ReceiptEngine, ReceiptError};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateReceiptRequest {
     pub data: String, // Base64 encoded data
     pub identifiers: Vec<IdentifierRequest>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct IdentifierRequest {
-    pub key: String,
-    pub value: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,11 +85,12 @@ async fn create_receipt(
         })?;
 
     // Convert identifiers
-    let identifiers: Vec<Identifier> = payload
-        .identifiers
-        .into_iter()
-        .map(|id| Identifier::new(id.key, id.value))
-        .collect();
+    let identifiers = build_identifiers(payload.identifiers).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+        )
+    })?;
 
     if identifiers.is_empty() {
         return Err((
@@ -115,10 +111,7 @@ async fn create_receipt(
                 identifiers: receipt
                     .identifiers
                     .into_iter()
-                    .map(|id| IdentifierRequest {
-                        key: id.key,
-                        value: id.value,
-                    })
+                    .map(|id| IdentifierRequest::from_identifier(&id))
                     .collect(),
             };
             Ok(Json(response))
@@ -157,10 +150,7 @@ async fn get_receipt(
                 identifiers: receipt
                     .identifiers
                     .into_iter()
-                    .map(|id| IdentifierRequest {
-                        key: id.key,
-                        value: id.value,
-                    })
+                    .map(|id| IdentifierRequest::from_identifier(&id))
                     .collect(),
             };
             Ok(Json(response))
@@ -238,7 +228,12 @@ async fn search_by_identifier(
     State(state): State<Arc<ReceiptState>>,
     Json(payload): Json<IdentifierRequest>,
 ) -> Result<Json<Vec<ReceiptResponse>>, (StatusCode, Json<Value>)> {
-    let identifier = Identifier::new(payload.key, payload.value);
+    let identifier = payload.into_identifier().map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+        )
+    })?;
     let engine = state.engine.lock().unwrap();
 
     match engine.find_receipts_by_identifier(&identifier) {
@@ -253,10 +248,7 @@ async fn search_by_identifier(
                     identifiers: receipt
                         .identifiers
                         .into_iter()
-                        .map(|id| IdentifierRequest {
-                            key: id.key,
-                            value: id.value,
-                        })
+                        .map(|id| IdentifierRequest::from_identifier(&id))
                         .collect(),
                 })
                 .collect();
@@ -287,10 +279,7 @@ async fn search_by_key(
                     identifiers: receipt
                         .identifiers
                         .into_iter()
-                        .map(|id| IdentifierRequest {
-                            key: id.key,
-                            value: id.value,
-                        })
+                        .map(|id| IdentifierRequest::from_identifier(&id))
                         .collect(),
                 })
                 .collect();
@@ -321,10 +310,7 @@ async fn search_by_value(
                     identifiers: receipt
                         .identifiers
                         .into_iter()
-                        .map(|id| IdentifierRequest {
-                            key: id.key,
-                            value: id.value,
-                        })
+                        .map(|id| IdentifierRequest::from_identifier(&id))
                         .collect(),
                 })
                 .collect();
@@ -354,10 +340,7 @@ async fn list_receipts(
                     identifiers: receipt
                         .identifiers
                         .into_iter()
-                        .map(|id| IdentifierRequest {
-                            key: id.key,
-                            value: id.value,
-                        })
+                        .map(|id| IdentifierRequest::from_identifier(&id))
                         .collect(),
                 })
                 .collect();

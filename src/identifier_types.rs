@@ -92,15 +92,15 @@ pub mod registries {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EnhancedIdentifier {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct Identifier {
     pub namespace: String,
     pub key: String,
     pub value: String,
     pub id_type: IdentifierType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum IdentifierType {
     Canonical {
         registry: String,
@@ -112,14 +112,21 @@ pub enum IdentifierType {
     },
 }
 
-impl EnhancedIdentifier {
-    pub fn canonical(namespace: &str, registry: &str, value: &str) -> Self {
+impl Identifier {
+    pub fn canonical(
+        namespace: impl Into<String>,
+        registry: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        let namespace = namespace.into();
+        let registry = registry.into();
+        let value = value.into();
         Self {
-            namespace: namespace.to_string(),
-            key: registry.to_string(),
-            value: value.to_string(),
+            namespace,
+            key: registry.clone(),
+            value,
             id_type: IdentifierType::Canonical {
-                registry: registry.to_string(),
+                registry,
                 verified: false,
                 verification_date: None,
             },
@@ -127,43 +134,67 @@ impl EnhancedIdentifier {
     }
 
     pub fn canonical_verified(
-        namespace: &str,
-        registry: &str,
-        value: &str,
+        namespace: impl Into<String>,
+        registry: impl Into<String>,
+        value: impl Into<String>,
         verification_date: DateTime<Utc>,
     ) -> Self {
+        let namespace = namespace.into();
+        let registry = registry.into();
+        let value = value.into();
         Self {
-            namespace: namespace.to_string(),
-            key: registry.to_string(),
-            value: value.to_string(),
+            namespace,
+            key: registry.clone(),
+            value,
             id_type: IdentifierType::Canonical {
-                registry: registry.to_string(),
+                registry,
                 verified: true,
                 verification_date: Some(verification_date),
             },
         }
     }
 
-    pub fn contextual(namespace: &str, key: &str, value: &str) -> Self {
+    pub fn contextual(
+        namespace: impl Into<String>,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        let namespace = namespace.into();
+        let key = key.into();
+        let value = value.into();
         Self {
-            namespace: namespace.to_string(),
-            key: key.to_string(),
-            value: value.to_string(),
+            namespace,
+            key,
+            value,
             id_type: IdentifierType::Contextual {
                 scope: "user".to_string(),
             },
         }
     }
 
-    pub fn contextual_with_scope(namespace: &str, key: &str, value: &str, scope: &str) -> Self {
+    pub fn contextual_with_scope(
+        namespace: impl Into<String>,
+        key: impl Into<String>,
+        value: impl Into<String>,
+        scope: impl Into<String>,
+    ) -> Self {
+        let namespace = namespace.into();
+        let key = key.into();
+        let value = value.into();
+        let scope = scope.into();
         Self {
-            namespace: namespace.to_string(),
-            key: key.to_string(),
-            value: value.to_string(),
+            namespace,
+            key,
+            value,
             id_type: IdentifierType::Contextual {
-                scope: scope.to_string(),
+                scope,
             },
         }
+    }
+
+    /// Default helper mirroring legacy Identifier::new behaviour.
+    pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self::contextual(namespaces::GENERIC, key, value)
     }
 
     /// Generate unique key for lookups
@@ -210,6 +241,9 @@ impl EnhancedIdentifier {
         }
     }
 }
+
+/// Backwards-compatibility alias while migrating from `EnhancedIdentifier`.
+pub type EnhancedIdentifier = Identifier;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalAlias {

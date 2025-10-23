@@ -398,14 +398,9 @@ components:
       properties:
         identifiers:
           type: array
+          description: List of identifiers with namespace and type metadata
           items:
             $ref: '#/components/schemas/Identifier'
-          description: Legacy identifiers (backward compatibility)
-        enhanced_identifiers:
-          type: array
-          items:
-            $ref: '#/components/schemas/EnhancedIdentifier'
-          description: Enhanced identifiers with namespace support
         enriched_data:
           type: object
           additionalProperties: true
@@ -421,24 +416,9 @@ components:
         - key
         - value
       properties:
-        key:
-          type: string
-          example: "lote"
-        value:
-          type: string
-          example: "2024-001"
-
-    EnhancedIdentifier:
-      type: object
-      required:
-        - namespace
-        - key
-        - value
-        - id_type
-      properties:
         namespace:
           type: string
-          description: Namespace (bovino, cafe, soja, etc.)
+          description: Logical namespace (bovino, cafe, soja, etc.)
           example: "bovino"
         key:
           type: string
@@ -451,7 +431,22 @@ components:
           enum: [Canonical, Contextual]
           description: |
             - Canonical: Globally unique (SISBOV, CPF, etc.)
-            - Contextual: Locally unique, requires fingerprint
+            - Contextual: Scoped identifier (requires scope)
+          default: Contextual
+        scope:
+          type: string
+          nullable: true
+          description: Scope for contextual identifiers (user, organization, circuit)
+          example: "user"
+        verified:
+          type: boolean
+          nullable: true
+          description: Verification flag for canonical identifiers
+        verification_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the canonical identifier was verified
 
     Item:
       type: object
@@ -471,10 +466,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Identifier'
-        enhanced_identifiers:
-          type: array
-          items:
-            $ref: '#/components/schemas/EnhancedIdentifier'
         aliases:
           type: array
           items:
@@ -602,36 +593,55 @@ components:
       type: object
       required:
         - name
-        - permissions
       properties:
         name:
           type: string
           example: "Production API Key"
           maxLength: 255
-        permissions:
-          type: array
-          items:
-            type: string
-            enum: [read, write, admin]
-          example: ["read", "write"]
-        expires_at:
+        organization_type:
           type: string
-          format: date-time
-          description: Optional expiration date
-        ip_restrictions:
+          enum: [Admin, Producer, Association, Enterprise, Government, External]
+          description: Organization context for the API key
+          example: Admin
+        organization_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional organization/workspace identifier the key belongs to
+        permissions:
+          $ref: '#/components/schemas/ApiKeyPermissions'
+        allowed_endpoints:
           type: array
           items:
             type: string
-          description: Allowed IP addresses
-          example: ["192.168.1.0/24", "10.0.0.1"]
-        endpoint_restrictions:
-          type: array
-          items:
-            type: string
-          description: Allowed API endpoints
+          description: Restrict key usage to specific endpoint prefixes
           example: ["/api/items/*", "/api/circuits/*"]
+        rate_limit_per_hour:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Optional custom rate limit (requests per hour)
+          example: 1000
+        expires_in_days:
+          type: integer
+          format: int32
+          minimum: 1
+          nullable: true
+          description: Optional expiration in days from creation
+          example: 30
+        notes:
+          type: string
+          nullable: true
+          description: Administrative notes for this key
+        allowed_ips:
+          type: array
+          items:
+            type: string
+            description: IP address or CIDR range
+            example: "192.168.1.0/24"
+          description: Restrict key usage to specific IPs or networks
 
-    ApiKey:
+    ApiKeyMetadata:
       type: object
       properties:
         id:
@@ -644,20 +654,62 @@ components:
           description: First 8 characters of the API key
           example: "dfm_a1b2"
         permissions:
-          type: array
-          items:
-            type: string
+          $ref: '#/components/schemas/ApiKeyPermissions'
+        organization_type:
+          type: string
+          enum: [Admin, Producer, Association, Enterprise, Government, External]
+        is_active:
+          type: boolean
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        usage_count:
+          type: integer
+          format: int64
+        rate_limit_per_hour:
+          type: integer
+          format: int32
         created_at:
           type: string
           format: date-time
         expires_at:
           type: string
           format: date-time
-        is_active:
+          nullable: true
+
+    ApiKeyListItem:
+      type: object
+      properties:
+        metadata:
+          $ref: '#/components/schemas/ApiKeyMetadata'
+
+    ApiKeyPermissions:
+      type: object
+      description: Granular permissions assigned to an API key
+      properties:
+        read:
           type: boolean
-        last_used:
-          type: string
-          format: date-time
+          description: Allow read-only operations (default true)
+          default: true
+        write:
+          type: boolean
+          description: Allow mutating operations (create/update/delete)
+          default: false
+        admin:
+          type: boolean
+          description: Allow administrative endpoints (billing, tier management)
+          default: false
+        custom:
+          type: object
+          description: Optional feature flags for future extensions
+          additionalProperties:
+            type: boolean
+
+    OrganizationType:
+      type: string
+      enum: [Admin, Producer, Association, Enterprise, Government, External]
+      description: Category of organization that owns the API key
 
     # ============================================================================
     # Event & Activity Schemas
@@ -1694,10 +1746,6 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Identifier'
-            enhanced_identifiers:
-              type: array
-              items:
-                $ref: '#/components/schemas/EnhancedIdentifier'
             pushed_by:
               type: string
               format: uuid
@@ -2980,18 +3028,13 @@ paths:
       operationId: listApiKeys
       responses:
         '200':
-          description: List of API keys
+          description: Array of API keys for the current user
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  api_keys:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/ApiKey'
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApiKeyListItem'
 
     post:
       tags:
@@ -3008,21 +3051,22 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateApiKeyRequest'
       responses:
-        '201':
+        '200':
           description: API key created
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  success:
-                    type: boolean
                   api_key:
                     type: string
                     description: Full API key (only shown once!)
                     example: "dfm_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
-                  data:
-                    $ref: '#/components/schemas/ApiKey'
+                  metadata:
+                    $ref: '#/components/schemas/ApiKeyMetadata'
+                  warning:
+                    type: string
+                    description: Reminder to store the key securely
 
   /api-keys/{key_id}:
     delete:
@@ -3039,12 +3083,8 @@ paths:
             type: string
             format: uuid
       responses:
-        '200':
-          description: API key deleted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessResponse'
+        '204':
+          description: API key deleted successfully
 
   # ============================================================================
   # Event & Activity Endpoints

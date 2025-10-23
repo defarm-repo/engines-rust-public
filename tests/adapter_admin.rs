@@ -128,7 +128,7 @@ fn test_adapter_config_serialization() {
     let config = create_test_adapter_config(AdapterType::StellarTestnetIpfs, "Serialization Test");
 
     let json = serde_json::to_string(&config).unwrap();
-    assert!(json.contains("StellarTestnetIpfs"));
+    assert!(json.contains("stellar_testnet-ipfs"));
     assert!(json.contains("Serialization Test"));
 
     // Deserialize back

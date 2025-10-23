@@ -10,34 +10,104 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::identifier_types::EnhancedIdentifier;
+use crate::identifier_types::{IdentifierType, namespaces};
 use crate::items_engine::ResolutionAction;
 use crate::storage::StorageBackend;
 use crate::types::{UserActivity, UserActivityCategory, UserActivityType, UserResourceType};
 use crate::{
     Identifier, InMemoryStorage, Item, ItemStatus, ItemsEngine, PendingItem, PendingReason,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdentifierRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     pub key: String,
     pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_type: Option<String>, // "Canonical" or "Contextual"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>, // For contextual identifiers
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>, // For canonical identifiers
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_date: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct EnhancedIdentifierRequest {
-    pub namespace: String,
-    pub key: String,
-    pub value: String,
-    pub id_type: String, // "Canonical" or "Contextual"
+impl IdentifierRequest {
+    pub fn into_identifier(self) -> Result<Identifier, String> {
+        let namespace = self
+            .namespace
+            .unwrap_or_else(|| namespaces::GENERIC.to_string());
+        let id_type = self
+            .id_type
+            .clone()
+            .unwrap_or_else(|| "Contextual".to_string());
+
+        match id_type.to_ascii_lowercase().as_str() {
+            "canonical" => {
+                if self.verified.unwrap_or(false) {
+                    if let Some(date) = self.verification_date {
+                        Ok(Identifier::canonical_verified(
+                            &namespace,
+                            &self.key,
+                            &self.value,
+                            date,
+                        ))
+                    } else {
+                        Ok(Identifier::canonical(&namespace, &self.key, &self.value))
+                    }
+                } else {
+                    Ok(Identifier::canonical(&namespace, &self.key, &self.value))
+                }
+            }
+            "contextual" => {
+                let scope = self.scope.unwrap_or_else(|| "user".to_string());
+                Ok(Identifier::contextual_with_scope(
+                    &namespace,
+                    &self.key,
+                    &self.value,
+                    &scope,
+                ))
+            }
+            other => Err(format!("Invalid id_type '{}'", other)),
+        }
+    }
+
+    pub fn from_identifier(identifier: &Identifier) -> Self {
+        match identifier.id_type.clone() {
+            IdentifierType::Canonical {
+                verified,
+                verification_date,
+                ..
+            } => Self {
+                namespace: Some(identifier.namespace.clone()),
+                key: identifier.key.clone(),
+                value: identifier.value.clone(),
+                id_type: Some("Canonical".to_string()),
+                scope: None,
+                verified: Some(verified),
+                verification_date,
+            },
+            IdentifierType::Contextual { scope } => Self {
+                namespace: Some(identifier.namespace.clone()),
+                key: identifier.key.clone(),
+                value: identifier.value.clone(),
+                id_type: Some("Contextual".to_string()),
+                scope: Some(scope),
+                verified: None,
+                verification_date: None,
+            },
+        }
+    }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct CreateLocalItemRequest {
-    pub identifiers: Option<Vec<IdentifierRequest>>,
-    pub enhanced_identifiers: Option<Vec<EnhancedIdentifierRequest>>,
+    #[serde(default)]
+    pub identifiers: Vec<IdentifierRequest>,
     pub enriched_data: Option<HashMap<String, serde_json::Value>>,
 }
 
@@ -378,26 +448,41 @@ fn parse_item_status(status_str: &str) -> Result<ItemStatus, String> {
 }
 
 fn item_to_response(item: Item) -> ItemResponse {
+    let Item {
+        dfid,
+        identifiers,
+        enriched_data,
+        creation_timestamp,
+        last_modified,
+        source_entries,
+        status,
+        ..
+    } = item;
+
     ItemResponse {
-        dfid: item.dfid,
-        identifiers: item
-            .identifiers
+        dfid,
+        identifiers: identifiers
             .into_iter()
-            .map(|id| IdentifierRequest {
-                key: id.key,
-                value: id.value,
-            })
+            .map(|id| IdentifierRequest::from_identifier(&id))
             .collect(),
-        enriched_data: item.enriched_data,
-        creation_timestamp: item.creation_timestamp.timestamp(),
-        last_modified: item.last_modified.timestamp(),
-        source_entries: item
-            .source_entries
+        enriched_data,
+        creation_timestamp: creation_timestamp.timestamp(),
+        last_modified: last_modified.timestamp(),
+        source_entries: source_entries
             .into_iter()
             .map(|uuid| uuid.to_string())
             .collect(),
-        status: format!("{:?}", item.status),
+        status: format!("{:?}", status),
     }
+}
+
+pub fn build_identifiers(
+    requests: Vec<IdentifierRequest>,
+) -> Result<Vec<Identifier>, String> {
+    requests
+        .into_iter()
+        .map(|req| req.into_identifier())
+        .collect()
 }
 
 async fn create_item(
@@ -433,11 +518,12 @@ async fn create_item(
             )
         })?;
 
-        let identifiers: Vec<Identifier> = payload
-            .identifiers
-            .into_iter()
-            .map(|id| Identifier::new(id.key, id.value))
-            .collect();
+        let identifiers = build_identifiers(payload.identifiers).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid identifier payload: {e}")})),
+            )
+        })?;
 
         match engine.create_item_with_generated_dfid(
             identifiers,
@@ -506,49 +592,61 @@ async fn create_items_batch(
         let mut items_to_persist: Vec<Item> = Vec::new();
 
         for item_request in payload.items {
-            let result = match uuid::Uuid::parse_str(&item_request.source_entry) {
-                Ok(source_entry) => {
-                    let identifiers: Vec<Identifier> = item_request
-                        .identifiers
-                        .into_iter()
-                        .map(|id| Identifier::new(id.key, id.value))
-                        .collect();
+            let CreateItemRequest {
+                identifiers: identifier_requests,
+                enriched_data,
+                source_entry,
+            } = item_request;
 
-                    match engine.create_item_with_generated_dfid(
-                        identifiers,
-                        source_entry,
-                        item_request.enriched_data,
-                    ) {
-                        Ok(item) => {
-                            success_count += 1;
-                            let item_clone = item.clone();
-                            items_to_persist.push(item_clone);
-                            BatchItemResult {
-                                success: true,
-                                item: Some(item_to_response(item)),
-                                error: None,
-                            }
-                        }
-                        Err(e) => {
-                            failed_count += 1;
-                            BatchItemResult {
-                                success: false,
-                                item: None,
-                                error: Some(format!("Failed to create item: {e}")),
-                            }
-                        }
-                    }
-                }
+            let source_entry = match uuid::Uuid::parse_str(&source_entry) {
+                Ok(source) => source,
                 Err(_) => {
                     failed_count += 1;
-                    BatchItemResult {
+                    results.push(BatchItemResult {
                         success: false,
                         item: None,
                         error: Some("Invalid source entry UUID".to_string()),
-                    }
+                    });
+                    continue;
                 }
             };
-            results.push(result);
+
+            let identifiers = match build_identifiers(identifier_requests) {
+                Ok(ids) => ids,
+                Err(e) => {
+                    failed_count += 1;
+                    results.push(BatchItemResult {
+                        success: false,
+                        item: None,
+                        error: Some(format!("Invalid identifier payload: {e}")),
+                    });
+                    continue;
+                }
+            };
+
+            match engine.create_item_with_generated_dfid(
+                identifiers,
+                source_entry,
+                enriched_data,
+            ) {
+                Ok(item) => {
+                    success_count += 1;
+                    items_to_persist.push(item.clone());
+                    results.push(BatchItemResult {
+                        success: true,
+                        item: Some(item_to_response(item)),
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    failed_count += 1;
+                    results.push(BatchItemResult {
+                        success: false,
+                        item: None,
+                        error: Some(format!("Failed to create item: {e}")),
+                    });
+                }
+            }
         }
 
         (results, success_count, failed_count, items_to_persist)
@@ -660,10 +758,12 @@ async fn update_item(
 
         // Add identifiers if provided
         if let Some(identifier_requests) = identifiers {
-            let identifiers: Vec<Identifier> = identifier_requests
-                .into_iter()
-                .map(|id| Identifier::new(id.key, id.value))
-                .collect();
+            let identifiers = build_identifiers(identifier_requests).map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+                )
+            })?;
 
             if let Err(e) = engine.add_identifiers(&dfid, identifiers) {
                 return Err((
@@ -904,11 +1004,14 @@ async fn split_item(
             )
         })?;
 
-        let identifiers: Vec<Identifier> = split_request
-            .identifiers_for_new_item
-            .into_iter()
-            .map(|id| Identifier::new(id.key, id.value))
-            .collect();
+        let identifiers = build_identifiers(split_request.identifiers_for_new_item).map_err(
+            |e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+                )
+            },
+        )?;
 
         match engine.split_item_with_generated_dfid(&dfid, identifiers) {
             Ok((original_item, new_item)) => {
@@ -1101,7 +1204,7 @@ async fn get_items_by_identifier(
             Json(json!({"error": "Items engine mutex poisoned"})),
         )
     })?;
-    let identifier = Identifier::new(key, value);
+    let identifier = Identifier::contextual(namespaces::GENERIC, key, value);
 
     match engine.find_items_by_identifier(&identifier) {
         Ok(items) => {
@@ -1404,17 +1507,25 @@ async fn resolve_pending_item(
         }
     };
 
-    let resolution_action = match payload.action.as_str() {
+    let ResolvePendingItemRequest {
+        action,
+        new_identifiers,
+        new_enriched_data,
+    } = payload;
+
+    let resolution_action = match action.as_str() {
         "approve" => ResolutionAction::Approve,
         "reject" => ResolutionAction::Reject,
         "modify" => {
-            let identifiers = payload
-                .new_identifiers
-                .unwrap_or_default()
-                .into_iter()
-                .map(|req| Identifier::new(&req.key, &req.value))
-                .collect();
-            ResolutionAction::Modify(identifiers, payload.new_enriched_data)
+            let identifiers = build_identifiers(new_identifiers.unwrap_or_default()).map_err(
+                |e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+                    )
+                },
+            )?;
+            ResolutionAction::Modify(identifiers, new_enriched_data)
         }
         _ => {
             return Err((
@@ -1450,10 +1561,7 @@ fn pending_item_to_response(pending_item: PendingItem) -> PendingItemResponse {
         identifiers: pending_item
             .identifiers
             .into_iter()
-            .map(|id| IdentifierRequest {
-                key: id.key,
-                value: id.value,
-            })
+            .map(|id| IdentifierRequest::from_identifier(&id))
             .collect(),
         enriched_data: pending_item.enriched_data,
         source_entry: pending_item.source_entry.to_string(),
@@ -1502,6 +1610,11 @@ async fn create_local_item(
         ));
     };
 
+    let CreateLocalItemRequest {
+        identifiers: identifier_requests,
+        enriched_data,
+    } = payload;
+
     // Create item in in-memory storage (must not hold lock across await)
     let item = {
         let mut engine = state.items_engine.lock().map_err(|_| {
@@ -1511,44 +1624,18 @@ async fn create_local_item(
             )
         })?;
 
-        // Convert legacy identifiers
-        let identifiers: Vec<Identifier> = payload
-            .identifiers
-            .unwrap_or_default()
-            .into_iter()
-            .map(|id| Identifier::new(id.key, id.value))
-            .collect();
-
-        // Convert enhanced identifiers
-        let enhanced_identifiers: Vec<EnhancedIdentifier> = payload
-            .enhanced_identifiers
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|req| match req.id_type.as_str() {
-                "Canonical" => Some(EnhancedIdentifier::canonical(
-                    &req.namespace,
-                    &req.key,
-                    &req.value,
-                )),
-                "Contextual" => Some(EnhancedIdentifier::contextual(
-                    &req.namespace,
-                    &req.key,
-                    &req.value,
-                )),
-                _ => None,
-            })
-            .collect();
+        let identifiers = build_identifiers(identifier_requests).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+            )
+        })?;
 
         // Generate source entry
         let source_entry = Uuid::new_v4();
 
         engine
-            .create_local_item(
-                identifiers,
-                enhanced_identifiers,
-                payload.enriched_data,
-                source_entry,
-            )
+            .create_local_item(identifiers, enriched_data.clone(), source_entry)
             .map_err(|e| {
                 (
                     StatusCode::BAD_REQUEST,
@@ -1801,7 +1888,7 @@ async fn find_duplicate_local_items(
                     dfid: item.dfid.clone(),
                     created: item.creation_timestamp.to_rfc3339(),
                     enriched_data: item.enriched_data.clone(),
-                    identifiers_count: item.identifiers.len() + item.enhanced_identifiers.len(),
+                    identifiers_count: item.identifiers.len(),
                 }
             })
             .collect();

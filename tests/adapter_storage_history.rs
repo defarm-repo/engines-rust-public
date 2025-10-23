@@ -2,10 +2,10 @@
 /// Tests that push operations create proper storage history with CIDs and metadata
 use defarm_engine::adapters::base::StorageLocation;
 use defarm_engine::circuits_engine::CircuitsEngine;
-use defarm_engine::identifier_types::EnhancedIdentifier;
 use defarm_engine::storage::{InMemoryStorage, StorageBackend};
 use defarm_engine::storage_history_manager::StorageHistoryManager;
 use defarm_engine::types::{AdapterType, StorageRecord};
+use defarm_engine::Identifier;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -33,11 +33,7 @@ async fn test_push_operation_creates_storage_history_entry() {
 
     // Push item
     let lid = Uuid::new_v4();
-    let identifiers = vec![EnhancedIdentifier::contextual(
-        "test",
-        "history_id",
-        "hist001",
-    )];
+    let identifiers = vec![Identifier::contextual("test", "history_id", "hist001")];
 
     let result = engine
         .push_local_item_to_circuit(&lid, identifiers, None, &circuit.circuit_id, "owner1")
@@ -173,7 +169,7 @@ fn test_storage_record_serialization() {
     };
 
     let json = serde_json::to_string(&record).unwrap();
-    assert!(json.contains("IpfsIpfs"));
+    assert!(json.contains("ipfs-ipfs"));
     assert!(json.contains("QmTest456"));
 
     // Verify can deserialize back

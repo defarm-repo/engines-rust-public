@@ -128,7 +128,7 @@ fn test_openapi_schema_requirements() {
         "Circuit",
         "CircuitMember",
         "Item",
-        "EnhancedIdentifier",
+        "Identifier",
         "ApiKey",
         "Event",
         "Receipt",

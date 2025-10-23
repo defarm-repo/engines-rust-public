@@ -1227,6 +1227,24 @@ impl PostgresPersistence {
         // Calculate item hash using BLAKE3
         let item_hash = blake3::hash(item.dfid.as_bytes()).to_hex().to_string();
 
+        // Remove any lingering LID-based record before inserting the tokenized item
+        if let Some(local_id) = item.local_id {
+            let temp_dfid = format!("LID-{}", local_id);
+            if temp_dfid != item.dfid {
+                if let Err(e) = client
+                    .execute("DELETE FROM items WHERE dfid = $1", &[&temp_dfid])
+                    .await
+                {
+                    tracing::warn!(
+                        "Failed to delete temporary LID record {} prior to persisting {}: {}",
+                        temp_dfid,
+                        item.dfid,
+                        e
+                    );
+                }
+            }
+        }
+
         // Insert/update main item record
         client.execute(
             "INSERT INTO items (dfid, item_hash, status, created_at_ts, last_updated_ts, enriched_data)
@@ -1778,7 +1796,7 @@ impl PostgresPersistence {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())",
             &[
                 &dfid,
-                &format!("{:?}", record.adapter_type),
+                &record.adapter_type.to_string(),
                 &storage_location_json,
                 &record.stored_at.timestamp(),
                 &record.triggered_by,
@@ -1816,14 +1834,7 @@ impl PostgresPersistence {
             .iter()
             .filter_map(|row| {
                 let adapter_type_str: String = row.get("adapter_type");
-                let adapter_type = match adapter_type_str.as_str() {
-                    "IpfsIpfs" => AdapterType::IpfsIpfs,
-                    "StellarTestnetIpfs" => AdapterType::StellarTestnetIpfs,
-                    "StellarMainnetIpfs" => AdapterType::StellarMainnetIpfs,
-                    "EthereumGoerliIpfs" => AdapterType::EthereumGoerliIpfs,
-                    "PolygonArweave" => AdapterType::PolygonArweave,
-                    _ => return None,
-                };
+                let adapter_type = AdapterType::from_string(&adapter_type_str).ok()?;
 
                 let storage_location_json: serde_json::Value = row.get("storage_location");
                 let storage_location = serde_json::from_value(storage_location_json).ok()?;
@@ -1903,7 +1914,7 @@ impl PostgresPersistence {
                     &config.config_id,
                     &config.name,
                     &config.description,
-                    &format!("{:?}", config.adapter_type),
+                    &config.adapter_type.to_string(),
                     &connection_details_json,
                     &contract_configs_json,
                     &config.is_active,
@@ -1943,14 +1954,7 @@ impl PostgresPersistence {
             .iter()
             .filter_map(|row| {
                 let adapter_type_str: String = row.get("adapter_type");
-                let adapter_type = match adapter_type_str.as_str() {
-                    "IpfsIpfs" => AdapterType::IpfsIpfs,
-                    "StellarTestnetIpfs" => AdapterType::StellarTestnetIpfs,
-                    "StellarMainnetIpfs" => AdapterType::StellarMainnetIpfs,
-                    "EthereumGoerliIpfs" => AdapterType::EthereumGoerliIpfs,
-                    "PolygonArweave" => AdapterType::PolygonArweave,
-                    _ => return None,
-                };
+                let adapter_type = AdapterType::from_string(&adapter_type_str).ok()?;
 
                 let connection_details_json: serde_json::Value = row.get("connection_details");
                 let connection_details = serde_json::from_value(connection_details_json).ok()?;

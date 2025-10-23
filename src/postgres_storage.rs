@@ -125,7 +125,6 @@ impl PostgresStorage {
             local_id: None, // Not in DB schema yet
             legacy_mode: true, // Assume legacy mode for existing items
             identifiers: Vec::new(), // Loaded separately
-            enhanced_identifiers: Vec::new(), // Not in DB schema yet
             aliases: Vec::new(), // Not in DB schema yet
             fingerprint: Some(item_hash),
             enriched_data: enriched_data_map,
@@ -1622,14 +1621,10 @@ impl StorageBackend for PostgresStorage {
             };
 
             let adapter_strs: Vec<String> = row.get("available_adapters");
-            let available_adapters = adapter_strs.iter().filter_map(|a| match a.as_str() {
-                "IpfsIpfs" => Some(AdapterType::IpfsIpfs),
-                "StellarTestnetIpfs" => Some(AdapterType::StellarTestnetIpfs),
-                "StellarMainnetIpfs" => Some(AdapterType::StellarMainnetIpfs),
-                "EthereumGoerliIpfs" => Some(AdapterType::EthereumGoerliIpfs),
-                "PolygonArweave" => Some(AdapterType::PolygonArweave),
-                _ => None,
-            }).collect();
+            let available_adapters = adapter_strs
+                .iter()
+                .filter_map(|a| AdapterType::from_string(a).ok())
+                .collect();
 
             Ok(Some(UserAccount {
                 user_id: row.get("user_id"),
@@ -2676,7 +2671,7 @@ impl StorageBackend for PostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             let client = self.get_conn().await?;
 
-            let adapter_type_str = format!("{:?}", config.adapter_type);
+            let adapter_type_str = config.adapter_type.to_string();
             let connection_details_json = serde_json::to_value(&config.connection_details)
                 .map_err(|e| StorageError::SerializationError(e.to_string()))?;
             let contract_configs_json = config.contract_configs.as_ref()
@@ -2716,14 +2711,8 @@ impl StorageBackend for PostgresStorage {
             };
 
             let adapter_type_str: String = row.get("adapter_type");
-            let adapter_type = match adapter_type_str.as_str() {
-                "IpfsIpfs" => AdapterType::IpfsIpfs,
-                "StellarTestnetIpfs" => AdapterType::StellarTestnetIpfs,
-                "StellarMainnetIpfs" => AdapterType::StellarMainnetIpfs,
-                "EthereumGoerliIpfs" => AdapterType::EthereumGoerliIpfs,
-                "PolygonArweave" => AdapterType::PolygonArweave,
-                _ => AdapterType::IpfsIpfs,  // Default to IpfsIpfs
-            };
+            let adapter_type =
+                AdapterType::from_string(&adapter_type_str).unwrap_or(AdapterType::IpfsIpfs);
 
             let connection_details_json: serde_json::Value = row.get("connection_details");
             let connection_details = serde_json::from_value(connection_details_json)
@@ -2811,7 +2800,7 @@ impl StorageBackend for PostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             let client = self.get_conn().await?;
 
-            let adapter_type_str = format!("{:?}", adapter_type);
+            let adapter_type_str = adapter_type.to_string();
 
             let rows = client.query(
                 "SELECT config_id FROM adapter_configs WHERE adapter_type = $1 ORDER BY created_at_ts DESC",

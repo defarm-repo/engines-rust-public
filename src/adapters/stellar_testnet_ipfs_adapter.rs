@@ -298,7 +298,7 @@ impl StorageAdapter for StellarTestnetIpfsAdapter {
         if is_new_dfid {
             // Extract canonical identifiers for NFT metadata
             let canonical_identifiers: Vec<String> = item
-                .enhanced_identifiers
+                .identifiers
                 .iter()
                 .filter_map(|id| {
                     if let crate::identifier_types::IdentifierType::Canonical { .. } = id.id_type {

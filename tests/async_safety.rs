@@ -10,7 +10,6 @@
 /// Run with: cargo test --test async_safety
 use defarm_engine::{
     circuits_engine::CircuitsEngine,
-    identifier_types::EnhancedIdentifier,
     items_engine::ItemsEngine,
     storage::InMemoryStorage,
     types::{AdapterType, CircuitAdapterConfig, MemberRole},
@@ -141,14 +140,13 @@ async fn test_concurrent_item_creation() {
         let storage = Arc::clone(&storage);
         async move {
             let mut items = ItemsEngine::new(storage);
-            let identifiers = vec![Identifier::new("test", format!("item{id}"))];
-            let enhanced = vec![EnhancedIdentifier::contextual(
+            let identifiers = vec![Identifier::contextual(
                 "test",
                 "id",
-                &format!("item{id}"),
+                format!("item{id}")
             )];
             items
-                .create_local_item(identifiers, enhanced, None, Uuid::new_v4())
+                .create_local_item(identifiers, None, Uuid::new_v4())
                 .expect("Should create item")
         }
     };
@@ -219,9 +217,8 @@ async fn test_no_deadlock_on_timeout() {
 
     // Create item with timeout
     let item_result = timeout(Duration::from_secs(2), async {
-        let identifiers = vec![Identifier::new("test", "timeout_test")];
-        let enhanced = vec![EnhancedIdentifier::contextual("test", "id", "timeout_test")];
-        items.create_local_item(identifiers, enhanced, None, Uuid::new_v4())
+        let identifiers = vec![Identifier::contextual("test", "id", "timeout_test")];
+        items.create_local_item(identifiers, None, Uuid::new_v4())
     })
     .await;
 
@@ -268,13 +265,12 @@ async fn test_high_concurrency_stress() {
             let storage = Arc::clone(&storage);
             tokio::spawn(async move {
                 let mut items = ItemsEngine::new(storage);
-                let identifiers = vec![Identifier::new("stress", format!("item{i}"))];
-                let enhanced = vec![EnhancedIdentifier::contextual(
+                let identifiers = vec![Identifier::contextual(
                     "stress",
                     "id",
-                    &format!("item{i}"),
+                    format!("item{i}")
                 )];
-                let _ = items.create_local_item(identifiers, enhanced, None, Uuid::new_v4());
+                let _ = items.create_local_item(identifiers, None, Uuid::new_v4());
             })
         })
         .collect();

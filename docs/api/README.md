@@ -149,12 +149,13 @@ const localItem = await fetch('https://connect.defarm.net/api/items/local', {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    enhanced_identifiers: [
+    identifiers: [
       {
         namespace: 'bovino',
         key: 'sisbov',
         value: 'BR12345678901234',
-        id_type: 'Canonical'
+        id_type: 'Canonical',
+        verified: false
       }
     ],
     enriched_data: {
