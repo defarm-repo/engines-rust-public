@@ -18,8 +18,10 @@ pub mod verification_engine;
 pub mod zk_proof_engine;
 // Stellar health check disabled - using SDK not CLI
 // pub mod stellar_health_check;
-// Disabled temporarily due to type incompatibilities - using PostgresPersistence instead
-// pub mod postgres_storage;
+// pub mod postgres_storage; // Disabled - has type incompatibilities. Use PostgresPersistence instead.
+// Redis infrastructure ready but not integrated yet (see REDIS_MIGRATION_GUIDE.md)
+pub mod redis_cache;
+// pub mod cached_postgres_storage; // Ready to use when migrating to Redis (see REDIS_MIGRATION_GUIDE.md)
 pub mod adapter_manager;
 pub mod api;
 pub mod api_key_engine;
