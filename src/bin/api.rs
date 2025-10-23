@@ -335,6 +335,43 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>, use_redis: bool) {
                 tracing::info!(
                     "💡 Items, circuits, and events will be loaded lazily on first access"
                 );
+
+                // Still need to check if database needs initialization (don't skip this!)
+                match pg_persistence.load_users().await {
+                    Ok(users) if !users.is_empty() => {
+                        tracing::info!("✅ PostgreSQL database has {} users", users.len());
+                    }
+                    Ok(_) => {
+                        tracing::info!("💡 PostgreSQL database is empty - initializing development data...");
+                        match initialize_development_data_to_postgres(&pg_persistence).await {
+                            Ok(()) => tracing::info!("✅ Development data initialized in PostgreSQL"),
+                            Err(e) => tracing::error!("❌ Failed to initialize development data: {}", e),
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ Failed to check PostgreSQL users: {}", e);
+                    }
+                }
+
+                // Check and initialize adapters if needed
+                tracing::info!("🔍 Checking if production adapters need initialization...");
+                match pg_persistence.load_adapter_configs().await {
+                    Ok(adapters) if adapters.is_empty() => {
+                        tracing::info!("🔌 No adapters found - initializing production adapters...");
+                        match initialize_adapters_to_postgres(&pg_persistence).await {
+                            Ok(count) => tracing::info!("✅ {} production adapters initialized!", count),
+                            Err(e) => tracing::error!("❌ Failed to initialize adapters: {}", e),
+                        }
+                    }
+                    Ok(adapters) => {
+                        tracing::info!("✅ {} adapters already exist in database", adapters.len());
+                    }
+                    Err(e) => {
+                        tracing::warn!("⚠️  Could not check adapters: {}", e);
+                    }
+                }
+
+                tracing::info!("✅ Fast startup completed - no bulk loading performed");
             } else {
                 // Load or initialize data (same logic as background version)
                 // CRITICAL: If load fails, server MUST NOT start with empty cache
@@ -483,6 +520,43 @@ fn initialize_postgres_background(app_state: Arc<AppState>, use_redis: bool) {
                     tracing::info!(
                         "💡 Items, circuits, and events will be loaded lazily on first access"
                     );
+
+                    // Still need to check if database needs initialization (don't skip this!)
+                    match pg_persistence.load_users().await {
+                        Ok(users) if !users.is_empty() => {
+                            tracing::info!("✅ PostgreSQL database has {} users", users.len());
+                        }
+                        Ok(_) => {
+                            tracing::info!("💡 PostgreSQL database is empty - initializing development data...");
+                            match initialize_development_data_to_postgres(&pg_persistence).await {
+                                Ok(()) => tracing::info!("✅ Development data initialized in PostgreSQL"),
+                                Err(e) => tracing::error!("❌ Failed to initialize development data: {}", e),
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("❌ Failed to check PostgreSQL users: {}", e);
+                        }
+                    }
+
+                    // Check and initialize adapters if needed
+                    tracing::info!("🔍 Checking if production adapters need initialization...");
+                    match pg_persistence.load_adapter_configs().await {
+                        Ok(adapters) if adapters.is_empty() => {
+                            tracing::info!("🔌 No adapters found - initializing production adapters...");
+                            match initialize_adapters_to_postgres(&pg_persistence).await {
+                                Ok(count) => tracing::info!("✅ {} production adapters initialized!", count),
+                                Err(e) => tracing::error!("❌ Failed to initialize adapters: {}", e),
+                            }
+                        }
+                        Ok(adapters) => {
+                            tracing::info!("✅ {} adapters already exist in database", adapters.len());
+                        }
+                        Err(e) => {
+                            tracing::warn!("⚠️  Could not check adapters: {}", e);
+                        }
+                    }
+
+                    tracing::info!("✅ Fast startup completed - no bulk loading performed");
                 } else {
                     // Try to load existing data from PostgreSQL
                     // CRITICAL: If load fails, server MUST NOT start with empty cache

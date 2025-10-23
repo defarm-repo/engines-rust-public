@@ -22,7 +22,7 @@ pub mod zk_proof_engine;
 // Redis cache infrastructure - ACTIVE
 pub mod redis_cache;
 pub mod redis_postgres_storage; // Production-ready: Redis + PostgreSQL Primary Storage
-// pub mod cached_postgres_storage; // DEPRECATED - replaced by redis_postgres_storage
+                                // pub mod cached_postgres_storage; // DEPRECATED - replaced by redis_postgres_storage
 pub mod adapter_manager;
 pub mod api;
 pub mod api_key_engine;

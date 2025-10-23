@@ -1,5 +1,6 @@
 use crate::identifier_types::EnhancedIdentifier;
 use crate::logging::LogEntry;
+use crate::redis_postgres_storage::RedisPostgresStorage;
 use crate::types::{
     Activity, AdapterConfig, AdapterTestResult, AdapterType, AdminAction, AuditDashboardMetrics,
     AuditEvent, AuditEventType, AuditQuery, AuditSeverity, Circuit, CircuitAdapterConfig,
@@ -4483,6 +4484,1198 @@ impl StorageBackend for Arc<std::sync::Mutex<InMemoryStorage>> {
     }
 
     // CID Timeline operations - delegate to inner InMemoryStorage
+    fn add_cid_to_timeline(
+        &mut self,
+        dfid: &str,
+        cid: &str,
+        ipcm_tx: &str,
+        timestamp: i64,
+        network: &str,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .add_cid_to_timeline(dfid, cid, ipcm_tx, timestamp, network)
+    }
+
+    fn get_item_timeline(&self, dfid: &str) -> Result<Vec<TimelineEntry>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_item_timeline(dfid)
+    }
+
+    fn get_timeline_by_sequence(
+        &self,
+        dfid: &str,
+        sequence: i32,
+    ) -> Result<Option<TimelineEntry>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_timeline_by_sequence(dfid, sequence)
+    }
+
+    fn map_event_to_cid(
+        &mut self,
+        event_id: &Uuid,
+        dfid: &str,
+        cid: &str,
+        sequence: i32,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .map_event_to_cid(event_id, dfid, cid, sequence)
+    }
+
+    fn get_event_first_cid(
+        &self,
+        event_id: &Uuid,
+    ) -> Result<Option<EventCidMapping>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_event_first_cid(event_id)
+    }
+
+    fn get_events_in_cid(&self, cid: &str) -> Result<Vec<EventCidMapping>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_in_cid(cid)
+    }
+
+    fn update_indexing_progress(
+        &mut self,
+        network: &str,
+        last_ledger: i64,
+        confirmed_ledger: i64,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_indexing_progress(network, last_ledger, confirmed_ledger)
+    }
+
+    fn get_indexing_progress(
+        &self,
+        network: &str,
+    ) -> Result<Option<IndexingProgress>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_indexing_progress(network)
+    }
+
+    fn increment_events_indexed(&mut self, network: &str, count: i64) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .increment_events_indexed(network, count)
+    }
+
+    fn store_circuit_adapter_config(
+        &mut self,
+        config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_circuit_adapter_config(config)
+    }
+
+    fn get_circuit_adapter_config(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Option<CircuitAdapterConfig>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit_adapter_config(circuit_id)
+    }
+
+    fn update_circuit_adapter_config(
+        &mut self,
+        config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_circuit_adapter_config(config)
+    }
+
+    fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_circuit_adapter_configs()
+    }
+
+    // User Account operations (stub implementations for now)
+    fn store_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "User account operations not yet implemented".to_string(),
+        ))
+    }
+
+    fn get_user_account(&self, _user_id: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_user_by_username(&self, _username: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_user_by_email(&self, _email: &str) -> Result<Option<UserAccount>, StorageError> {
+        Ok(None)
+    }
+
+    fn update_user_account(&mut self, _user: &UserAccount) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "User account operations not yet implemented".to_string(),
+        ))
+    }
+
+    fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn delete_user_account(&mut self, _user_id: &str) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "User account operations not yet implemented".to_string(),
+        ))
+    }
+
+    // Credit Transaction operations (stub implementations for now)
+    fn record_credit_transaction(
+        &mut self,
+        _transaction: &CreditTransaction,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Credit transaction operations not yet implemented".to_string(),
+        ))
+    }
+
+    fn get_credit_transaction(
+        &self,
+        _transaction_id: &str,
+    ) -> Result<Option<CreditTransaction>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_credit_transactions(
+        &self,
+        _user_id: &str,
+        _limit: Option<usize>,
+    ) -> Result<Vec<CreditTransaction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_credit_transactions_by_operation(
+        &self,
+        _operation_type: &str,
+    ) -> Result<Vec<CreditTransaction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    // Admin Action operations (stub implementations for now)
+    fn record_admin_action(&mut self, _action: &AdminAction) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Admin action operations not yet implemented".to_string(),
+        ))
+    }
+
+    fn get_admin_actions(
+        &self,
+        _admin_id: Option<&str>,
+        _limit: Option<usize>,
+    ) -> Result<Vec<AdminAction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_admin_actions_by_type(
+        &self,
+        _action_type: &str,
+    ) -> Result<Vec<AdminAction>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    // System Statistics operations (stub implementations for now)
+    fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError> {
+        Ok(SystemStatistics {
+            total_users: 0,
+            active_users_24h: 0,
+            active_users_30d: 0,
+            total_items: 0,
+            total_circuits: 0,
+            total_storage_operations: 0,
+            credits_consumed_24h: 0,
+            tier_distribution: HashMap::new(),
+            adapter_usage_stats: HashMap::new(),
+            generated_at: Utc::now(),
+        })
+    }
+
+    fn update_system_statistics(&mut self, _stats: &SystemStatistics) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "System statistics operations not yet implemented".to_string(),
+        ))
+    }
+
+    // Notification operations - delegate to inner storage
+    fn store_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_notification(notification)
+    }
+
+    fn get_notification(
+        &self,
+        notification_id: &str,
+    ) -> Result<Option<Notification>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_notification(notification_id)
+    }
+
+    fn get_user_notifications(
+        &self,
+        user_id: &str,
+        since: Option<DateTime<Utc>>,
+        limit: Option<usize>,
+        unread_only: bool,
+    ) -> Result<Vec<Notification>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_user_notifications(user_id, since, limit, unread_only)
+    }
+
+    fn update_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_notification(notification)
+    }
+
+    fn delete_notification(&mut self, notification_id: &str) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_notification(notification_id)
+    }
+
+    fn mark_all_notifications_read(&mut self, user_id: &str) -> Result<usize, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .mark_all_notifications_read(user_id)
+    }
+
+    fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_unread_notification_count(user_id)
+    }
+
+    // Adapter Configuration Management operations
+    fn store_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_adapter_config(config)
+    }
+
+    fn get_adapter_config(&self, config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_adapter_config(config_id)
+    }
+
+    fn update_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_adapter_config(config)
+    }
+
+    fn delete_adapter_config(&mut self, config_id: &Uuid) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_adapter_config(config_id)
+    }
+
+    fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_adapter_configs()
+    }
+
+    fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_active_adapter_configs()
+    }
+
+    fn get_adapter_configs_by_type(
+        &self,
+        adapter_type: &AdapterType,
+    ) -> Result<Vec<AdapterConfig>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_adapter_configs_by_type(adapter_type)
+    }
+
+    fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_default_adapter_config()
+    }
+
+    fn set_default_adapter(&mut self, config_id: &Uuid) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .set_default_adapter(config_id)
+    }
+
+    fn store_adapter_test_result(
+        &mut self,
+        result: &AdapterTestResult,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_adapter_test_result(result)
+    }
+
+    fn get_adapter_test_result(
+        &self,
+        config_id: &Uuid,
+    ) -> Result<Option<AdapterTestResult>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_adapter_test_result(config_id)
+    }
+
+    // LID ↔ DFID mapping operations
+    fn store_lid_dfid_mapping(&mut self, lid: &Uuid, dfid: &str) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_lid_dfid_mapping(lid, dfid)
+    }
+
+    fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_dfid_by_lid(lid)
+    }
+
+    // Canonical identifier lookups
+    fn get_dfid_by_canonical(
+        &self,
+        namespace: &str,
+        registry: &str,
+        value: &str,
+    ) -> Result<Option<String>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_dfid_by_canonical(namespace, registry, value)
+    }
+
+    // Fingerprint mappings
+    fn store_fingerprint_mapping(
+        &mut self,
+        fingerprint: &str,
+        dfid: &str,
+        circuit_id: &Uuid,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_fingerprint_mapping(fingerprint, dfid, circuit_id)
+    }
+
+    fn get_dfid_by_fingerprint(
+        &self,
+        fingerprint: &str,
+        circuit_id: &Uuid,
+    ) -> Result<Option<String>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_dfid_by_fingerprint(fingerprint, circuit_id)
+    }
+
+    // Enhanced identifier mappings
+    fn store_enhanced_identifier_mapping(
+        &mut self,
+        identifier: &EnhancedIdentifier,
+        dfid: &str,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_enhanced_identifier_mapping(identifier, dfid)
+    }
+
+    // Webhook delivery operations
+    fn store_webhook_delivery(&mut self, delivery: &WebhookDelivery) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_webhook_delivery(delivery)
+    }
+
+    fn get_webhook_delivery(
+        &self,
+        delivery_id: &Uuid,
+    ) -> Result<Option<WebhookDelivery>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_webhook_delivery(delivery_id)
+    }
+
+    fn get_webhook_deliveries_by_circuit(
+        &self,
+        circuit_id: &Uuid,
+        limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_webhook_deliveries_by_circuit(circuit_id, limit)
+    }
+
+    fn get_webhook_deliveries_by_webhook(
+        &self,
+        webhook_id: &Uuid,
+        limit: Option<usize>,
+    ) -> Result<Vec<WebhookDelivery>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_webhook_deliveries_by_webhook(webhook_id, limit)
+    }
+
+    // User Activity operations
+    fn store_user_activity(&mut self, activity: &UserActivity) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_user_activity(activity)
+    }
+
+    fn list_user_activities(&self) -> Result<Vec<UserActivity>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_user_activities()
+    }
+
+    fn clear_user_activities(&mut self) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .clear_user_activities()
+    }
+}
+impl StorageBackend for Arc<std::sync::Mutex<RedisPostgresStorage>> {
+    fn store_receipt(&mut self, receipt: &Receipt) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_receipt(receipt)
+    }
+
+    fn get_receipt(&self, id: &Uuid) -> Result<Option<Receipt>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_receipt(id)
+    }
+
+    fn find_receipts_by_identifier(
+        &self,
+        identifier: &Identifier,
+    ) -> Result<Vec<Receipt>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .find_receipts_by_identifier(identifier)
+    }
+
+    fn list_receipts(&self) -> Result<Vec<Receipt>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_receipts()
+    }
+
+    fn store_log(&mut self, log: &LogEntry) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_log(log)
+    }
+
+    fn get_logs(&self) -> Result<Vec<LogEntry>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_logs()
+    }
+
+    fn store_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_data_lake_entry(entry)
+    }
+
+    fn get_data_lake_entry(&self, entry_id: &Uuid) -> Result<Option<DataLakeEntry>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_data_lake_entry(entry_id)
+    }
+
+    fn update_data_lake_entry(&mut self, entry: &DataLakeEntry) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_data_lake_entry(entry)
+    }
+
+    fn get_data_lake_entries_by_status(
+        &self,
+        status: ProcessingStatus,
+    ) -> Result<Vec<DataLakeEntry>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_data_lake_entries_by_status(status)
+    }
+
+    fn list_data_lake_entries(&self) -> Result<Vec<DataLakeEntry>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_data_lake_entries()
+    }
+
+    fn store_item(&mut self, item: &Item) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_item(item)
+    }
+
+    fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_item_by_dfid(dfid)
+    }
+
+    fn update_item(&mut self, item: &Item) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_item(item)
+    }
+
+    fn list_items(&self) -> Result<Vec<Item>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_items()
+    }
+
+    fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .find_items_by_identifier(identifier)
+    }
+
+    fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .find_items_by_status(status)
+    }
+
+    fn delete_item(&mut self, dfid: &str) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_item(dfid)
+    }
+
+    fn store_identifier_mapping(
+        &mut self,
+        mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_identifier_mapping(mapping)
+    }
+
+    fn get_identifier_mappings(
+        &self,
+        from_id: &Identifier,
+    ) -> Result<Vec<IdentifierMapping>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_identifier_mappings(from_id)
+    }
+
+    fn update_identifier_mapping(
+        &mut self,
+        mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_identifier_mapping(mapping)
+    }
+
+    fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_identifier_mappings()
+    }
+
+    fn store_conflict_resolution(
+        &mut self,
+        resolution: &ConflictResolution,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_conflict_resolution(resolution)
+    }
+
+    fn get_conflict_resolution(
+        &self,
+        conflict_id: &Uuid,
+    ) -> Result<Option<ConflictResolution>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_conflict_resolution(conflict_id)
+    }
+
+    fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_conflicts()
+    }
+
+    fn store_event(&mut self, event: &Event) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_event(event)
+    }
+
+    fn get_event(&self, id: &Uuid) -> Result<Option<Event>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_event(id)
+    }
+
+    fn list_events(&self) -> Result<Vec<Event>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_events()
+    }
+
+    fn update_event(&mut self, event: &Event) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_event(event)
+    }
+
+    fn get_events_by_dfid(&self, dfid: &str) -> Result<Vec<Event>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_by_dfid(dfid)
+    }
+
+    fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_by_type(event_type)
+    }
+
+    fn get_events_by_visibility(
+        &self,
+        visibility: EventVisibility,
+    ) -> Result<Vec<Event>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_by_visibility(visibility)
+    }
+
+    fn get_events_in_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<Event>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_events_in_time_range(start, end)
+    }
+
+    fn store_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_circuit(circuit)
+    }
+
+    fn get_circuit(&self, id: &Uuid) -> Result<Option<Circuit>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit(id)
+    }
+
+    fn update_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_circuit(circuit)
+    }
+
+    fn list_circuits(&self) -> Result<Vec<Circuit>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_circuits()
+    }
+
+    fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuits_for_member(member_id)
+    }
+
+    fn store_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_circuit_operation(operation)
+    }
+
+    fn get_circuit_operation(&self, id: &Uuid) -> Result<Option<CircuitOperation>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit_operation(id)
+    }
+
+    fn update_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_circuit_operation(operation)
+    }
+
+    fn get_circuit_operations(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitOperation>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit_operations(circuit_id)
+    }
+
+    fn store_activity(&mut self, activity: &Activity) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_activity(activity)
+    }
+
+    fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_activities_for_user(user_id)
+    }
+
+    fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_activities_for_circuit(circuit_id)
+    }
+
+    fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_all_activities()
+    }
+
+    fn store_item_share(&mut self, share: &ItemShare) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_item_share(share)
+    }
+
+    fn get_shares_for_item(&self, dfid: &str) -> Result<Vec<ItemShare>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_shares_for_item(dfid)
+    }
+
+    fn get_shares_for_user(&self, user_id: &str) -> Result<Vec<ItemShare>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_shares_for_user(user_id)
+    }
+
+    fn is_item_shared_with_user(&self, dfid: &str, user_id: &str) -> Result<bool, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .is_item_shared_with_user(dfid, user_id)
+    }
+
+    fn store_circuit_item(&mut self, circuit_item: &CircuitItem) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_circuit_item(circuit_item)
+    }
+
+    fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_circuit_items(circuit_id)
+    }
+
+    fn get_item_share(&self, share_id: &str) -> Result<Option<ItemShare>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_item_share(share_id)
+    }
+
+    fn delete_item_share(&mut self, share_id: &str) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_item_share(share_id)
+    }
+
+    fn remove_circuit_item(&mut self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .remove_circuit_item(circuit_id, dfid)
+    }
+
+    // Pending Items operations - delegate to underlying RedisPostgresStorage
+    fn store_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_pending_item(item)
+    }
+
+    fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_item(pending_id)
+    }
+
+    fn list_pending_items(&self) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_pending_items()
+    }
+
+    fn get_pending_items_by_reason(
+        &self,
+        reason_type: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_by_reason(reason_type)
+    }
+
+    fn get_pending_items_by_user(&self, user_id: &str) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_by_user(user_id)
+    }
+
+    fn get_pending_items_by_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_by_workspace(workspace_id)
+    }
+
+    fn get_pending_items_by_priority(
+        &self,
+        priority: PendingPriority,
+    ) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_by_priority(priority)
+    }
+
+    fn update_pending_item(&mut self, item: &PendingItem) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_pending_item(item)
+    }
+
+    fn delete_pending_item(&mut self, pending_id: &Uuid) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_pending_item(pending_id)
+    }
+
+    fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_items_requiring_manual_review()
+    }
+
+    // Audit Event operations - delegate to underlying RedisPostgresStorage
+    fn store_audit_event(&mut self, event: &AuditEvent) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_audit_event(event)
+    }
+
+    fn get_audit_event(&self, event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_event(event_id)
+    }
+
+    fn query_audit_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .query_audit_events(query)
+    }
+
+    fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_audit_events()
+    }
+
+    fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_events_by_user(user_id)
+    }
+
+    fn get_audit_events_by_type(
+        &self,
+        event_type: AuditEventType,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_events_by_type(event_type)
+    }
+
+    fn get_audit_events_by_severity(
+        &self,
+        severity: AuditSeverity,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_events_by_severity(severity)
+    }
+
+    fn get_audit_events_in_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<AuditEvent>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_events_in_time_range(start, end)
+    }
+
+    fn sync_audit_events(&mut self, events: Vec<AuditEvent>) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .sync_audit_events(events)
+    }
+
+    // Security Incident operations - delegate to underlying RedisPostgresStorage
+    fn store_security_incident(&mut self, incident: &SecurityIncident) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_security_incident(incident)
+    }
+
+    fn get_security_incident(
+        &self,
+        incident_id: &Uuid,
+    ) -> Result<Option<SecurityIncident>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_security_incident(incident_id)
+    }
+
+    fn update_security_incident(
+        &mut self,
+        incident: &SecurityIncident,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_security_incident(incident)
+    }
+
+    fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_security_incidents()
+    }
+
+    fn get_incidents_by_severity(
+        &self,
+        severity: AuditSeverity,
+    ) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_incidents_by_severity(severity)
+    }
+
+    fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_open_incidents()
+    }
+
+    fn get_incidents_by_assignee(
+        &self,
+        assignee: &str,
+    ) -> Result<Vec<SecurityIncident>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_incidents_by_assignee(assignee)
+    }
+
+    // Compliance Report operations - delegate to underlying RedisPostgresStorage
+    fn store_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_compliance_report(report)
+    }
+
+    fn get_compliance_report(
+        &self,
+        report_id: &Uuid,
+    ) -> Result<Option<ComplianceReport>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_compliance_report(report_id)
+    }
+
+    fn update_compliance_report(&mut self, report: &ComplianceReport) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_compliance_report(report)
+    }
+
+    fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_compliance_reports()
+    }
+
+    fn get_reports_by_type(
+        &self,
+        report_type: &str,
+    ) -> Result<Vec<ComplianceReport>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_reports_by_type(report_type)
+    }
+
+    fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_pending_reports()
+    }
+
+    // Audit Dashboard operations - delegate to underlying RedisPostgresStorage
+    fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_audit_dashboard_metrics()
+    }
+
+    fn get_event_count_by_time_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<u64, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_event_count_by_time_range(start, end)
+    }
+
+    // ZK Proof operations - delegate to underlying RedisPostgresStorage
+    fn store_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_zk_proof(proof)
+    }
+
+    fn get_zk_proof(
+        &self,
+        proof_id: &Uuid,
+    ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proof(proof_id)
+    }
+
+    fn update_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .update_zk_proof(proof)
+    }
+
+    fn query_zk_proofs(
+        &self,
+        query: &crate::api::zk_proofs::ZkProofQuery,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .query_zk_proofs(query)
+    }
+
+    fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .list_zk_proofs()
+    }
+
+    fn get_zk_proofs_by_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proofs_by_user(user_id)
+    }
+
+    fn get_zk_proofs_by_circuit_type(
+        &self,
+        circuit_type: CircuitType,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proofs_by_circuit_type(circuit_type)
+    }
+
+    fn get_zk_proofs_by_status(
+        &self,
+        status: crate::zk_proof_engine::ProofStatus,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proofs_by_status(status)
+    }
+
+    fn get_zk_proof_statistics(
+        &self,
+    ) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_zk_proof_statistics()
+    }
+
+    fn delete_zk_proof(&mut self, proof_id: &Uuid) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .delete_zk_proof(proof_id)
+    }
+
+    fn store_storage_history(&mut self, history: &ItemStorageHistory) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .store_storage_history(history)
+    }
+
+    fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .get_storage_history(dfid)
+    }
+
+    fn add_storage_record(
+        &mut self,
+        dfid: &str,
+        record: StorageRecord,
+    ) -> Result<(), StorageError> {
+        self.lock()
+            .map_err(|_| StorageError::IoError("Storage mutex poisoned".to_string()))?
+            .add_storage_record(dfid, record)
+    }
+
+    // CID Timeline operations - delegate to inner RedisPostgresStorage
     fn add_cid_to_timeline(
         &mut self,
         dfid: &str,

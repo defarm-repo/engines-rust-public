@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 /// Redis + PostgreSQL Primary Storage Backend
 ///
 /// Production-grade distributed storage combining:
@@ -16,11 +17,10 @@
 /// - No bulk loading required (< 2s startup)
 /// - Fixed RAM footprint (< 100MB per API)
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 use crate::identifier_types::EnhancedIdentifier;
 use crate::logging::LogEntry;
@@ -28,7 +28,7 @@ use crate::postgres_persistence::PostgresPersistence;
 use crate::redis_cache::RedisCache;
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::*;
-use crate::types::{SecurityIncidentSummary, ComplianceStatus};
+use crate::types::{ComplianceStatus, SecurityIncidentSummary};
 
 /// Cache performance metrics
 #[derive(Debug, Default)]
@@ -67,10 +67,7 @@ pub struct RedisPostgresStorage {
 
 impl RedisPostgresStorage {
     /// Create new Redis + PostgreSQL storage backend
-    pub fn new(
-        pg: Arc<RwLock<Option<PostgresPersistence>>>,
-        cache: Arc<RedisCache>,
-    ) -> Self {
+    pub fn new(pg: Arc<RwLock<Option<PostgresPersistence>>>, cache: Arc<RedisCache>) -> Self {
         tracing::info!("✅ RedisPostgresStorage initialized (PostgreSQL Primary + Redis Cache)");
         Self {
             pg,
@@ -211,7 +208,9 @@ impl StorageBackend for RedisPostgresStorage {
             self.metrics.cache_misses.fetch_add(1, Ordering::Relaxed);
 
             let pg = self.get_pg()?;
-            let items = pg.load_items().await
+            let items = pg
+                .load_items()
+                .await
                 .map_err(|e| StorageError::ReadError(format!("Failed to load items: {}", e)))?;
 
             if let Some(item) = items.iter().find(|i| i.dfid == dfid) {
@@ -252,30 +251,37 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(items
             .into_iter()
             .filter(|item| {
-                item.identifiers.iter().any(|id| {
-                    id.key == identifier.key && id.value == identifier.value
-                })
+                item.identifiers
+                    .iter()
+                    .any(|id| id.key == identifier.key && id.value == identifier.value)
             })
             .collect())
     }
 
     fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError> {
         let items = self.list_items()?;
-        Ok(items.into_iter().filter(|item| item.status == status).collect())
+        Ok(items
+            .into_iter()
+            .filter(|item| item.status == status)
+            .collect())
     }
 
     fn delete_item(&mut self, dfid: &str) -> Result<(), StorageError> {
         // PostgreSQL doesn't support delete yet - return error
-        Err(StorageError::NotImplemented(
-            format!("Delete item not implemented for DFID: {}", dfid),
-        ))
+        Err(StorageError::NotImplemented(format!(
+            "Delete item not implemented for DFID: {}",
+            dfid
+        )))
     }
 
     // ============================================================================
     // IDENTIFIER MAPPING OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_identifier_mapping(&mut self, _mapping: &IdentifierMapping) -> Result<(), StorageError> {
+    fn store_identifier_mapping(
+        &mut self,
+        _mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "Identifier mappings handled differently in Redis+PostgreSQL backend".to_string(),
         ))
@@ -288,7 +294,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn update_identifier_mapping(&mut self, _mapping: &IdentifierMapping) -> Result<(), StorageError> {
+    fn update_identifier_mapping(
+        &mut self,
+        _mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -300,7 +309,10 @@ impl StorageBackend for RedisPostgresStorage {
     // CONFLICT RESOLUTION OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_conflict_resolution(&mut self, _conflict: &ConflictResolution) -> Result<(), StorageError> {
+    fn store_conflict_resolution(
+        &mut self,
+        _conflict: &ConflictResolution,
+    ) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "Conflict resolution not implemented yet".to_string(),
         ))
@@ -367,9 +379,10 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             // PostgresPersistence doesn't have a direct method for this
             // We'd need to add one, or use the events table query
-            Err(StorageError::NotImplemented(
-                format!("Get events by DFID not implemented yet for: {}", dfid),
-            ))
+            Err(StorageError::NotImplemented(format!(
+                "Get events by DFID not implemented yet for: {}",
+                dfid
+            )))
         })
     }
 
@@ -406,16 +419,20 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.persist_circuit(circuit)
-                .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to persist circuit: {}", e)))?;
+            pg.persist_circuit(circuit).await.map_err(|e| {
+                StorageError::WriteError(format!("Failed to persist circuit: {}", e))
+            })?;
 
             // Invalidate cache
             let cache = self.cache.clone();
             let circuit_id = circuit.circuit_id.to_string();
             tokio::spawn(async move {
                 if let Err(e) = cache.delete_circuit(&circuit_id).await {
-                    tracing::warn!("Failed to invalidate cache for circuit {}: {}", circuit_id, e);
+                    tracing::warn!(
+                        "Failed to invalidate cache for circuit {}: {}",
+                        circuit_id,
+                        e
+                    );
                 }
             });
 
@@ -444,7 +461,9 @@ impl StorageBackend for RedisPostgresStorage {
             self.metrics.cache_misses.fetch_add(1, Ordering::Relaxed);
 
             let pg = self.get_pg()?;
-            let circuits = pg.load_circuits().await
+            let circuits = pg
+                .load_circuits()
+                .await
                 .map_err(|e| StorageError::ReadError(format!("Failed to load circuits: {}", e)))?;
 
             if let Some(circuit) = circuits.iter().find(|c| c.circuit_id == *circuit_id) {
@@ -453,7 +472,11 @@ impl StorageBackend for RedisPostgresStorage {
                 let circuit_clone = circuit.clone();
                 tokio::spawn(async move {
                     if let Err(e) = cache.set_circuit(&circuit_clone).await {
-                        tracing::warn!("Failed to cache circuit {}: {}", circuit_clone.circuit_id, e);
+                        tracing::warn!(
+                            "Failed to cache circuit {}: {}",
+                            circuit_clone.circuit_id,
+                            e
+                        );
                     }
                 });
 
@@ -480,22 +503,26 @@ impl StorageBackend for RedisPostgresStorage {
 
     fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, StorageError> {
         let circuits = self.list_circuits()?;
-        Ok(circuits.into_iter().filter(|c| {
-            c.members.iter().any(|m| m.member_id == member_id)
-        }).collect())
+        Ok(circuits
+            .into_iter()
+            .filter(|c| c.members.iter().any(|m| m.member_id == member_id))
+            .collect())
     }
 
     // ============================================================================
     // CIRCUIT OPERATION OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError> {
+    fn store_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.persist_circuit_operation(operation)
-                .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to persist operation: {}", e)))
+            pg.persist_circuit_operation(operation).await.map_err(|e| {
+                StorageError::WriteError(format!("Failed to persist operation: {}", e))
+            })
         })
     }
 
@@ -508,11 +535,17 @@ impl StorageBackend for RedisPostgresStorage {
         ))
     }
 
-    fn update_circuit_operation(&mut self, operation: &CircuitOperation) -> Result<(), StorageError> {
+    fn update_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
         self.store_circuit_operation(operation)
     }
 
-    fn get_circuit_operations(&self, circuit_id: &Uuid) -> Result<Vec<CircuitOperation>, StorageError> {
+    fn get_circuit_operations(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitOperation>, StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -663,7 +696,10 @@ impl StorageBackend for RedisPostgresStorage {
     // SECURITY INCIDENT OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_security_incident(&mut self, _incident: &SecurityIncident) -> Result<(), StorageError> {
+    fn store_security_incident(
+        &mut self,
+        _incident: &SecurityIncident,
+    ) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -674,7 +710,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(None)
     }
 
-    fn update_security_incident(&mut self, _incident: &SecurityIncident) -> Result<(), StorageError> {
+    fn update_security_incident(
+        &mut self,
+        _incident: &SecurityIncident,
+    ) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -693,7 +732,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn get_incidents_by_assignee(&self, _assignee: &str) -> Result<Vec<SecurityIncident>, StorageError> {
+    fn get_incidents_by_assignee(
+        &self,
+        _assignee: &str,
+    ) -> Result<Vec<SecurityIncident>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -705,7 +747,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(())
     }
 
-    fn get_compliance_report(&self, _report_id: &Uuid) -> Result<Option<ComplianceReport>, StorageError> {
+    fn get_compliance_report(
+        &self,
+        _report_id: &Uuid,
+    ) -> Result<Option<ComplianceReport>, StorageError> {
         Ok(None)
     }
 
@@ -717,7 +762,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn get_reports_by_type(&self, _report_type: &str) -> Result<Vec<ComplianceReport>, StorageError> {
+    fn get_reports_by_type(
+        &self,
+        _report_type: &str,
+    ) -> Result<Vec<ComplianceReport>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -774,7 +822,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn get_pending_items_by_reason(&self, _reason_type: &str) -> Result<Vec<PendingItem>, StorageError> {
+    fn get_pending_items_by_reason(
+        &self,
+        _reason_type: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -782,11 +833,17 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn get_pending_items_by_workspace(&self, _workspace_id: &str) -> Result<Vec<PendingItem>, StorageError> {
+    fn get_pending_items_by_workspace(
+        &self,
+        _workspace_id: &str,
+    ) -> Result<Vec<PendingItem>, StorageError> {
         Ok(Vec::new())
     }
 
-    fn get_pending_items_by_priority(&self, _priority: PendingPriority) -> Result<Vec<PendingItem>, StorageError> {
+    fn get_pending_items_by_priority(
+        &self,
+        _priority: PendingPriority,
+    ) -> Result<Vec<PendingItem>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -806,15 +863,24 @@ impl StorageBackend for RedisPostgresStorage {
     // ZK PROOF OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_zk_proof(&mut self, _proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+    fn store_zk_proof(
+        &mut self,
+        _proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
         Ok(())
     }
 
-    fn get_zk_proof(&self, _proof_id: &Uuid) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
+    fn get_zk_proof(
+        &self,
+        _proof_id: &Uuid,
+    ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
         Ok(None)
     }
 
-    fn update_zk_proof(&mut self, _proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+    fn update_zk_proof(
+        &mut self,
+        _proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -829,7 +895,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn get_zk_proofs_by_user(&self, _user_id: &str) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
+    fn get_zk_proofs_by_user(
+        &self,
+        _user_id: &str,
+    ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -847,7 +916,9 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn get_zk_proof_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
+    fn get_zk_proof_statistics(
+        &self,
+    ) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
         Ok(crate::api::zk_proofs::ZkProofStatistics {
             total_proofs: 0,
             pending_proofs: 0,
@@ -874,9 +945,9 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            let records = pg.load_storage_records(dfid)
-                .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load storage history: {}", e)))?;
+            let records = pg.load_storage_records(dfid).await.map_err(|e| {
+                StorageError::ReadError(format!("Failed to load storage history: {}", e))
+            })?;
 
             if records.is_empty() {
                 return Ok(None);
@@ -892,13 +963,17 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn add_storage_record(&mut self, dfid: &str, record: StorageRecord) -> Result<(), StorageError> {
+    fn add_storage_record(
+        &mut self,
+        dfid: &str,
+        record: StorageRecord,
+    ) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.persist_storage_record(dfid, &record)
-                .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to add storage record: {}", e)))
+            pg.persist_storage_record(dfid, &record).await.map_err(|e| {
+                StorageError::WriteError(format!("Failed to add storage record: {}", e))
+            })
         })
     }
 
@@ -916,9 +991,10 @@ impl StorageBackend for RedisPostgresStorage {
     ) -> Result<(), StorageError> {
         // Timeline operations delegated to PostgresStorage
         // RedisPostgresStorage doesn't implement these - they're for blockchain indexing only
-        Err(StorageError::NotImplemented(
-            format!("CID timeline operations handled by PostgresStorage for DFID: {}", dfid),
-        ))
+        Err(StorageError::NotImplemented(format!(
+            "CID timeline operations handled by PostgresStorage for DFID: {}",
+            dfid
+        )))
     }
 
     fn get_item_timeline(&self, dfid: &str) -> Result<Vec<TimelineEntry>, StorageError> {
@@ -941,7 +1017,9 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.get_timeline_by_sequence(dfid, sequence)
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to get timeline entry: {}", e)))
+                .map_err(|e| {
+                    StorageError::ReadError(format!("Failed to get timeline entry: {}", e))
+                })
         })
     }
 
@@ -957,7 +1035,10 @@ impl StorageBackend for RedisPostgresStorage {
         ))
     }
 
-    fn get_event_first_cid(&self, event_id: &Uuid) -> Result<Option<EventCidMapping>, StorageError> {
+    fn get_event_first_cid(
+        &self,
+        event_id: &Uuid,
+    ) -> Result<Option<EventCidMapping>, StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -992,17 +1073,24 @@ impl StorageBackend for RedisPostgresStorage {
         ))
     }
 
-    fn get_indexing_progress(&self, network: &str) -> Result<Option<IndexingProgress>, StorageError> {
+    fn get_indexing_progress(
+        &self,
+        network: &str,
+    ) -> Result<Option<IndexingProgress>, StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.get_indexing_progress(network)
-                .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to get indexing progress: {}", e)))
+            pg.get_indexing_progress(network).await.map_err(|e| {
+                StorageError::ReadError(format!("Failed to get indexing progress: {}", e))
+            })
         })
     }
 
-    fn increment_events_indexed(&mut self, _network: &str, _count: i64) -> Result<(), StorageError> {
+    fn increment_events_indexed(
+        &mut self,
+        _network: &str,
+        _count: i64,
+    ) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "Events indexed increment handled by PostgresStorage".to_string(),
         ))
@@ -1012,12 +1100,18 @@ impl StorageBackend for RedisPostgresStorage {
     // CIRCUIT ADAPTER CONFIGURATION OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_circuit_adapter_config(&mut self, _config: &CircuitAdapterConfig) -> Result<(), StorageError> {
+    fn store_circuit_adapter_config(
+        &mut self,
+        _config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
         // Circuit adapter config stored directly in circuits table
         Ok(())
     }
 
-    fn get_circuit_adapter_config(&self, circuit_id: &Uuid) -> Result<Option<CircuitAdapterConfig>, StorageError> {
+    fn get_circuit_adapter_config(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Option<CircuitAdapterConfig>, StorageError> {
         // Get from circuit
         if let Some(circuit) = self.get_circuit(circuit_id)? {
             Ok(circuit.adapter_config)
@@ -1026,7 +1120,10 @@ impl StorageBackend for RedisPostgresStorage {
         }
     }
 
-    fn update_circuit_adapter_config(&mut self, config: &CircuitAdapterConfig) -> Result<(), StorageError> {
+    fn update_circuit_adapter_config(
+        &mut self,
+        config: &CircuitAdapterConfig,
+    ) -> Result<(), StorageError> {
         // Update via circuit update
         if let Some(mut circuit) = self.get_circuit(&config.circuit_id)? {
             circuit.adapter_config = Some(config.clone());
@@ -1039,7 +1136,10 @@ impl StorageBackend for RedisPostgresStorage {
 
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
         let circuits = self.list_circuits()?;
-        Ok(circuits.into_iter().filter_map(|c| c.adapter_config).collect())
+        Ok(circuits
+            .into_iter()
+            .filter_map(|c| c.adapter_config)
+            .collect())
     }
 
     // ============================================================================
@@ -1063,7 +1163,8 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            let users = pg.load_users()
+            let users = pg
+                .load_users()
                 .await
                 .map_err(|e| StorageError::ReadError(format!("Failed to load users: {}", e)))?;
 
@@ -1075,7 +1176,8 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            let users = pg.load_users()
+            let users = pg
+                .load_users()
                 .await
                 .map_err(|e| StorageError::ReadError(format!("Failed to load users: {}", e)))?;
 
@@ -1087,7 +1189,8 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            let users = pg.load_users()
+            let users = pg
+                .load_users()
                 .await
                 .map_err(|e| StorageError::ReadError(format!("Failed to load users: {}", e)))?;
 
@@ -1119,12 +1222,18 @@ impl StorageBackend for RedisPostgresStorage {
     // CREDIT TRANSACTION OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn record_credit_transaction(&mut self, _transaction: &CreditTransaction) -> Result<(), StorageError> {
+    fn record_credit_transaction(
+        &mut self,
+        _transaction: &CreditTransaction,
+    ) -> Result<(), StorageError> {
         // Credit transactions not persisted yet
         Ok(())
     }
 
-    fn get_credit_transaction(&self, _transaction_id: &str) -> Result<Option<CreditTransaction>, StorageError> {
+    fn get_credit_transaction(
+        &self,
+        _transaction_id: &str,
+    ) -> Result<Option<CreditTransaction>, StorageError> {
         Ok(None)
     }
 
@@ -1159,7 +1268,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn get_admin_actions_by_type(&self, _action_type: &str) -> Result<Vec<AdminAction>, StorageError> {
+    fn get_admin_actions_by_type(
+        &self,
+        _action_type: &str,
+    ) -> Result<Vec<AdminAction>, StorageError> {
         Ok(Vec::new())
     }
 
@@ -1196,7 +1308,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(())
     }
 
-    fn get_notification(&self, _notification_id: &str) -> Result<Option<Notification>, StorageError> {
+    fn get_notification(
+        &self,
+        _notification_id: &str,
+    ) -> Result<Option<Notification>, StorageError> {
         Ok(None)
     }
 
@@ -1234,9 +1349,9 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.persist_adapter_config(config)
-                .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to persist adapter config: {}", e)))
+            pg.persist_adapter_config(config).await.map_err(|e| {
+                StorageError::WriteError(format!("Failed to persist adapter config: {}", e))
+            })
         })
     }
 
@@ -1244,9 +1359,9 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            let configs = pg.load_adapter_configs()
-                .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load adapter configs: {}", e)))?;
+            let configs = pg.load_adapter_configs().await.map_err(|e| {
+                StorageError::ReadError(format!("Failed to load adapter configs: {}", e))
+            })?;
 
             Ok(configs.into_iter().find(|c| c.config_id == *config_id))
         })
@@ -1266,9 +1381,9 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.load_adapter_configs()
-                .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to list adapter configs: {}", e)))
+            pg.load_adapter_configs().await.map_err(|e| {
+                StorageError::ReadError(format!("Failed to list adapter configs: {}", e))
+            })
         })
     }
 
@@ -1277,9 +1392,15 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(configs.into_iter().filter(|c| c.is_active).collect())
     }
 
-    fn get_adapter_configs_by_type(&self, adapter_type: &AdapterType) -> Result<Vec<AdapterConfig>, StorageError> {
+    fn get_adapter_configs_by_type(
+        &self,
+        adapter_type: &AdapterType,
+    ) -> Result<Vec<AdapterConfig>, StorageError> {
         let configs = self.list_adapter_configs()?;
-        Ok(configs.into_iter().filter(|c| c.adapter_type == *adapter_type).collect())
+        Ok(configs
+            .into_iter()
+            .filter(|c| c.adapter_type == *adapter_type)
+            .collect())
     }
 
     fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
@@ -1301,11 +1422,17 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(())
     }
 
-    fn store_adapter_test_result(&mut self, _result: &AdapterTestResult) -> Result<(), StorageError> {
+    fn store_adapter_test_result(
+        &mut self,
+        _result: &AdapterTestResult,
+    ) -> Result<(), StorageError> {
         Ok(())
     }
 
-    fn get_adapter_test_result(&self, _config_id: &Uuid) -> Result<Option<AdapterTestResult>, StorageError> {
+    fn get_adapter_test_result(
+        &self,
+        _config_id: &Uuid,
+    ) -> Result<Option<AdapterTestResult>, StorageError> {
         Ok(None)
     }
 
@@ -1317,9 +1444,9 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.persist_lid_dfid_mapping(lid, dfid)
-                .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to persist LID mapping: {}", e)))
+            pg.persist_lid_dfid_mapping(lid, dfid).await.map_err(|e| {
+                StorageError::WriteError(format!("Failed to persist LID mapping: {}", e))
+            })
         })
     }
 
@@ -1327,11 +1454,14 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            let mappings = pg.load_lid_dfid_mappings()
-                .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load LID mappings: {}", e)))?;
+            let mappings = pg.load_lid_dfid_mappings().await.map_err(|e| {
+                StorageError::ReadError(format!("Failed to load LID mappings: {}", e))
+            })?;
 
-            Ok(mappings.into_iter().find(|(l, _)| l == lid).map(|(_, dfid)| dfid))
+            Ok(mappings
+                .into_iter()
+                .find(|(l, _)| l == lid)
+                .map(|(_, dfid)| dfid))
         })
     }
 
@@ -1406,7 +1536,10 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(())
     }
 
-    fn get_webhook_delivery(&self, _delivery_id: &Uuid) -> Result<Option<WebhookDelivery>, StorageError> {
+    fn get_webhook_delivery(
+        &self,
+        _delivery_id: &Uuid,
+    ) -> Result<Option<WebhookDelivery>, StorageError> {
         Ok(None)
     }
 
@@ -1434,9 +1567,9 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.persist_user_activity(activity)
-                .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to persist user activity: {}", e)))
+            pg.persist_user_activity(activity).await.map_err(|e| {
+                StorageError::WriteError(format!("Failed to persist user activity: {}", e))
+            })
         })
     }
 
