@@ -556,28 +556,46 @@ async fn load_data_from_postgres(
         tracing::info!("📥 Loaded {} users from PostgreSQL", user_count);
     }
 
-    // Load items
-    let items = pg.load_items().await?;
-    let item_count = items.len();
-    if !items.is_empty() {
-        let mut storage = app_state
-            .shared_storage
-            .lock()
-            .map_err(|e| format!("Failed to lock storage: {e}"))?;
+    // Load items (configurable via SKIP_ITEMS_PRELOAD for large datasets)
+    let skip_preload = std::env::var("SKIP_ITEMS_PRELOAD")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
 
-        for item in items {
-            storage
-                .store_item(&item)
-                .map_err(|e| format!("Failed to store item: {e}"))?;
+    if skip_preload {
+        tracing::warn!(
+            "⚠️  SKIP_ITEMS_PRELOAD=true: Items will be loaded lazily on-demand from PostgreSQL"
+        );
+        tracing::warn!(
+            "⚠️  This is recommended for datasets with 100k+ items to reduce startup time"
+        );
+    } else {
+        let items = pg.load_items().await?;
+        let item_count = items.len();
 
-            if let Some(local_id) = item.local_id {
+        if !items.is_empty() {
+            let mut storage = app_state
+                .shared_storage
+                .lock()
+                .map_err(|e| format!("Failed to lock storage: {e}"))?;
+
+            for item in items {
                 storage
-                    .store_lid_dfid_mapping(&local_id, &item.dfid)
-                    .map_err(|e| format!("Failed to store LID mapping: {e}"))?;
-            }
-        }
+                    .store_item(&item)
+                    .map_err(|e| format!("Failed to store item: {e}"))?;
 
-        tracing::info!("📥 Loaded {} items from PostgreSQL", item_count);
+                if let Some(local_id) = item.local_id {
+                    storage
+                        .store_lid_dfid_mapping(&local_id, &item.dfid)
+                        .map_err(|e| format!("Failed to store LID mapping: {e}"))?;
+                }
+            }
+
+            tracing::info!(
+                "📥 Loaded {} items from PostgreSQL into memory cache",
+                item_count
+            );
+        }
     }
 
     // Load circuits

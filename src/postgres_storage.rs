@@ -3038,6 +3038,158 @@ impl StorageBackend for PostgresStorage {
         })
     }
 
-    // Additional remaining stubs for methods that don't exist in current schema
-    // These will need proper database schema additions and implementations
+    // ============================================================================
+    // TIMELINE & CID MAPPINGS - Stubs (TODO: Implement with proper schema)
+    // ============================================================================
+
+    fn add_cid_to_timeline(
+        &mut self,
+        _dfid: &str,
+        _cid: &str,
+        _ipcm_tx: &str,
+        _timestamp: i64,
+        _network: &str,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn get_item_timeline(&self, _dfid: &str) -> Result<Vec<TimelineEntry>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn get_timeline_by_sequence(
+        &self,
+        _dfid: &str,
+        _sequence: i32,
+    ) -> Result<Option<TimelineEntry>, StorageError> {
+        Ok(None)
+    }
+
+    fn map_event_to_cid(
+        &mut self,
+        _event_id: &Uuid,
+        _dfid: &str,
+        _cid: &str,
+        _sequence: i32,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn get_event_first_cid(&self, _event_id: &Uuid) -> Result<Option<EventCidMapping>, StorageError> {
+        Ok(None)
+    }
+
+    fn get_events_in_cid(&self, _cid: &str) -> Result<Vec<EventCidMapping>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_indexing_progress(
+        &mut self,
+        _network: &str,
+        _last_ledger: i64,
+        _confirmed_ledger: i64,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn get_indexing_progress(&self, _network: &str) -> Result<Option<IndexingProgress>, StorageError> {
+        Ok(None)
+    }
+
+    fn increment_events_indexed(&mut self, _network: &str, _count: i64) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError> {
+        Ok(SystemStatistics {
+            total_items: 0,
+            total_events: 0,
+            total_circuits: 0,
+            total_users: 0,
+            total_receipts: 0,
+        })
+    }
+
+    fn update_system_statistics(&mut self, _stats: &SystemStatistics) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn store_user_activity(&mut self, activity: &UserActivity) -> Result<(), StorageError> {
+        let client = tokio::runtime::Handle::current().block_on(self.get_conn())?;
+
+        tokio::runtime::Handle::current().block_on(async {
+            client.execute(
+                "INSERT INTO user_activities (activity_id, user_id, workspace_id, activity_type, timestamp, description)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (activity_id) DO NOTHING",
+                &[
+                    &activity.activity_id,
+                    &activity.user_id,
+                    &activity.workspace_id,
+                    &format!("{:?}", activity.activity_type),
+                    &activity.timestamp.timestamp(),
+                    &activity.description,
+                ]
+            ).await.map_err(Self::map_pg_error)?;
+
+            Ok(())
+        })
+    }
+
+    fn list_user_activities(&self) -> Result<Vec<UserActivity>, StorageError> {
+        let client = tokio::runtime::Handle::current().block_on(self.get_conn())?;
+
+        tokio::runtime::Handle::current().block_on(async {
+            let rows = client.query(
+                "SELECT activity_id, user_id, workspace_id, activity_type, timestamp, description
+                 FROM user_activities
+                 ORDER BY timestamp DESC
+                 LIMIT 1000",
+                &[]
+            ).await.map_err(Self::map_pg_error)?;
+
+            let mut activities = Vec::new();
+            for row in rows {
+                let activity_id: Uuid = row.get("activity_id");
+                let user_id: String = row.get("user_id");
+                let workspace_id: String = row.get("workspace_id");
+                let activity_type_str: String = row.get("activity_type");
+                let timestamp_i64: i64 = row.get("timestamp");
+                let description: String = row.get("description");
+
+                let timestamp = DateTime::<Utc>::from_timestamp(timestamp_i64, 0)
+                    .ok_or_else(|| StorageError::ReadError("Invalid timestamp".to_string()))?;
+
+                let activity_type = match activity_type_str.as_str() {
+                    "ItemCreated" => UserActivityType::ItemCreated,
+                    "ItemUpdated" => UserActivityType::ItemUpdated,
+                    "CircuitJoined" => UserActivityType::CircuitJoined,
+                    _ => UserActivityType::ItemCreated,
+                };
+
+                activities.push(UserActivity {
+                    activity_id,
+                    user_id,
+                    workspace_id,
+                    activity_type,
+                    timestamp,
+                    description,
+                });
+            }
+
+            Ok(activities)
+        })
+    }
+
+    fn clear_user_activities(&mut self) -> Result<(), StorageError> {
+        let client = tokio::runtime::Handle::current().block_on(self.get_conn())?;
+
+        tokio::runtime::Handle::current().block_on(async {
+            client.execute("DELETE FROM user_activities", &[])
+                .await
+                .map_err(Self::map_pg_error)?;
+
+            Ok(())
+        })
+    }
 }

@@ -18,7 +18,7 @@ pub mod verification_engine;
 pub mod zk_proof_engine;
 // Stellar health check disabled - using SDK not CLI
 // pub mod stellar_health_check;
-// Disabled postgres_storage due to type mismatches - using postgres_persistence instead
+// Disabled temporarily due to type incompatibilities - using PostgresPersistence instead
 // pub mod postgres_storage;
 pub mod adapter_manager;
 pub mod api;
