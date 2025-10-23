@@ -1,8 +1,37 @@
 # 🚀 Redis Cache Migration Guide - PostgreSQL Primary + Redis
 
-## ✅ Status: READY TO DEPLOY
+## ⚙️ Status: PARCIALMENTE IMPLEMENTADO (Commit: 0456650)
 
-Toda a infraestrutura está implementada e pronta. Você tem **2 opções** de arquitetura:
+**Última atualização:** 2025-10-23
+
+### ✅ O que está funcionando:
+- Redis cache infrastructure (redis_cache.rs) - 413 linhas implementadas
+- Redis connection pooling with health checks
+- AppState.redis_cache field (Arc<RwLock<Option<RedisCache>>>)
+- Startup initialization with USE_REDIS_CACHE env var
+- Bulk loading skip when Redis is active
+- Graceful fallback if Redis fails
+
+### ⚠️ O que ainda precisa ser implementado:
+- **CachedPostgresStorage refactor** - Atualmente usa PostgresStorage (desabilitado), precisa usar PostgresPersistence
+- **Read operations integration** - Wiring ItemsEngine/CircuitsEngine/EventsEngine to use Redis cache
+- **Write-through invalidation** - Cache invalidation on writes to PostgreSQL
+
+### 🏗️ Arquitetura Atual vs. Target
+
+**ATUAL (InMemory + PostgresPersistence):**
+```
+API → InMemoryStorage (cache) + PostgresPersistence (async write-through) → PostgreSQL
+```
+
+**TARGET (Redis + PostgreSQL Primary):**
+```
+API #1 ─┐
+        ├──▶ Redis Cache ──▶ PostgreSQL Primary
+API #2 ─┘
+```
+
+Você tem **2 opções** de arquitetura:
 
 ### **Opção 1: Atual (InMemory + PostgreSQL) - ATIVO AGORA** ✅
 ```
@@ -28,7 +57,64 @@ API #2 ─┘
 
 ---
 
-## 🔧 Como Ativar Redis (Opção 2)
+## 🚧 IMPORTANTE: Integração Incompleta
+
+A infraestrutura do Redis está **implementada e testada**, mas a integração completa com a arquitetura atual (`PostgresPersistence`) está pendente.
+
+### Por que ainda não está totalmente funcional?
+
+O módulo `cached_postgres_storage.rs` foi projetado para usar `PostgresStorage`, mas nosso sistema em produção usa `PostgresPersistence`. Há incompatibilidades de tipos que precisam ser resolvidas:
+
+1. **PostgresStorage vs PostgresPersistence:**
+   - `PostgresStorage` implementa `StorageBackend` diretamente
+   - `PostgresPersistence` é uma camada assíncrona sobre a storage
+   - Métodos têm assinaturas diferentes (sync vs async, mutable vs immutable)
+
+2. **Trait incompatibilities:**
+   - 40+ erros de compilação ao ativar `cached_postgres_storage`
+   - Métodos do trait mudaram desde a implementação original
+   - Tipos de parâmetros divergiram (String vs Uuid, etc.)
+
+### O que funciona agora?
+
+Se você adicionar as env vars `USE_REDIS_CACHE=true` e `REDIS_URL=...`:
+- ✅ API conectará ao Redis e fará health check
+- ✅ Bulk loading será desabilitado (startup < 2s)
+- ⚠️ Redis ficará idle (não será usado para cache)
+- ⚠️ Sistema continuará usando InMemory + PostgresPersistence
+
+### Próximos passos para completar:
+
+1. **Refatorar CachedPostgresStorage:**
+   ```rust
+   // ATUAL (quebrado)
+   pub struct CachedPostgresStorage {
+       db: PostgresStorage,  // ❌ PostgresStorage desabilitado
+       cache: RedisCache,
+   }
+
+   // TARGET (funcional)
+   pub struct CachedPostgresStorage {
+       db: Arc<PostgresPersistence>,  // ✅ Usar PostgresPersistence
+       cache: Arc<RedisCache>,
+   }
+   ```
+
+2. **Implementar StorageBackend para wrapper:**
+   - Criar wrapper que combina PostgresPersistence + RedisCache
+   - Implementar cache-aside pattern nos métodos de leitura
+   - Implementar write-through com invalidação
+
+3. **Modificar engines para usar cache:**
+   - ItemsEngine: get_item → check Redis → fallback PostgreSQL
+   - CircuitsEngine: get_circuit → check Redis → fallback PostgreSQL
+   - EventsEngine: get_events → check Redis → fallback PostgreSQL
+
+**Estimativa de trabalho:** 4-6 horas de desenvolvimento + testes
+
+---
+
+## 🔧 Como Ativar Redis (Opção 2) - QUANDO ESTIVER COMPLETO
 
 ### **Passo 1: Configurar Railway Redis**
 
@@ -285,6 +371,31 @@ O sistema estará **pronto para escalar para milhões de items** sem problemas! 
 
 ---
 
+## 📝 Changelog
+
+### Commit 0456650 (2025-10-23)
+**feat: Add Redis cache initialization and conditional bulk loading**
+
+**Implementado:**
+- ✅ Redis cache field em AppState (`Arc<RwLock<Option<RedisCache>>>`)
+- ✅ Startup initialization com `USE_REDIS_CACHE=true` env var
+- ✅ Health check do Redis com graceful fallback
+- ✅ Bulk loading skip quando Redis ativo
+- ✅ Passagem de `use_redis` flag para funções de inicialização
+
+**Arquivos modificados:**
+- `src/api/shared_state.rs`: Added redis_cache field
+- `src/bin/api.rs`: Redis initialization + conditional loading
+- `src/lib.rs`: Disabled cached_postgres_storage (needs refactor)
+
+**Próximo commit:**
+- Refatorar `cached_postgres_storage.rs` para usar `PostgresPersistence`
+- Implementar cache-aside reads no ItemsEngine/CircuitsEngine
+- Testes de integração Redis + PostgreSQL
+
+---
+
 **Criado:** 2025-10-23
-**Status:** Implementação completa - pronta para deploy
-**Estimativa:** 15-30 minutos para ativar
+**Última atualização:** 2025-10-23 (Commit 0456650)
+**Status:** Infraestrutura pronta - integração completa pendente
+**Estimativa para completar:** 4-6 horas
