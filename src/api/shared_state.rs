@@ -4,6 +4,7 @@ use crate::api_key_storage::ApiKeyStorage;
 use crate::logging::LoggingEngine;
 use crate::postgres_persistence::PostgresPersistence;
 use crate::rate_limiter::RateLimiter;
+use crate::redis_cache::RedisCache;
 use crate::storage_history_reader::StorageHistoryReader;
 use crate::{
     ActivityEngine, AuditEngine, CircuitsEngine, EventsEngine, InMemoryStorage, ItemsEngine,
@@ -29,6 +30,8 @@ pub struct AppState<S: ApiKeyStorage = crate::api_key_storage::InMemoryApiKeySto
     pub jwt_secret: String,
     /// Optional PostgreSQL persistence layer - lazy initialized
     pub postgres_persistence: Arc<RwLock<Option<PostgresPersistence>>>,
+    /// Optional Redis cache layer for horizontal scaling
+    pub redis_cache: Arc<RwLock<Option<RedisCache>>>,
 }
 
 impl Default for AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
@@ -100,6 +103,7 @@ impl AppState<crate::api_key_storage::InMemoryApiKeyStorage> {
             notification_tx,
             jwt_secret,
             postgres_persistence: Arc::new(RwLock::new(None)),
+            redis_cache: Arc::new(RwLock::new(None)),
         }
     }
 

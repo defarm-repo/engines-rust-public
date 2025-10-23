@@ -43,6 +43,50 @@ async fn main() {
     // Stellar SDK integration - no CLI needed, health check removed
     info!("🌟 Stellar SDK integration enabled (native Rust - no CLI dependency)");
 
+    // Initialize Redis cache if enabled
+    let use_redis = std::env::var("USE_REDIS_CACHE")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false);
+
+    if use_redis {
+        match std::env::var("REDIS_URL") {
+            Ok(redis_url) => {
+                info!("🔴 Redis cache enabled - initializing connection...");
+                match defarm_engine::redis_cache::RedisCache::new(
+                    &redis_url,
+                    std::time::Duration::from_secs(3600), // 1 hour TTL
+                ) {
+                    Ok(redis_cache) => {
+                        // Health check
+                        match tokio::runtime::Handle::current().block_on(redis_cache.health_check())
+                        {
+                            Ok(_) => {
+                                info!("✅ Redis cache connected and healthy!");
+                                let mut redis_lock = app_state.redis_cache.write().await;
+                                *redis_lock = Some(redis_cache);
+                                drop(redis_lock);
+                            }
+                            Err(e) => {
+                                tracing::error!("❌ Redis health check failed: {}", e);
+                                tracing::error!("❌ Continuing without Redis cache...");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ Failed to initialize Redis cache: {}", e);
+                        tracing::error!("❌ Continuing without Redis cache...");
+                    }
+                }
+            }
+            Err(_) => {
+                tracing::warn!("⚠️  USE_REDIS_CACHE=true but REDIS_URL not set");
+                tracing::warn!("⚠️  Continuing without Redis cache...");
+            }
+        }
+    } else {
+        info!("💾 Redis cache disabled - using InMemory storage only");
+    }
+
     // Initialize PostgreSQL - can be synchronous or asynchronous based on env var
     // POSTGRES_WAIT_ON_STARTUP=true (default in production) blocks until connected
     let wait_on_startup = std::env::var("POSTGRES_WAIT_ON_STARTUP")
@@ -54,10 +98,10 @@ async fn main() {
 
     if wait_on_startup {
         info!("⏳ Waiting for PostgreSQL connection before starting server...");
-        initialize_postgres_sync(app_state.clone()).await;
+        initialize_postgres_sync(app_state.clone(), use_redis).await;
     } else {
         info!("🚀 Starting server with background PostgreSQL initialization...");
-        initialize_postgres_background(app_state.clone());
+        initialize_postgres_background(app_state.clone(), use_redis);
     }
 
     // Health endpoints with state
@@ -259,7 +303,7 @@ async fn health_check_db(
 }
 
 /// Initialize PostgreSQL synchronously, blocking until connected
-async fn initialize_postgres_sync(app_state: Arc<AppState>) {
+async fn initialize_postgres_sync(app_state: Arc<AppState>, use_redis: bool) {
     // Require DATABASE_URL to be set - no in-memory fallback
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(url) if !url.is_empty() => url,
@@ -283,140 +327,16 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>) {
         Ok(()) => {
             tracing::info!("✅ PostgreSQL persistence enabled");
 
-            // Load or initialize data (same logic as background version)
-            // CRITICAL: If load fails, server MUST NOT start with empty cache
-            let data_loaded = match load_data_from_postgres(&pg_persistence, &app_state).await {
-                Ok(count) if count > 0 => {
-                    tracing::info!("✅ Loaded {} users from PostgreSQL", count);
-                    true
-                }
-                Ok(_) => {
-                    tracing::info!("💡 PostgreSQL database is empty - will initialize");
-                    false
-                }
-                Err(e) => {
-                    tracing::error!("❌ FATAL: Failed to load data from PostgreSQL: {}", e);
-                    tracing::error!("❌ Cannot start server with empty InMemory cache");
-                    tracing::error!("❌ This would cause data loss and inconsistencies");
-                    tracing::error!("❌ Please check PostgreSQL connection and schema");
-                    std::process::exit(1);
-                }
-            };
-
-            // If database is empty, initialize development data
-            if !data_loaded {
-                tracing::info!("🚀 Initializing development data in PostgreSQL...");
-                match initialize_development_data_to_postgres(&pg_persistence).await {
-                    Ok(()) => tracing::info!("✅ Development data initialized in PostgreSQL"),
-                    Err(e) => {
-                        tracing::error!("❌ Failed to initialize development data: {}", e)
-                    }
-                }
-
-                // Load the newly created data into in-memory storage
-                // CRITICAL: Must load after initialization
-                match load_data_from_postgres(&pg_persistence, &app_state).await {
-                    Ok(count) => {
-                        tracing::info!("✅ Loaded {} users into in-memory cache", count)
-                    }
-                    Err(e) => {
-                        tracing::error!("❌ FATAL: Failed to load initialized data: {}", e);
-                        tracing::error!("❌ Data was initialized but could not be loaded to cache");
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                // Check and initialize adapters if needed
-                tracing::info!("🔍 Checking if production adapters need initialization...");
-                match pg_persistence.load_adapter_configs().await {
-                    Ok(adapters) if adapters.is_empty() => {
-                        tracing::info!(
-                            "🔌 No adapters found - initializing production adapters..."
-                        );
-                        match initialize_adapters_to_postgres(&pg_persistence).await {
-                            Ok(count) => {
-                                tracing::info!("✅ {} production adapters initialized!", count)
-                            }
-                            Err(e) => {
-                                tracing::error!("❌ Failed to initialize adapters: {}", e)
-                            }
-                        }
-                        // Reload adapters into memory
-                        // CRITICAL: Must load adapters after initialization
-                        match load_data_from_postgres(&pg_persistence, &app_state).await {
-                            Ok(_) => tracing::info!("✅ Adapters loaded into memory"),
-                            Err(e) => {
-                                tracing::error!("❌ FATAL: Failed to reload adapters: {}", e);
-                                std::process::exit(1);
-                            }
-                        }
-                    }
-                    Ok(adapters) => {
-                        tracing::info!("✅ {} adapters already exist in database", adapters.len());
-                    }
-                    Err(e) => {
-                        tracing::warn!("⚠️  Could not check adapters: {}", e);
-                    }
-                }
-            }
-
-            // Store the connected persistence instance
-            let mut pg_lock = app_state.postgres_persistence.write().await;
-            *pg_lock = Some(pg_persistence);
-            drop(pg_lock);
-
-            // Enable event persistence now that PostgreSQL is connected
-            app_state.enable_event_persistence();
-            tracing::info!("✅ Event persistence enabled - events will now persist to PostgreSQL");
-
-            app_state.enable_activity_persistence();
-            tracing::info!(
-                "✅ User activity persistence enabled - user actions will now persist to PostgreSQL"
-            );
-
-            app_state.enable_circuit_activity_persistence();
-            tracing::info!(
-                "✅ Circuit activity persistence enabled - circuit logs will now persist to PostgreSQL"
-            );
-
-            tracing::info!("🎉 PostgreSQL persistence fully operational!");
-        }
-        Err(e) => {
-            tracing::error!("❌ PostgreSQL connection failed: {}", e);
-            tracing::error!("❌ Cannot start server without database connection");
-            tracing::error!("❌ Please check your DATABASE_URL and ensure PostgreSQL is running");
-            std::process::exit(1);
-        }
-    }
-}
-
-/// Initialize PostgreSQL in background without blocking server startup
-fn initialize_postgres_background(app_state: Arc<AppState>) {
-    tokio::spawn(async move {
-        // Require DATABASE_URL to be set - no in-memory fallback
-        let database_url = match std::env::var("DATABASE_URL") {
-            Ok(url) if !url.is_empty() => url,
-            _ => {
-                tracing::error!(
-                    "❌ DATABASE_URL environment variable is required for data persistence"
+            // Skip bulk loading if using Redis cache - data will be loaded on-demand
+            if use_redis {
+                tracing::info!(
+                    "🔴 Redis cache active - skipping bulk data loading from PostgreSQL"
                 );
-                tracing::error!("❌ Set DATABASE_URL to your PostgreSQL connection string");
-                tracing::error!("❌ Example: postgresql://user:password@localhost:5432/database");
-                std::process::exit(1);
-            }
-        };
-
-        tracing::info!("🗄️  Connecting to PostgreSQL for persistent storage...");
-
-        // Create PostgreSQL persistence instance
-        let mut pg_persistence = PostgresPersistence::new(database_url);
-
-        // Try to connect with retry logic
-        match pg_persistence.connect().await {
-            Ok(()) => {
-                tracing::info!("✅ PostgreSQL persistence enabled");
-
-                // Try to load existing data from PostgreSQL
+                tracing::info!(
+                    "💡 Items, circuits, and events will be loaded lazily on first access"
+                );
+            } else {
+                // Load or initialize data (same logic as background version)
                 // CRITICAL: If load fails, server MUST NOT start with empty cache
                 let data_loaded = match load_data_from_postgres(&pg_persistence, &app_state).await {
                     Ok(count) if count > 0 => {
@@ -436,7 +356,7 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                     }
                 };
 
-                // If database is empty, initialize development data directly to PostgreSQL
+                // If database is empty, initialize development data
                 if !data_loaded {
                     tracing::info!("🚀 Initializing development data in PostgreSQL...");
                     match initialize_development_data_to_postgres(&pg_persistence).await {
@@ -461,7 +381,7 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                         }
                     }
                 } else {
-                    // Database has existing data - check if adapters exist
+                    // Check and initialize adapters if needed
                     tracing::info!("🔍 Checking if production adapters need initialization...");
                     match pg_persistence.load_adapter_configs().await {
                         Ok(adapters) if adapters.is_empty() => {
@@ -497,8 +417,167 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                         }
                     }
                 }
+            } // End of if !use_redis block
 
-                // Store the connected persistence instance
+            // Store the connected persistence instance (always needed regardless of Redis)
+            let mut pg_lock = app_state.postgres_persistence.write().await;
+            *pg_lock = Some(pg_persistence);
+            drop(pg_lock);
+
+            // Enable event persistence now that PostgreSQL is connected
+            app_state.enable_event_persistence();
+            tracing::info!("✅ Event persistence enabled - events will now persist to PostgreSQL");
+
+            app_state.enable_activity_persistence();
+            tracing::info!(
+                "✅ User activity persistence enabled - user actions will now persist to PostgreSQL"
+            );
+
+            app_state.enable_circuit_activity_persistence();
+            tracing::info!(
+                "✅ Circuit activity persistence enabled - circuit logs will now persist to PostgreSQL"
+            );
+
+            tracing::info!("🎉 PostgreSQL persistence fully operational!");
+        }
+        Err(e) => {
+            tracing::error!("❌ PostgreSQL connection failed: {}", e);
+            tracing::error!("❌ Cannot start server without database connection");
+            tracing::error!("❌ Please check your DATABASE_URL and ensure PostgreSQL is running");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Initialize PostgreSQL in background without blocking server startup
+fn initialize_postgres_background(app_state: Arc<AppState>, use_redis: bool) {
+    tokio::spawn(async move {
+        // Require DATABASE_URL to be set - no in-memory fallback
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(url) if !url.is_empty() => url,
+            _ => {
+                tracing::error!(
+                    "❌ DATABASE_URL environment variable is required for data persistence"
+                );
+                tracing::error!("❌ Set DATABASE_URL to your PostgreSQL connection string");
+                tracing::error!("❌ Example: postgresql://user:password@localhost:5432/database");
+                std::process::exit(1);
+            }
+        };
+
+        tracing::info!("🗄️  Connecting to PostgreSQL for persistent storage...");
+
+        // Create PostgreSQL persistence instance
+        let mut pg_persistence = PostgresPersistence::new(database_url);
+
+        // Try to connect with retry logic
+        match pg_persistence.connect().await {
+            Ok(()) => {
+                tracing::info!("✅ PostgreSQL persistence enabled");
+
+                // Skip bulk loading if using Redis cache - data will be loaded on-demand
+                if use_redis {
+                    tracing::info!(
+                        "🔴 Redis cache active - skipping bulk data loading from PostgreSQL"
+                    );
+                    tracing::info!(
+                        "💡 Items, circuits, and events will be loaded lazily on first access"
+                    );
+                } else {
+                    // Try to load existing data from PostgreSQL
+                    // CRITICAL: If load fails, server MUST NOT start with empty cache
+                    let data_loaded = match load_data_from_postgres(&pg_persistence, &app_state)
+                        .await
+                    {
+                        Ok(count) if count > 0 => {
+                            tracing::info!("✅ Loaded {} users from PostgreSQL", count);
+                            true
+                        }
+                        Ok(_) => {
+                            tracing::info!("💡 PostgreSQL database is empty - will initialize");
+                            false
+                        }
+                        Err(e) => {
+                            tracing::error!("❌ FATAL: Failed to load data from PostgreSQL: {}", e);
+                            tracing::error!("❌ Cannot start server with empty InMemory cache");
+                            tracing::error!("❌ This would cause data loss and inconsistencies");
+                            tracing::error!("❌ Please check PostgreSQL connection and schema");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    // If database is empty, initialize development data directly to PostgreSQL
+                    if !data_loaded {
+                        tracing::info!("🚀 Initializing development data in PostgreSQL...");
+                        match initialize_development_data_to_postgres(&pg_persistence).await {
+                            Ok(()) => {
+                                tracing::info!("✅ Development data initialized in PostgreSQL")
+                            }
+                            Err(e) => {
+                                tracing::error!("❌ Failed to initialize development data: {}", e)
+                            }
+                        }
+
+                        // Load the newly created data into in-memory storage
+                        // CRITICAL: Must load after initialization
+                        match load_data_from_postgres(&pg_persistence, &app_state).await {
+                            Ok(count) => {
+                                tracing::info!("✅ Loaded {} users into in-memory cache", count)
+                            }
+                            Err(e) => {
+                                tracing::error!("❌ FATAL: Failed to load initialized data: {}", e);
+                                tracing::error!(
+                                    "❌ Data was initialized but could not be loaded to cache"
+                                );
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        // Database has existing data - check if adapters exist
+                        tracing::info!("🔍 Checking if production adapters need initialization...");
+                        match pg_persistence.load_adapter_configs().await {
+                            Ok(adapters) if adapters.is_empty() => {
+                                tracing::info!(
+                                    "🔌 No adapters found - initializing production adapters..."
+                                );
+                                match initialize_adapters_to_postgres(&pg_persistence).await {
+                                    Ok(count) => {
+                                        tracing::info!(
+                                            "✅ {} production adapters initialized!",
+                                            count
+                                        )
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("❌ Failed to initialize adapters: {}", e)
+                                    }
+                                }
+                                // Reload adapters into memory
+                                // CRITICAL: Must load adapters after initialization
+                                match load_data_from_postgres(&pg_persistence, &app_state).await {
+                                    Ok(_) => tracing::info!("✅ Adapters loaded into memory"),
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "❌ FATAL: Failed to reload adapters: {}",
+                                            e
+                                        );
+                                        std::process::exit(1);
+                                    }
+                                }
+                            }
+                            Ok(adapters) => {
+                                tracing::info!(
+                                    "✅ {} adapters already exist in database",
+                                    adapters.len()
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!("⚠️  Could not check adapters: {}", e);
+                            }
+                        }
+                    }
+                } // End of if !use_redis block
+
+                // Store the connected persistence instance (always needed regardless of Redis)
                 let mut pg_lock = app_state.postgres_persistence.write().await;
                 *pg_lock = Some(pg_persistence);
                 drop(pg_lock);
