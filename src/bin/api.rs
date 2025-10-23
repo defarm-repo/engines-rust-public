@@ -369,6 +369,16 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>) {
             app_state.enable_event_persistence();
             tracing::info!("✅ Event persistence enabled - events will now persist to PostgreSQL");
 
+            app_state.enable_activity_persistence();
+            tracing::info!(
+                "✅ User activity persistence enabled - user actions will now persist to PostgreSQL"
+            );
+
+            app_state.enable_circuit_activity_persistence();
+            tracing::info!(
+                "✅ Circuit activity persistence enabled - circuit logs will now persist to PostgreSQL"
+            );
+
             tracing::info!("🎉 PostgreSQL persistence fully operational!");
         }
         Err(e) => {
@@ -497,6 +507,16 @@ fn initialize_postgres_background(app_state: Arc<AppState>) {
                 app_state.enable_event_persistence();
                 tracing::info!(
                     "✅ Event persistence enabled - events will now persist to PostgreSQL"
+                );
+
+                app_state.enable_activity_persistence();
+                tracing::info!(
+                    "✅ User activity persistence enabled - user actions will now persist to PostgreSQL"
+                );
+
+                app_state.enable_circuit_activity_persistence();
+                tracing::info!(
+                    "✅ Circuit activity persistence enabled - circuit logs will now persist to PostgreSQL"
                 );
 
                 tracing::info!("🎉 PostgreSQL persistence fully operational!");

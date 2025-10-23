@@ -369,6 +369,25 @@ fn spawn_persist_circuit(state: &Arc<AppState>, circuit: Circuit) {
     });
 }
 
+fn fetch_circuit(state: &Arc<AppState>, circuit_id: &Uuid) -> Option<Circuit> {
+    state
+        .shared_storage
+        .lock()
+        .ok()
+        .and_then(|storage| storage.get_circuit(circuit_id).ok()?.map(|c| c))
+}
+
+fn fetch_circuit_operation(
+    state: &Arc<AppState>,
+    operation_id: &Uuid,
+) -> Option<CircuitOperation> {
+    state
+        .shared_storage
+        .lock()
+        .ok()
+        .and_then(|storage| storage.get_circuit_operation(operation_id).ok()?.map(|op| op))
+}
+
 fn spawn_persist_circuit_operation(state: &Arc<AppState>, operation: CircuitOperation) {
     let state_clone = Arc::clone(state);
     tokio::spawn(async move {
@@ -826,25 +845,32 @@ async fn create_circuit(
 
     // Record user activity
     let circuit_id_str = circuit.circuit_id.to_string();
-    let _ = state.activity_engine.lock().ok().and_then(|engine| {
-        let activity = UserActivity {
-            activity_id: Uuid::new_v4().to_string(),
-            user_id: owner_id.clone(),
-            workspace_id: "default-workspace".to_string(), // TODO: Get from context
-            timestamp: Utc::now(),
-            activity_type: UserActivityType::Create,
-            category: UserActivityCategory::Circuits,
-            resource_type: UserResourceType::Circuit,
-            resource_id: circuit_id_str.clone(),
-            action: "create_circuit".to_string(),
-            description: format!("Created circuit: {}", circuit.name),
-            metadata: serde_json::Value::Null,
-            success: true,
-            ip_address: None, // TODO: Extract from request
-            user_agent: None, // TODO: Extract from request
-        };
-        engine.record_activity(&activity).ok()
-    });
+    let user_activity = UserActivity {
+        activity_id: Uuid::new_v4().to_string(),
+        user_id: owner_id.clone(),
+        workspace_id: "default-workspace".to_string(), // TODO: Get from context
+        timestamp: Utc::now(),
+        activity_type: UserActivityType::Create,
+        category: UserActivityCategory::Circuits,
+        resource_type: UserResourceType::Circuit,
+        resource_id: circuit_id_str.clone(),
+        action: "create_circuit".to_string(),
+        description: format!("Created circuit: {}", circuit.name),
+        metadata: serde_json::Value::Null,
+        success: true,
+        ip_address: None, // TODO: Extract from request
+        user_agent: None, // TODO: Extract from request
+    };
+
+    if let Ok(engine) = state.activity_engine.lock() {
+        if let Err(e) = engine.record_activity(&user_activity) {
+            tracing::warn!(
+                "Failed to record user activity {}: {}",
+                user_activity.activity_id,
+                e
+            );
+        }
+    }
 
     Ok(Json(circuit_to_response(circuit)))
 }

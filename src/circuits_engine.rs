@@ -4,6 +4,7 @@ use crate::adapters::{
 };
 use crate::dfid_engine::DfidEngine;
 use crate::events_engine::EventsEngine;
+use crate::postgres_persistence::PostgresPersistence;
 use crate::identifier_types::{
     CircuitAliasConfig, EnhancedIdentifier, ExternalAlias, IdentifierType,
 };
@@ -20,6 +21,7 @@ use crate::webhook_engine::WebhookEngine;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -99,6 +101,7 @@ pub struct CircuitsEngine<S: StorageBackend> {
     events_engine: EventsEngine<S>,
     dfid_engine: DfidEngine,
     webhook_engine: std::cell::RefCell<WebhookEngine<S>>,
+    postgres: Option<Arc<RwLock<Option<PostgresPersistence>>>>,
 }
 
 impl<S: StorageBackend> CircuitsEngine<S> {
@@ -112,6 +115,29 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             events_engine,
             dfid_engine: DfidEngine::new(),
             webhook_engine: std::cell::RefCell::new(webhook_engine),
+            postgres: None,
+        }
+    }
+
+    pub fn set_postgres(&mut self, postgres: Arc<RwLock<Option<PostgresPersistence>>>) {
+        self.postgres = Some(postgres);
+    }
+
+    fn spawn_persist_activity(&self, activity: Activity) {
+        if let Some(pg_ref) = &self.postgres {
+            let pg = Arc::clone(pg_ref);
+            tokio::spawn(async move {
+                let pg_lock = pg.read().await;
+                if let Some(pg_persistence) = &*pg_lock {
+                    if let Err(e) = pg_persistence.persist_activity(&activity).await {
+                        tracing::warn!(
+                            "Failed to persist circuit activity {}: {}",
+                            activity.activity_id,
+                            e
+                        );
+                    }
+                }
+            });
         }
     }
 
@@ -417,6 +443,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             storage
                 .store_activity(&activity)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+            self.spawn_persist_activity(activity.clone());
         }
 
         // Handle auto-publish for immediate pushes (not requiring approval)
@@ -867,6 +894,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             storage
                 .store_activity(&activity)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+            self.spawn_persist_activity(activity.clone());
         }
 
         storage
@@ -1292,6 +1320,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             storage
                 .store_activity(&activity)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+            self.spawn_persist_activity(activity.clone());
         }
 
         storage
@@ -1383,6 +1412,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             storage
                 .store_activity(&activity)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+            self.spawn_persist_activity(activity.clone());
 
             // Handle auto-publish if enabled
             if let Some(ref public_settings) = circuit.public_settings {

@@ -1658,25 +1658,32 @@ async fn create_local_item(
     });
 
     // Record user activity
-    let _ = state.activity_engine.lock().ok().and_then(|engine| {
-        let activity = UserActivity {
-            activity_id: Uuid::new_v4().to_string(),
-            user_id: _user_id.clone(),
-            workspace_id: "default-workspace".to_string(), // TODO: Get from claims
-            timestamp: Utc::now(),
-            activity_type: UserActivityType::Create,
-            category: UserActivityCategory::Items,
-            resource_type: UserResourceType::Item,
-            resource_id: local_id.to_string(),
-            action: "create_local_item".to_string(),
-            description: format!("Created local item with ID: {}", local_id),
-            metadata: serde_json::Value::Null,
-            success: true,
-            ip_address: None, // TODO: Extract from request
-            user_agent: None, // TODO: Extract from request
-        };
-        engine.record_activity(&activity).ok()
-    });
+    let user_activity = UserActivity {
+        activity_id: Uuid::new_v4().to_string(),
+        user_id: _user_id.clone(),
+        workspace_id: "default-workspace".to_string(), // TODO: Get from claims
+        timestamp: Utc::now(),
+        activity_type: UserActivityType::Create,
+        category: UserActivityCategory::Items,
+        resource_type: UserResourceType::Item,
+        resource_id: local_id.to_string(),
+        action: "create_local_item".to_string(),
+        description: format!("Created local item with ID: {}", local_id),
+        metadata: serde_json::Value::Null,
+        success: true,
+        ip_address: None, // TODO: Extract from request
+        user_agent: None, // TODO: Extract from request
+    };
+
+    if let Ok(engine) = state.activity_engine.lock() {
+        if let Err(e) = engine.record_activity(&user_activity) {
+            tracing::warn!(
+                "Failed to record user activity {}: {}",
+                user_activity.activity_id,
+                e
+            );
+        }
+    }
 
     Ok(Json(CreateLocalItemResponse {
         success: true,

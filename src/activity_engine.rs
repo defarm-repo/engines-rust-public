@@ -1,3 +1,4 @@
+use crate::postgres_persistence::PostgresPersistence;
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::{
     UserActivity, UserActivityCategory, UserActivityFilters, UserActivityListResponse,
@@ -6,6 +7,7 @@ use crate::types::{
 use chrono::{DateTime, Duration, Timelike, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[derive(Debug)]
 pub enum ActivityError {
@@ -35,11 +37,27 @@ impl std::error::Error for ActivityError {}
 #[derive(Clone)]
 pub struct ActivityEngine<S: StorageBackend> {
     storage: Arc<std::sync::Mutex<S>>,
+    postgres: Option<Arc<RwLock<Option<PostgresPersistence>>>>,
 }
 
 impl<S: StorageBackend> ActivityEngine<S> {
     pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            postgres: None,
+        }
+    }
+
+    pub fn with_postgres(
+        mut self,
+        postgres: Arc<RwLock<Option<PostgresPersistence>>>,
+    ) -> Self {
+        self.postgres = Some(postgres);
+        self
+    }
+
+    pub fn set_postgres(&mut self, postgres: Arc<RwLock<Option<PostgresPersistence>>>) {
+        self.postgres = Some(postgres);
     }
 
     pub fn get_storage(&self) -> &Arc<std::sync::Mutex<S>> {
@@ -56,6 +74,23 @@ impl<S: StorageBackend> ActivityEngine<S> {
                 ))
             })?
             .store_user_activity(activity)?;
+
+        if let Some(pg_ref) = &self.postgres {
+            let activity_clone = activity.clone();
+            let pg = Arc::clone(pg_ref);
+            tokio::spawn(async move {
+                let pg_lock = pg.read().await;
+                if let Some(pg_persistence) = &*pg_lock {
+                    if let Err(e) = pg_persistence.persist_user_activity(&activity_clone).await {
+                        tracing::warn!(
+                            "Failed to persist user activity {}: {}",
+                            activity_clone.activity_id,
+                            e
+                        );
+                    }
+                }
+            });
+        }
 
         Ok(())
     }

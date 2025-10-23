@@ -419,6 +419,33 @@ CREATE INDEX IF NOT EXISTS idx_activities_performed_by ON activities(performed_b
 CREATE INDEX IF NOT EXISTS idx_activities_timestamp ON activities(timestamp_ts DESC);
 
 -- ============================================================================
+-- USER ACTIVITIES (API activity logs)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS user_activities (
+    activity_id UUID PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL REFERENCES user_accounts(user_id) ON DELETE CASCADE,
+    workspace_id VARCHAR(255) NOT NULL,
+    activity_type VARCHAR(100) NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    resource_type VARCHAR(100) NOT NULL,
+    resource_id VARCHAR(255) NOT NULL,
+    action VARCHAR(255) NOT NULL,
+    description TEXT,
+    metadata JSONB,
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    ip_address VARCHAR(255),
+    user_agent VARCHAR(255),
+    timestamp_ts BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_activities_user_id ON user_activities(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_activities_workspace_id ON user_activities(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_user_activities_timestamp ON user_activities(timestamp_ts DESC);
+
+-- ============================================================================
 -- NOTIFICATIONS
 -- ============================================================================
 

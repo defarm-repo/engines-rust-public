@@ -77,6 +77,7 @@ enum PersistCommand {
     LidMapping { local_id: Uuid, dfid: String },
     CircuitOperation(CircuitOperation),
     Activity(Activity),
+    UserActivityLog(UserActivity),
     StorageRecord { dfid: String, record: StorageRecord },
     AdapterConfig(AdapterConfig),
     WebhookConfig(WebhookConfig),
@@ -448,6 +449,9 @@ impl PostgresPersistence {
                 self.persist_circuit_operation_once(operation).await
             }
             PersistCommand::Activity(activity) => self.persist_activity_once(activity).await,
+            PersistCommand::UserActivityLog(activity) => {
+                self.persist_user_activity_once(activity).await
+            }
             PersistCommand::StorageRecord { dfid, record } => {
                 self.persist_storage_record_once(dfid, record).await
             }
@@ -1665,6 +1669,63 @@ impl PostgresPersistence {
             "✅ Persisted activity {} to PostgreSQL",
             activity.activity_id
         );
+        Ok(())
+    }
+
+    /// Persist user activity to PostgreSQL
+    pub async fn persist_user_activity(&self, activity: &UserActivity) -> Result<(), String> {
+        self.enqueue_persist(
+            "persist_user_activity",
+            PersistCommand::UserActivityLog(activity.clone()),
+        )
+        .await
+    }
+
+    async fn persist_user_activity_once(&self, activity: &UserActivity) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        let activity_id_uuid =
+            Uuid::parse_str(&activity.activity_id).unwrap_or_else(|_| Uuid::new_v4());
+
+        client
+            .execute(
+                "INSERT INTO user_activities
+             (activity_id, user_id, workspace_id, activity_type, category, resource_type,
+              resource_id, action, description, metadata, success, ip_address, user_agent,
+              timestamp_ts, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+             ON CONFLICT (activity_id) DO UPDATE
+             SET action = EXCLUDED.action,
+                 description = EXCLUDED.description,
+                 metadata = EXCLUDED.metadata,
+                 success = EXCLUDED.success,
+                 timestamp_ts = EXCLUDED.timestamp_ts,
+                 updated_at = NOW()",
+                &[
+                    &activity_id_uuid,
+                    &activity.user_id,
+                    &activity.workspace_id,
+                    &format!("{:?}", activity.activity_type),
+                    &format!("{:?}", activity.category),
+                    &format!("{:?}", activity.resource_type),
+                    &activity.resource_id,
+                    &activity.action,
+                    &activity.description,
+                    &activity.metadata,
+                    &activity.success,
+                    &activity.ip_address,
+                    &activity.user_agent,
+                    &activity.timestamp.timestamp(),
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist user activity: {e}"))?;
+
+        tracing::debug!(
+            "✅ Persisted user activity {} to PostgreSQL",
+            activity.activity_id
+        );
+
         Ok(())
     }
 
