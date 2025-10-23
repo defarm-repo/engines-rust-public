@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::api::auth::Claims;
 use crate::api::items::{build_identifiers, IdentifierRequest};
 use crate::identifier_types::CircuitAliasConfig;
+use crate::postgres_storage_with_cache::PostgresStorageWithCache;
 use crate::storage::StorageBackend;
 use crate::types::{
     Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitItem, CircuitPermissions,
@@ -553,7 +554,7 @@ fn parse_member_role(role_str: &str) -> Result<MemberRole, String> {
 
 fn lock_circuits_engine<'a>(
     state: &'a Arc<AppState>,
-) -> Result<MutexGuard<'a, CircuitsEngine<InMemoryStorage>>, (StatusCode, Json<Value>)> {
+) -> Result<MutexGuard<'a, CircuitsEngine<PostgresStorageWithCache>>, (StatusCode, Json<Value>)> {
     state.circuits_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -565,7 +566,10 @@ fn lock_circuits_engine<'a>(
 #[allow(clippy::type_complexity)]
 fn lock_items_engine<'a>(
     state: &'a Arc<AppState>,
-) -> Result<MutexGuard<'a, ItemsEngine<Arc<Mutex<InMemoryStorage>>>>, (StatusCode, Json<Value>)> {
+) -> Result<
+    MutexGuard<'a, ItemsEngine<Arc<Mutex<PostgresStorageWithCache>>>>,
+    (StatusCode, Json<Value>),
+> {
     state.items_engine.lock().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

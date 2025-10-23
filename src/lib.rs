@@ -20,6 +20,7 @@ pub mod zk_proof_engine;
 // pub mod stellar_health_check;
 // pub mod postgres_storage; // Disabled - has type incompatibilities. Use PostgresPersistence instead.
 // Redis cache infrastructure - ACTIVE
+pub mod postgres_storage_with_cache;
 pub mod redis_cache;
 pub mod redis_postgres_storage; // Production-ready: Redis + PostgreSQL Primary Storage
                                 // pub mod cached_postgres_storage; // DEPRECATED - replaced by redis_postgres_storage
@@ -59,6 +60,7 @@ pub use events_engine::*;
 pub use items_engine::*;
 pub use logging::*;
 pub use notification_engine::*;
+pub use postgres_storage_with_cache::PostgresStorageWithCache;
 pub use rate_limiter::*;
 pub use receipt_engine::*;
 pub use storage::*;

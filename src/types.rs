@@ -255,7 +255,7 @@ pub struct Event {
     pub content_hash: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EventType {
     Created,
     Enriched,
@@ -1668,7 +1668,7 @@ pub struct AuditEvent {
     pub compliance: ComplianceInfo,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AuditEventType {
     Security,
     Data,
@@ -1678,7 +1678,7 @@ pub enum AuditEventType {
     User,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AuditOutcome {
     Success,
     Failure,
@@ -1686,7 +1686,7 @@ pub enum AuditOutcome {
     Blocked,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AuditSeverity {
     Low,
     Medium,
@@ -1737,7 +1737,7 @@ pub enum IncidentCategory {
     DenialOfService,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum IncidentStatus {
     Open,
     InProgress,

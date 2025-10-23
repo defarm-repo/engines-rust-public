@@ -2730,4 +2730,245 @@ impl PostgresPersistence {
         tracing::debug!("✅ Incremented events indexed for {}: +{}", network, count);
         Ok(())
     }
+
+    /// Persist notification to PostgreSQL
+    pub async fn persist_notification(&self, notification: &Notification) -> Result<(), String> {
+        let client = self
+            .get_client()
+            .await
+            .map_err(|e| format!("Failed to get database client: {}", e))?;
+
+        client
+            .execute(
+                "INSERT INTO notifications (id, user_id, notification_type, title, message, read, timestamp, data)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (id) DO UPDATE SET
+                    read = EXCLUDED.read,
+                    data = EXCLUDED.data",
+                &[
+                    &notification.id,
+                    &notification.user_id,
+                    &serde_json::to_string(&notification.notification_type).unwrap_or_default(),
+                    &notification.title,
+                    &notification.message,
+                    &notification.read,
+                    &notification.timestamp,
+                    &notification.data,
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist notification: {}", e))?;
+
+        tracing::debug!("✅ Notification persisted: {}", notification.id);
+        Ok(())
+    }
+
+    /// Load all events from PostgreSQL
+    pub async fn load_events(&self) -> Result<Vec<Event>, String> {
+        let client = self
+            .get_client()
+            .await
+            .map_err(|e| format!("Failed to get database client: {}", e))?;
+
+        let rows = client
+            .query(
+                "SELECT event_id, dfid, event_type, timestamp, source, metadata, is_encrypted, visibility, content_hash
+                 FROM events
+                 ORDER BY timestamp DESC",
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to load events: {}", e))?;
+
+        let mut events = Vec::new();
+        for row in rows {
+            let event_type_str: String = row.get(2);
+            let metadata_json: serde_json::Value = row.get(5);
+            let visibility_str: String = row.get(7);
+
+            events.push(Event {
+                event_id: row.get(0),
+                dfid: row.get(1),
+                event_type: serde_json::from_str(&event_type_str).unwrap_or(EventType::Created),
+                timestamp: row.get(3),
+                source: row.get(4),
+                metadata: serde_json::from_value(metadata_json).unwrap_or_default(),
+                is_encrypted: row.get(6),
+                visibility: serde_json::from_str(&visibility_str)
+                    .unwrap_or(EventVisibility::Private),
+                content_hash: row.get(8),
+            });
+        }
+
+        tracing::debug!("✅ Loaded {} events from PostgreSQL", events.len());
+        Ok(events)
+    }
+
+    /// Persist audit event to PostgreSQL
+    pub async fn persist_audit_event(&self, event: &AuditEvent) -> Result<(), String> {
+        let client = self
+            .get_client()
+            .await
+            .map_err(|e| format!("Failed to get database client: {}", e))?;
+
+        client
+            .execute(
+                "INSERT INTO audit_events (event_id, user_id, event_type, action, resource, resource_id, outcome, severity, timestamp, details, metadata, signature, compliance)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                 ON CONFLICT (event_id) DO NOTHING",
+                &[
+                    &event.event_id,
+                    &event.user_id,
+                    &serde_json::to_string(&event.event_type).unwrap_or_default(),
+                    &event.action,
+                    &event.resource,
+                    &event.resource_id,
+                    &serde_json::to_string(&event.outcome).unwrap_or_default(),
+                    &serde_json::to_string(&event.severity).unwrap_or_default(),
+                    &event.timestamp,
+                    &serde_json::to_value(&event.details).unwrap_or(json!({})),
+                    &serde_json::to_value(&event.metadata).unwrap_or(json!({})),
+                    &event.signature,
+                    &serde_json::to_value(&event.compliance).unwrap_or(json!({})),
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist audit event: {}", e))?;
+
+        tracing::debug!("✅ Audit event persisted: {}", event.event_id);
+        Ok(())
+    }
+
+    /// Load all audit events from PostgreSQL
+    pub async fn load_audit_events(&self) -> Result<Vec<AuditEvent>, String> {
+        let client = self
+            .get_client()
+            .await
+            .map_err(|e| format!("Failed to get database client: {}", e))?;
+
+        let rows = client
+            .query(
+                "SELECT event_id, user_id, event_type, action, resource, resource_id, outcome, severity, timestamp, details, metadata, signature, compliance
+                 FROM audit_events
+                 ORDER BY timestamp DESC",
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to load audit events: {}", e))?;
+
+        let mut events = Vec::new();
+        for row in rows {
+            let event_type: String = row.get(2);
+            let outcome: String = row.get(6);
+            let severity: String = row.get(7);
+            let details: serde_json::Value = row.get(9);
+            let metadata: serde_json::Value = row.get(10);
+            let compliance: serde_json::Value = row.get(12);
+
+            events.push(AuditEvent {
+                event_id: row.get(0),
+                user_id: row.get(1),
+                event_type: serde_json::from_str(&event_type).unwrap_or(AuditEventType::System),
+                action: row.get(3),
+                resource: row.get(4),
+                resource_id: row.get(5),
+                outcome: serde_json::from_str(&outcome).unwrap_or(AuditOutcome::Success),
+                severity: serde_json::from_str(&severity).unwrap_or(AuditSeverity::Low),
+                timestamp: row.get(8),
+                details: serde_json::from_value(details).unwrap_or_default(),
+                metadata: serde_json::from_value(metadata).unwrap_or_default(),
+                signature: row.get(11),
+                compliance: serde_json::from_value(compliance).unwrap_or_default(),
+            });
+        }
+
+        tracing::debug!("✅ Loaded {} audit events from PostgreSQL", events.len());
+        Ok(events)
+    }
+
+    /// Persist ZK proof to PostgreSQL
+    pub async fn persist_zk_proof(
+        &self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), String> {
+        let client = self
+            .get_client()
+            .await
+            .map_err(|e| format!("Failed to get database client: {}", e))?;
+
+        client
+            .execute(
+                "INSERT INTO zk_proofs (proof_id, circuit_type, item_id, prover_id, proof_data, public_inputs, private_inputs_hash, status, created_at, verified_at, expires_at, verification_result)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                 ON CONFLICT (proof_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    verified_at = EXCLUDED.verified_at,
+                    verification_result = EXCLUDED.verification_result",
+                &[
+                    &proof.proof_id,
+                    &serde_json::to_string(&proof.circuit_type).unwrap_or_default(),
+                    &proof.item_id,
+                    &proof.prover_id,
+                    &proof.proof_data,
+                    &serde_json::to_value(&proof.public_inputs).unwrap_or(json!({})),
+                    &proof.private_inputs_hash,
+                    &serde_json::to_string(&proof.status).unwrap_or_default(),
+                    &proof.created_at,
+                    &proof.verified_at,
+                    &proof.expires_at,
+                    &serde_json::to_value(&proof.verification_result).unwrap_or(json!(null)),
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to persist ZK proof: {}", e))?;
+
+        tracing::debug!("✅ ZK proof persisted: {}", proof.proof_id);
+        Ok(())
+    }
+
+    /// Load all ZK proofs from PostgreSQL
+    pub async fn load_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, String> {
+        let client = self
+            .get_client()
+            .await
+            .map_err(|e| format!("Failed to get database client: {}", e))?;
+
+        let rows = client
+            .query(
+                "SELECT proof_id, circuit_type, item_id, prover_id, proof_data, public_inputs, private_inputs_hash, status, created_at, verified_at, expires_at, verification_result
+                 FROM zk_proofs
+                 ORDER BY created_at DESC",
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to load ZK proofs: {}", e))?;
+
+        let mut proofs = Vec::new();
+        for row in rows {
+            let circuit_type: String = row.get(1);
+            let public_inputs: serde_json::Value = row.get(5);
+            let status: String = row.get(7);
+            let verification_result: serde_json::Value = row.get(11);
+
+            proofs.push(crate::zk_proof_engine::ZkProof {
+                proof_id: row.get(0),
+                circuit_type: serde_json::from_str(&circuit_type)
+                    .unwrap_or(crate::zk_proof_engine::CircuitType::OwnershipProof),
+                item_id: row.get(2),
+                prover_id: row.get(3),
+                proof_data: row.get(4),
+                public_inputs: serde_json::from_value(public_inputs).unwrap_or_default(),
+                private_inputs_hash: row.get(6),
+                status: serde_json::from_str(&status)
+                    .unwrap_or(crate::zk_proof_engine::ProofStatus::Pending),
+                created_at: row.get(8),
+                verified_at: row.get(9),
+                expires_at: row.get(10),
+                verification_result: serde_json::from_value(verification_result).ok(),
+            });
+        }
+
+        tracing::debug!("✅ Loaded {} ZK proofs from PostgreSQL", proofs.len());
+        Ok(proofs)
+    }
 }
