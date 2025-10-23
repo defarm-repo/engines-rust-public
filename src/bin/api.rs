@@ -151,7 +151,7 @@ async fn main() {
     // Create AppState with PostgreSQL storage backend
     // Note: shared_storage is Arc<Mutex<PostgresStorageWithCache>> which implements StorageBackend
     info!("🚀 Creating AppState with PostgreSQL primary storage...");
-    let app_state = Arc::new(AppState::new_with_postgres(shared_storage));
+    let app_state = Arc::new(AppState::new(shared_storage));
 
     // Store PostgresPersistence reference in AppState for timeline and other direct DB access
     {

@@ -77,14 +77,11 @@ pub struct DailyUsageItem {
 }
 
 /// Create a new API key
-pub async fn create_api_key<B: crate::StorageBackend + Send + 'static, S: ApiKeyStorage + 'static>(
-    State(state): State<Arc<AppState<B, S>>>,
+pub async fn create_api_key(
+    State(state): State<Arc<AppState>>,
     context: ApiKeyContext,
     Json(payload): Json<CreateApiKeyPayload>,
-) -> Result<Json<CreateApiKeyResponse>, (StatusCode, String)>
-where
-    Arc<std::sync::Mutex<B>>: crate::StorageBackend,
-{
+) -> Result<Json<CreateApiKeyResponse>, (StatusCode, String)> {
     // Generate the API key
     let (full_key, _, _) = state.api_key_engine.generate_key();
 
@@ -130,14 +127,11 @@ where
 }
 
 /// List all API keys for the authenticated user
-pub async fn list_api_keys<B: crate::StorageBackend + Send + 'static, S: ApiKeyStorage + 'static>(
-    State(state): State<Arc<AppState<B, S>>>,
+pub async fn list_api_keys(
+    State(state): State<Arc<AppState>>,
     context: ApiKeyContext,
     Query(query): Query<ListApiKeysQuery>,
-) -> Result<Json<Vec<ApiKeyListItem>>, (StatusCode, String)>
-where
-    Arc<std::sync::Mutex<B>>: crate::StorageBackend,
-{
+) -> Result<Json<Vec<ApiKeyListItem>>, (StatusCode, String)> {
     let api_keys = state
         .api_key_storage
         .get_user_api_keys(context.user_id)
@@ -158,14 +152,11 @@ where
 }
 
 /// Get a specific API key by ID
-pub async fn get_api_key<B: crate::StorageBackend + Send + 'static, S: ApiKeyStorage + 'static>(
-    State(state): State<Arc<AppState<B, S>>>,
+pub async fn get_api_key(
+    State(state): State<Arc<AppState>>,
     context: ApiKeyContext,
     Path(key_id): Path<Uuid>,
-) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)>
-where
-    Arc<std::sync::Mutex<B>>: crate::StorageBackend,
-{
+) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)> {
     let api_key = state
         .api_key_storage
         .get_api_key(key_id)
@@ -184,15 +175,12 @@ where
 }
 
 /// Update an API key
-pub async fn update_api_key<B: crate::StorageBackend + Send + 'static, S: ApiKeyStorage + 'static>(
-    State(state): State<Arc<AppState<B, S>>>,
+pub async fn update_api_key(
+    State(state): State<Arc<AppState>>,
     context: ApiKeyContext,
     Path(key_id): Path<Uuid>,
     Json(payload): Json<UpdateApiKeyPayload>,
-) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)>
-where
-    Arc<std::sync::Mutex<B>>: crate::StorageBackend,
-{
+) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)> {
     let mut api_key = state
         .api_key_storage
         .get_api_key(key_id)
@@ -242,14 +230,11 @@ where
 }
 
 /// Delete an API key
-pub async fn delete_api_key<B: crate::StorageBackend + Send + 'static, S: ApiKeyStorage + 'static>(
-    State(state): State<Arc<AppState<B, S>>>,
+pub async fn delete_api_key(
+    State(state): State<Arc<AppState>>,
     context: ApiKeyContext,
     Path(key_id): Path<Uuid>,
-) -> Result<StatusCode, (StatusCode, String)>
-where
-    Arc<std::sync::Mutex<B>>: crate::StorageBackend,
-{
+) -> Result<StatusCode, (StatusCode, String)> {
     let api_key = state
         .api_key_storage
         .get_api_key(key_id)
@@ -282,14 +267,11 @@ where
 }
 
 /// Revoke an API key (set as inactive)
-pub async fn revoke_api_key<B: crate::StorageBackend + Send + 'static, S: ApiKeyStorage + 'static>(
-    State(state): State<Arc<AppState<B, S>>>,
+pub async fn revoke_api_key(
+    State(state): State<Arc<AppState>>,
     context: ApiKeyContext,
     Path(key_id): Path<Uuid>,
-) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)>
-where
-    Arc<std::sync::Mutex<B>>: crate::StorageBackend,
-{
+) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)> {
     let mut api_key = state
         .api_key_storage
         .get_api_key(key_id)
@@ -324,18 +306,12 @@ where
 }
 
 /// Get usage statistics for an API key
-pub async fn get_usage_stats<
-    B: crate::StorageBackend + Send + 'static,
-    S: ApiKeyStorage + 'static,
->(
-    State(state): State<Arc<AppState<B, S>>>,
+pub async fn get_usage_stats(
+    State(state): State<Arc<AppState>>,
     context: ApiKeyContext,
     Path(key_id): Path<Uuid>,
     Query(query): Query<UsageStatsQuery>,
-) -> Result<Json<UsageStatsResponse>, (StatusCode, String)>
-where
-    Arc<std::sync::Mutex<B>>: crate::StorageBackend,
-{
+) -> Result<Json<UsageStatsResponse>, (StatusCode, String)> {
     let api_key = state
         .api_key_storage
         .get_api_key(key_id)
