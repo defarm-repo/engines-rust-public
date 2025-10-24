@@ -246,11 +246,24 @@ impl PostgresPersistence {
                 }
                 Ok(Err(e)) => {
                     // Check if error is "already exists" which is okay
-                    if e.to_string().contains("already exists") {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("already exists") {
                         tracing::info!("ℹ️  Migration {} already applied", name);
                     } else {
-                        tracing::error!("❌ Migration {} failed: {}", name, e);
-                        return Err(format!("Migration {} failed: {e}", name));
+                        // Enhanced error logging with PostgreSQL details
+                        tracing::error!("❌ Migration {} failed!", name);
+                        tracing::error!("   Error: {}", error_msg);
+                        if let Some(db_err) = e.as_db_error() {
+                            tracing::error!("   Code: {:?}", db_err.code());
+                            tracing::error!("   Message: {}", db_err.message());
+                            if let Some(detail) = db_err.detail() {
+                                tracing::error!("   Detail: {}", detail);
+                            }
+                            if let Some(hint) = db_err.hint() {
+                                tracing::error!("   Hint: {}", hint);
+                            }
+                        }
+                        return Err(format!("Migration {} failed: {}", name, error_msg));
                     }
                 }
                 Err(_) => {
