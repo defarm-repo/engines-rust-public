@@ -21,7 +21,7 @@
 -- Purpose: Store chronological sequence of all CIDs for each DFID
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS item_cid_timeline (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     dfid VARCHAR(100) NOT NULL,
     cid VARCHAR(100) NOT NULL,
     event_sequence INTEGER NOT NULL,
@@ -72,7 +72,7 @@ EXECUTE FUNCTION set_event_sequence();
 -- Purpose: Track which events first appeared in which CID
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS event_cid_mapping (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id UUID NOT NULL,
     dfid VARCHAR(100) NOT NULL,
     first_cid VARCHAR(100) NOT NULL,
