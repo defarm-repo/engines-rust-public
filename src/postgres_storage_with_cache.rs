@@ -77,53 +77,56 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_item(&mut self, item: &Item) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            // ✅ CRITICAL: Write to PostgreSQL FIRST (source of truth)
-            pg.persist_item(item)
-                .await
-                .map_err(|e| StorageError::WriteError(format!("PostgreSQL write failed: {}", e)))?;
+                // ✅ CRITICAL: Write to PostgreSQL FIRST (source of truth)
+                pg.persist_item(item).await.map_err(|e| {
+                    StorageError::WriteError(format!("PostgreSQL write failed: {}", e))
+                })?;
 
-            // ✅ Invalidate cache (fire-and-forget)
-            self.invalidate_cache(&format!("item:{}", item.dfid));
+                // ✅ Invalidate cache (fire-and-forget)
+                self.invalidate_cache(&format!("item:{}", item.dfid));
 
-            tracing::debug!("✅ Item stored: {} (PostgreSQL confirmed)", item.dfid);
-            Ok(())
+                tracing::debug!("✅ Item stored: {} (PostgreSQL confirmed)", item.dfid);
+                Ok(())
+            })
         })
     }
 
     fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            // 1. Try Redis cache
-            if let Some(redis) = &self.redis {
-                if let Ok(Some(item)) = redis.get_item(dfid).await {
-                    tracing::debug!("✅ Cache HIT: item:{}", dfid);
-                    return Ok(Some(item));
-                }
-            }
-
-            // 2. Load from PostgreSQL (source of truth)
-            let pg = self.get_postgres().await?;
-            let items = pg
-                .load_items()
-                .await
-                .map_err(|e| StorageError::ReadError(format!("PostgreSQL read failed: {}", e)))?;
-
-            let item = items.into_iter().find(|i| i.dfid == dfid);
-
-            // 3. Populate cache (fire-and-forget)
-            if let Some(ref item) = item {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                // 1. Try Redis cache
                 if let Some(redis) = &self.redis {
-                    let redis_clone = redis.clone();
-                    let item_clone = item.clone();
-                    tokio::spawn(async move {
-                        let _ = redis_clone.set_item(&item_clone).await;
-                    });
+                    if let Ok(Some(item)) = redis.get_item(dfid).await {
+                        tracing::debug!("✅ Cache HIT: item:{}", dfid);
+                        return Ok(Some(item));
+                    }
                 }
-            }
 
-            Ok(item)
+                // 2. Load from PostgreSQL (source of truth)
+                let pg = self.get_postgres().await?;
+                let items = pg.load_items().await.map_err(|e| {
+                    StorageError::ReadError(format!("PostgreSQL read failed: {}", e))
+                })?;
+
+                let item = items.into_iter().find(|i| i.dfid == dfid);
+
+                // 3. Populate cache (fire-and-forget)
+                if let Some(ref item) = item {
+                    if let Some(redis) = &self.redis {
+                        let redis_clone = redis.clone();
+                        let item_clone = item.clone();
+                        tokio::spawn(async move {
+                            let _ = redis_clone.set_item(&item_clone).await;
+                        });
+                    }
+                }
+
+                Ok(item)
+            })
         })
     }
 
@@ -237,57 +240,61 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            // PostgreSQL first
-            pg.persist_circuit(circuit)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))?;
+                // PostgreSQL first
+                pg.persist_circuit(circuit)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))?;
 
-            // Invalidate cache
-            self.invalidate_cache(&format!("circuit:{}", circuit.circuit_id));
+                // Invalidate cache
+                self.invalidate_cache(&format!("circuit:{}", circuit.circuit_id));
 
-            tracing::debug!(
-                "✅ Circuit stored: {} (PostgreSQL confirmed)",
-                circuit.circuit_id
-            );
-            Ok(())
+                tracing::debug!(
+                    "✅ Circuit stored: {} (PostgreSQL confirmed)",
+                    circuit.circuit_id
+                );
+                Ok(())
+            })
         })
     }
 
     fn get_circuit(&self, circuit_id: &Uuid) -> Result<Option<Circuit>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            // Try cache
-            if let Some(redis) = &self.redis {
-                let circuit_id_str = circuit_id.to_string();
-                if let Ok(Some(circuit)) = redis.get_circuit(&circuit_id_str).await {
-                    tracing::debug!("✅ Cache HIT: circuit:{}", circuit_id);
-                    return Ok(Some(circuit));
-                }
-            }
-
-            // PostgreSQL
-            let pg = self.get_postgres().await?;
-            let circuits = pg
-                .load_circuits()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))?;
-
-            let circuit = circuits.into_iter().find(|c| &c.circuit_id == circuit_id);
-
-            // Populate cache
-            if let Some(ref circuit) = circuit {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                // Try cache
                 if let Some(redis) = &self.redis {
-                    let redis_clone = redis.clone();
-                    let circuit_clone = circuit.clone();
-                    tokio::spawn(async move {
-                        let _ = redis_clone.set_circuit(&circuit_clone).await;
-                    });
+                    let circuit_id_str = circuit_id.to_string();
+                    if let Ok(Some(circuit)) = redis.get_circuit(&circuit_id_str).await {
+                        tracing::debug!("✅ Cache HIT: circuit:{}", circuit_id);
+                        return Ok(Some(circuit));
+                    }
                 }
-            }
 
-            Ok(circuit)
+                // PostgreSQL
+                let pg = self.get_postgres().await?;
+                let circuits = pg
+                    .load_circuits()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))?;
+
+                let circuit = circuits.into_iter().find(|c| &c.circuit_id == circuit_id);
+
+                // Populate cache
+                if let Some(ref circuit) = circuit {
+                    if let Some(redis) = &self.redis {
+                        let redis_clone = redis.clone();
+                        let circuit_clone = circuit.clone();
+                        tokio::spawn(async move {
+                            let _ = redis_clone.set_circuit(&circuit_clone).await;
+                        });
+                    }
+                }
+
+                Ok(circuit)
+            })
         })
     }
 
@@ -296,12 +303,14 @@ impl StorageBackend for PostgresStorageWithCache {
     }
 
     fn list_circuits(&self) -> Result<Vec<Circuit>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_circuits()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_circuits()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -324,12 +333,14 @@ impl StorageBackend for PostgresStorageWithCache {
         &mut self,
         operation: &CircuitOperation,
     ) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.persist_circuit_operation(operation)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.persist_circuit_operation(operation)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
@@ -337,29 +348,31 @@ impl StorageBackend for PostgresStorageWithCache {
         &self,
         operation_id: &Uuid,
     ) -> Result<Option<CircuitOperation>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            // Load all circuits and search for the operation
-            let circuits = pg
-                .load_circuits()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))?;
-
-            for circuit in circuits {
-                let operations = pg
-                    .load_circuit_operations(&circuit.circuit_id)
+                // Load all circuits and search for the operation
+                let circuits = pg
+                    .load_circuits()
                     .await
                     .map_err(|e| StorageError::ReadError(e.to_string()))?;
-                if let Some(op) = operations
-                    .into_iter()
-                    .find(|op| &op.operation_id == operation_id)
-                {
-                    return Ok(Some(op));
-                }
-            }
 
-            Ok(None)
+                for circuit in circuits {
+                    let operations = pg
+                        .load_circuit_operations(&circuit.circuit_id)
+                        .await
+                        .map_err(|e| StorageError::ReadError(e.to_string()))?;
+                    if let Some(op) = operations
+                        .into_iter()
+                        .find(|op| &op.operation_id == operation_id)
+                    {
+                        return Ok(Some(op));
+                    }
+                }
+
+                Ok(None)
+            })
         })
     }
 
@@ -374,12 +387,14 @@ impl StorageBackend for PostgresStorageWithCache {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Vec<CircuitOperation>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_circuit_operations(circuit_id)
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_circuit_operations(circuit_id)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -477,30 +492,34 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_user_account(&mut self, user: &UserAccount) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.persist_user(user)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))?;
+                pg.persist_user(user)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))?;
 
-            self.invalidate_cache(&format!("user:{}", user.user_id));
+                self.invalidate_cache(&format!("user:{}", user.user_id));
 
-            tracing::debug!("✅ User stored: {} (PostgreSQL confirmed)", user.user_id);
-            Ok(())
+                tracing::debug!("✅ User stored: {} (PostgreSQL confirmed)", user.user_id);
+                Ok(())
+            })
         })
     }
 
     fn get_user_account(&self, user_id: &str) -> Result<Option<UserAccount>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            // PostgreSQL
-            let pg = self.get_postgres().await?;
-            let users = pg
-                .load_users()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                // PostgreSQL
+                let pg = self.get_postgres().await?;
+                let users = pg
+                    .load_users()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))?;
 
-            Ok(users.into_iter().find(|u| u.user_id == user_id))
+                Ok(users.into_iter().find(|u| u.user_id == user_id))
+            })
         })
     }
 
@@ -524,12 +543,14 @@ impl StorageBackend for PostgresStorageWithCache {
     }
 
     fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_users()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_users()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -538,25 +559,29 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_event(&mut self, event: &Event) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.persist_event(event)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.persist_event(event)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
     fn get_event(&self, event_id: &Uuid) -> Result<Option<Event>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            let events = pg
-                .load_events()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))?;
+                let events = pg
+                    .load_events()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))?;
 
-            Ok(events.into_iter().find(|e| &e.event_id == event_id))
+                Ok(events.into_iter().find(|e| &e.event_id == event_id))
+            })
         })
     }
 
@@ -565,12 +590,14 @@ impl StorageBackend for PostgresStorageWithCache {
     }
 
     fn list_events(&self) -> Result<Vec<Event>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_events()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_events()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -627,48 +654,56 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_activity(&mut self, activity: &Activity) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.persist_activity(activity)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.persist_activity(activity)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
     fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_activities(None)
-                .await
-                .map(|activities| {
-                    activities
-                        .into_iter()
-                        .filter(|a| a.user_id == user_id)
-                        .collect()
-                })
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_activities(None)
+                    .await
+                    .map(|activities| {
+                        activities
+                            .into_iter()
+                            .filter(|a| a.user_id == user_id)
+                            .collect()
+                    })
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
     fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_activities(Some(circuit_id))
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_activities(Some(circuit_id))
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
     fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_activities(None)
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_activities(None)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -677,12 +712,14 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_user_activity(&mut self, activity: &UserActivity) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.persist_user_activity(activity)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.persist_user_activity(activity)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
@@ -702,19 +739,21 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_notification(&mut self, notification: &Notification) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            // Persist notification to PostgreSQL
-            pg.persist_notification(notification).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist notification: {}", e))
-            })?;
+                // Persist notification to PostgreSQL
+                pg.persist_notification(notification).await.map_err(|e| {
+                    StorageError::WriteError(format!("Failed to persist notification: {}", e))
+                })?;
 
-            tracing::debug!(
-                "✅ Notification stored: {} (PostgreSQL confirmed)",
-                notification.id
-            );
-            Ok(())
+                tracing::debug!(
+                    "✅ Notification stored: {} (PostgreSQL confirmed)",
+                    notification.id
+                );
+                Ok(())
+            })
         })
     }
 
@@ -768,44 +807,48 @@ impl StorageBackend for PostgresStorageWithCache {
         dfid: &str,
         record: StorageRecord,
     ) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.persist_storage_record(dfid, &record)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.persist_storage_record(dfid, &record)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
     fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            let records = pg
-                .load_storage_records(dfid)
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))?;
+                let records = pg
+                    .load_storage_records(dfid)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))?;
 
-            if records.is_empty() {
-                return Ok(None);
-            }
+                if records.is_empty() {
+                    return Ok(None);
+                }
 
-            // Find current primary adapter (using storage_location not adapter_type)
-            let current_primary = records
-                .iter()
-                .max_by_key(|r| r.stored_at)
-                .map(|r| r.storage_location.clone());
+                // Find current primary adapter (using storage_location not adapter_type)
+                let current_primary = records
+                    .iter()
+                    .max_by_key(|r| r.stored_at)
+                    .map(|r| r.storage_location.clone());
 
-            Ok(Some(ItemStorageHistory {
-                dfid: dfid.to_string(),
-                storage_records: records.clone(),
-                current_primary,
-                created_at: records
-                    .first()
-                    .map(|r| r.stored_at)
-                    .unwrap_or_else(Utc::now),
-                updated_at: records.last().map(|r| r.stored_at).unwrap_or_else(Utc::now),
-            }))
+                Ok(Some(ItemStorageHistory {
+                    dfid: dfid.to_string(),
+                    storage_records: records.clone(),
+                    current_primary,
+                    created_at: records
+                        .first()
+                        .map(|r| r.stored_at)
+                        .unwrap_or_else(Utc::now),
+                    updated_at: records.last().map(|r| r.stored_at).unwrap_or_else(Utc::now),
+                }))
+            })
         })
     }
 
@@ -823,35 +866,41 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.persist_adapter_config(config)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.persist_adapter_config(config)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
     fn get_adapter_config(&self, config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            let configs = pg
-                .load_adapter_configs()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))?;
+                let configs = pg
+                    .load_adapter_configs()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))?;
 
-            Ok(configs.into_iter().find(|c| &c.config_id == config_id))
+                Ok(configs.into_iter().find(|c| &c.config_id == config_id))
+            })
         })
     }
 
     fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_adapter_configs()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_adapter_configs()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -930,18 +979,20 @@ impl StorageBackend for PostgresStorageWithCache {
         &mut self,
         proof: &crate::zk_proof_engine::ZkProof,
     ) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.persist_zk_proof(proof).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist ZK proof: {}", e))
-            })?;
+                pg.persist_zk_proof(proof).await.map_err(|e| {
+                    StorageError::WriteError(format!("Failed to persist ZK proof: {}", e))
+                })?;
 
-            tracing::debug!(
-                "✅ ZK proof stored: {} (PostgreSQL confirmed)",
-                proof.proof_id
-            );
-            Ok(())
+                tracing::debug!(
+                    "✅ ZK proof stored: {} (PostgreSQL confirmed)",
+                    proof.proof_id
+                );
+                Ok(())
+            })
         })
     }
 
@@ -949,15 +1000,17 @@ impl StorageBackend for PostgresStorageWithCache {
         &self,
         proof_id: &Uuid,
     ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            let proofs = pg
-                .load_zk_proofs()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))?;
+                let proofs = pg
+                    .load_zk_proofs()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))?;
 
-            Ok(proofs.into_iter().find(|p| &p.proof_id == proof_id))
+                Ok(proofs.into_iter().find(|p| &p.proof_id == proof_id))
+            })
         })
     }
 
@@ -969,12 +1022,14 @@ impl StorageBackend for PostgresStorageWithCache {
     }
 
     fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_zk_proofs()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_zk_proofs()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -1059,41 +1114,47 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_audit_event(&mut self, event: &AuditEvent) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.persist_audit_event(event).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist audit event: {}", e))
-            })?;
+                pg.persist_audit_event(event).await.map_err(|e| {
+                    StorageError::WriteError(format!("Failed to persist audit event: {}", e))
+                })?;
 
-            tracing::debug!(
-                "✅ Audit event stored: {} (PostgreSQL confirmed)",
-                event.event_id
-            );
-            Ok(())
+                tracing::debug!(
+                    "✅ Audit event stored: {} (PostgreSQL confirmed)",
+                    event.event_id
+                );
+                Ok(())
+            })
         })
     }
 
     fn get_audit_event(&self, event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            let events = pg
-                .load_audit_events()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))?;
+                let events = pg
+                    .load_audit_events()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))?;
 
-            Ok(events.into_iter().find(|e| &e.event_id == event_id))
+                Ok(events.into_iter().find(|e| &e.event_id == event_id))
+            })
         })
     }
 
     fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.load_audit_events()
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.load_audit_events()
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -1619,22 +1680,26 @@ impl StorageBackend for PostgresStorageWithCache {
         timestamp: i64,
         network: &str,
     ) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.add_cid_to_timeline(dfid, cid, ipcm_tx, timestamp, network)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.add_cid_to_timeline(dfid, cid, ipcm_tx, timestamp, network)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
     fn get_item_timeline(&self, dfid: &str) -> Result<Vec<TimelineEntry>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.get_item_timeline(dfid)
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.get_item_timeline(dfid)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -1643,12 +1708,14 @@ impl StorageBackend for PostgresStorageWithCache {
         dfid: &str,
         sequence: i32,
     ) -> Result<Option<TimelineEntry>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.get_timeline_by_sequence(dfid, sequence)
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.get_timeline_by_sequence(dfid, sequence)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -1663,12 +1730,14 @@ impl StorageBackend for PostgresStorageWithCache {
         cid: &str,
         sequence: i32,
     ) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.map_event_to_cid(event_id, dfid, cid, sequence)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.map_event_to_cid(event_id, dfid, cid, sequence)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
@@ -1676,22 +1745,26 @@ impl StorageBackend for PostgresStorageWithCache {
         &self,
         event_id: &Uuid,
     ) -> Result<Option<EventCidMapping>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.get_event_first_cid(event_id)
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.get_event_first_cid(event_id)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
     fn get_events_in_cid(&self, cid: &str) -> Result<Vec<EventCidMapping>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.get_events_in_cid(cid)
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.get_events_in_cid(cid)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
@@ -1705,12 +1778,14 @@ impl StorageBackend for PostgresStorageWithCache {
         last_ledger: i64,
         confirmed_ledger: i64,
     ) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.update_indexing_progress(network, last_ledger, confirmed_ledger)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.update_indexing_progress(network, last_ledger, confirmed_ledger)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
@@ -1718,22 +1793,26 @@ impl StorageBackend for PostgresStorageWithCache {
         &self,
         network: &str,
     ) -> Result<Option<IndexingProgress>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.get_indexing_progress(network)
-                .await
-                .map_err(|e| StorageError::ReadError(e.to_string()))
+                pg.get_indexing_progress(network)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
         })
     }
 
     fn increment_events_indexed(&mut self, network: &str, count: i64) -> Result<(), StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            let pg = self.get_postgres().await?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-            pg.increment_events_indexed(network, count)
-                .await
-                .map_err(|e| StorageError::WriteError(e.to_string()))
+                pg.increment_events_indexed(network, count)
+                    .await
+                    .map_err(|e| StorageError::WriteError(e.to_string()))
+            })
         })
     }
 
