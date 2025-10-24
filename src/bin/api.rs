@@ -29,8 +29,21 @@ fn allow_in_memory_fallback() -> bool {
         .unwrap_or(false)
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // Configure Tokio runtime with larger blocking thread pool to prevent exhaustion
+    // when using block_in_place() for synchronous PostgreSQL operations
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(8) // More async worker threads
+        .max_blocking_threads(512) // Significantly larger blocking thread pool
+        .thread_name("defarm-worker")
+        .enable_all()
+        .build()
+        .expect("Failed to create Tokio runtime");
+
+    runtime.block_on(async_main());
+}
+
+async fn async_main() {
     // Initialize tracing
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
