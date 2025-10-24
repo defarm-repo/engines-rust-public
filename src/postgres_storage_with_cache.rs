@@ -133,13 +133,19 @@ impl StorageBackend for PostgresStorageWithCache {
     }
 
     fn list_items(&self) -> Result<Vec<Item>, StorageError> {
-        tokio::runtime::Handle::current().block_on(async {
-            // Always load from PostgreSQL (list operations don't cache well)
-            let pg = self.get_postgres().await?;
+        let pg_clone = self.postgres.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                // Always load from PostgreSQL (list operations don't cache well)
+                let pg_guard = pg_clone.read().await;
+                let pg = pg_guard.as_ref().ok_or_else(|| {
+                    StorageError::ReadError("PostgreSQL not connected".to_string())
+                })?;
 
-            pg.load_items()
-                .await
-                .map_err(|e| StorageError::ReadError(format!("PostgreSQL read failed: {}", e)))
+                pg.load_items()
+                    .await
+                    .map_err(|e| StorageError::ReadError(format!("PostgreSQL read failed: {}", e)))
+            })
         })
     }
 
