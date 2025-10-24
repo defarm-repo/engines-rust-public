@@ -33,13 +33,13 @@ impl std::fmt::Display for WebhookError {
 impl std::error::Error for WebhookError {}
 
 pub struct WebhookEngine<S: StorageBackend> {
-    storage: Arc<std::sync::Mutex<S>>,
+    storage: S,
     logger: LoggingEngine,
     delivery_queue: Option<Arc<WebhookDeliveryQueue>>,
 }
 
-impl<S: StorageBackend> WebhookEngine<S> {
-    pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
+impl<S: StorageBackend + 'static> WebhookEngine<S> {
+    pub fn new(storage: S) -> Self {
         Self {
             storage,
             logger: LoggingEngine::new(),
@@ -68,40 +68,31 @@ impl<S: StorageBackend> WebhookEngine<S> {
             .with_context("circuit_id", circuit_id.to_string())
             .with_context("trigger_event", trigger_event.as_str());
 
-        // Get circuit post-action settings
-        let webhooks = {
-            let storage = self
-                .storage
-                .lock()
-                .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
-            let circuit = storage
-                .get_circuit(circuit_id)
-                .map_err(|e| WebhookError::StorageError(e.to_string()))?
-                .ok_or_else(|| WebhookError::ConfigurationError("Circuit not found".to_string()))?;
+        let circuit = self
+            .storage
+            .get_circuit(circuit_id)
+            .map_err(|e| WebhookError::StorageError(e.to_string()))?
+            .ok_or_else(|| WebhookError::ConfigurationError("Circuit not found".to_string()))?;
 
-            // Check if post-action settings are enabled
-            let post_settings = match circuit.post_action_settings {
-                Some(settings) if settings.enabled => settings,
-                _ => return Ok(vec![]), // No webhooks configured or disabled
-            };
-
-            // Check if this trigger event is configured
-            if !post_settings.trigger_events.contains(&trigger_event) {
-                self.logger.info(
-                    "webhook_engine",
-                    "webhook_skip",
-                    format!("Trigger event {trigger_event:?} not configured for circuit"),
-                );
-                return Ok(vec![]);
-            }
-
-            // Get enabled webhooks
-            post_settings
-                .webhooks
-                .into_iter()
-                .filter(|w| w.enabled)
-                .collect::<Vec<_>>()
+        let post_settings = match circuit.post_action_settings {
+            Some(settings) if settings.enabled => settings,
+            _ => return Ok(vec![]),
         };
+
+        if !post_settings.trigger_events.contains(&trigger_event) {
+            self.logger.info(
+                "webhook_engine",
+                "webhook_skip",
+                format!("Trigger event {trigger_event:?} not configured for circuit"),
+            );
+            return Ok(vec![]);
+        }
+
+        let webhooks: Vec<_> = post_settings
+            .webhooks
+            .into_iter()
+            .filter(|w| w.enabled)
+            .collect();
 
         if webhooks.is_empty() {
             return Ok(vec![]);
@@ -142,20 +133,12 @@ impl<S: StorageBackend> WebhookEngine<S> {
             WebhookError::DeliveryError(format!("Failed to serialize payload: {e}"))
         })?;
 
-        // Create delivery record
         let mut delivery =
             WebhookDelivery::new(webhook.id, circuit_id, trigger_event, payload_value.clone());
 
-        // Store delivery
-        {
-            let mut storage = self
-                .storage
-                .lock()
-                .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
-            storage
-                .store_webhook_delivery(&delivery)
-                .map_err(|e| WebhookError::StorageError(e.to_string()))?;
-        }
+        self.storage
+            .store_webhook_delivery(&delivery)
+            .map_err(|e| WebhookError::StorageError(e.to_string()))?;
 
         let delivery_id = delivery.id;
 
@@ -173,12 +156,9 @@ impl<S: StorageBackend> WebhookEngine<S> {
                     "enqueue_failed",
                     format!("Failed to enqueue webhook delivery: {e}"),
                 );
-                // Update delivery status to failed
-                if let Ok(mut storage) = self.storage.lock() {
-                    delivery.status = DeliveryStatus::Failed;
-                    delivery.error_message = Some(format!("Failed to enqueue: {e}"));
-                    let _ = storage.store_webhook_delivery(&delivery);
-                }
+                delivery.status = DeliveryStatus::Failed;
+                delivery.error_message = Some(format!("Failed to enqueue: {e}"));
+                let _ = self.storage.store_webhook_delivery(&delivery);
             } else {
                 self.logger.info(
                     "webhook_engine",
@@ -203,11 +183,7 @@ impl<S: StorageBackend> WebhookEngine<S> {
         circuit_id: &Uuid,
         limit: Option<usize>,
     ) -> Result<Vec<WebhookDelivery>, WebhookError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
-        storage
+        self.storage
             .get_webhook_deliveries_by_circuit(circuit_id, limit)
             .map_err(|e| WebhookError::StorageError(e.to_string()))
     }
@@ -217,11 +193,7 @@ impl<S: StorageBackend> WebhookEngine<S> {
         &self,
         delivery_id: &Uuid,
     ) -> Result<Option<WebhookDelivery>, WebhookError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|_| WebhookError::StorageError("Storage mutex poisoned".to_string()))?;
-        storage
+        self.storage
             .get_webhook_delivery(delivery_id)
             .map_err(|e| WebhookError::StorageError(e.to_string()))
     }

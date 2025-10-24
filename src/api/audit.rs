@@ -433,8 +433,6 @@ pub async fn get_event_by_id(
     // Get event through storage since AuditEngine doesn't have a direct get method
     let storage = engine.get_storage();
     let event = storage
-        .lock()
-        .unwrap()
         .get_audit_event(&event_uuid)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -497,8 +495,6 @@ pub async fn get_security_incident(
 
     let storage = engine.get_storage();
     let incident = storage
-        .lock()
-        .unwrap()
         .get_security_incident(&incident_uuid)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -561,15 +557,11 @@ pub async fn list_security_incidents(
         let parsed_severity = parse_severity(&severity)?;
         let storage = engine.get_storage();
         storage
-            .lock()
-            .unwrap()
             .get_incidents_by_severity(parsed_severity)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
         let storage = engine.get_storage();
         storage
-            .lock()
-            .unwrap()
             .list_security_incidents()
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     };
@@ -678,8 +670,6 @@ pub async fn list_compliance_reports(
     if let Some(report_type) = params.report_type {
         let storage = engine.get_storage();
         filtered_reports = storage
-            .lock()
-            .unwrap()
             .get_reports_by_type(&report_type)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }

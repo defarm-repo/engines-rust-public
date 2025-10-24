@@ -78,7 +78,7 @@ async fn record_activity(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RecordActivityRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let engine = state.activity_engine.lock().unwrap();
+    let engine = state.activity_engine.write().await;
 
     // Create the activity
     let activity = UserActivity {
@@ -118,7 +118,7 @@ async fn list_activities(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ActivityQueryParams>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let engine = state.activity_engine.lock().unwrap();
+    let engine = state.activity_engine.write().await;
 
     let filters = UserActivityFilters {
         category: params.category,
@@ -155,7 +155,7 @@ async fn get_activity_by_id(
     State(state): State<Arc<AppState>>,
     Path(activity_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let engine = state.activity_engine.lock().unwrap();
+    let engine = state.activity_engine.write().await;
 
     match engine.get_activity(&activity_id) {
         Ok(Some(activity)) => Ok(Json(json!({
@@ -178,7 +178,7 @@ async fn get_activity_stats(
     State(state): State<Arc<AppState>>,
     Query(params): Query<StatsQueryParams>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let engine = state.activity_engine.lock().unwrap();
+    let engine = state.activity_engine.write().await;
 
     match engine.get_stats(params.period_days) {
         Ok(stats) => Ok(Json(json!({
@@ -197,7 +197,7 @@ async fn cleanup_old_activities(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CleanupRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let engine = state.activity_engine.lock().unwrap();
+    let engine = state.activity_engine.write().await;
 
     match engine.cleanup_old_activities(payload.before_date) {
         Ok(deleted_count) => Ok(Json(json!({

@@ -120,7 +120,7 @@ use chrono::Utc;
             visibility,
         ).map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
-        self.logger.borrow_mut().info("circuits_engine", "item_tokenized", "Item tokenized and pushed to circuit")
+        self.logger.lock().unwrap().info("circuits_engine", "item_tokenized", "Item tokenized and pushed to circuit")
             .with_context("local_id", local_id.to_string())
             .with_context("dfid", dfid.clone())
             .with_context("circuit_id", circuit_id.to_string())

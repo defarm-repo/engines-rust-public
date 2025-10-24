@@ -9,7 +9,7 @@ use axum::{
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::api::auth::Claims;
@@ -23,6 +23,8 @@ use crate::types::{
     UserResourceType,
 };
 use crate::{Circuit, CircuitOperation, CircuitsEngine, InMemoryStorage, ItemsEngine, MemberRole};
+
+type SharedStorage = Arc<Mutex<PostgresStorageWithCache>>;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitAdapterConfigRequest {
@@ -417,7 +419,7 @@ pub struct SetAdapterConfigRequest {
 }
 
 pub struct CircuitState {
-    pub engine: Arc<Mutex<CircuitsEngine<InMemoryStorage>>>,
+    pub engine: Arc<std::sync::RwLock<CircuitsEngine<Arc<Mutex<InMemoryStorage>>>>>,
 }
 
 impl Default for CircuitState {
@@ -430,7 +432,7 @@ impl CircuitState {
     pub fn new() -> Self {
         let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
         Self {
-            engine: Arc::new(Mutex::new(CircuitsEngine::new(storage))),
+            engine: Arc::new(std::sync::RwLock::new(CircuitsEngine::new(storage))),
         }
     }
 }
@@ -552,30 +554,21 @@ fn parse_member_role(role_str: &str) -> Result<MemberRole, String> {
     }
 }
 
-fn lock_circuits_engine<'a>(
+async fn lock_circuits_engine<'a>(
     state: &'a Arc<AppState>,
-) -> Result<MutexGuard<'a, CircuitsEngine<PostgresStorageWithCache>>, (StatusCode, Json<Value>)> {
-    state.circuits_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Circuits engine mutex poisoned"})),
-        )
-    })
+) -> Result<
+    tokio::sync::RwLockWriteGuard<'a, CircuitsEngine<SharedStorage>>,
+    (StatusCode, Json<Value>),
+> {
+    Ok(state.circuits_engine.write().await)
 }
 
 #[allow(clippy::type_complexity)]
-fn lock_items_engine<'a>(
+async fn lock_items_engine<'a>(
     state: &'a Arc<AppState>,
-) -> Result<
-    MutexGuard<'a, ItemsEngine<Arc<Mutex<PostgresStorageWithCache>>>>,
-    (StatusCode, Json<Value>),
-> {
-    state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })
+) -> Result<tokio::sync::RwLockWriteGuard<'a, ItemsEngine<SharedStorage>>, (StatusCode, Json<Value>)>
+{
+    Ok(state.items_engine.write().await)
 }
 
 fn parse_permission(permission_str: &str) -> Result<Permission, String> {
@@ -710,6 +703,7 @@ fn circuit_item_to_response(item: CircuitItem) -> CircuitItemResponse {
     }
 }
 
+#[axum::debug_handler]
 async fn create_circuit(
     State(state): State<Arc<AppState>>,
     AuthenticatedUser(owner_id): AuthenticatedUser,
@@ -717,7 +711,7 @@ async fn create_circuit(
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
     // Create circuit in in-memory storage (must not hold lock across await)
     let circuit = {
-        let mut engine = lock_circuits_engine(&state)?;
+        let mut engine = lock_circuits_engine(&state).await?;
 
         // First create circuit without adapter_config (owner_id from JWT)
         let circuit = engine
@@ -728,6 +722,7 @@ async fn create_circuit(
                 None,
                 payload.alias_config,
             )
+            .await
             .map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -746,6 +741,7 @@ async fn create_circuit(
                     adapter_req.requires_approval,
                     adapter_req.sponsor_adapter_access,
                 )
+                .await
                 .map_err(|e| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -771,6 +767,7 @@ async fn create_circuit(
                         Some(updated_permissions),
                         &owner_id,
                     )
+                    .await
                     .map_err(|e| {
                         (
                             StatusCode::INTERNAL_SERVER_ERROR,
@@ -847,7 +844,8 @@ async fn create_circuit(
         user_agent: None, // TODO: Extract from request
     };
 
-    if let Ok(engine) = state.activity_engine.lock() {
+    {
+        let engine = state.activity_engine.write().await;
         if let Err(e) = engine.record_activity(&user_activity) {
             tracing::warn!(
                 "Failed to record user activity {}: {}",
@@ -871,7 +869,7 @@ async fn get_circuit(
         )
     })?;
 
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
 
     match engine.get_circuit(&circuit_id) {
         Ok(Some(circuit)) => Ok(Json(circuit_to_response(circuit))),
@@ -902,9 +900,12 @@ async fn add_member(
     let role = parse_member_role(&payload.role)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.add_member_to_circuit(&circuit_id, payload.member_id, role, &requester_id) {
+    match engine
+        .add_member_to_circuit(&circuit_id, payload.member_id, role, &requester_id)
+        .await
+    {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
@@ -926,39 +927,30 @@ async fn push_item(
         )
     })?;
 
-    let engine_clone = Arc::clone(&state.circuits_engine);
-
     let operation = {
-        let mut engine = engine_clone.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Circuits engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = lock_circuits_engine(&state).await?;
 
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                engine
-                    .push_item_to_circuit(&dfid, &circuit_id, &requester_id)
-                    .await
-            })
-        })
-        .map_err(|e| {
-            let status_code = match e {
-                crate::circuits_engine::CircuitsError::PermissionDenied(_) => StatusCode::FORBIDDEN,
-                crate::circuits_engine::CircuitsError::AdapterPermissionDenied(_) => {
-                    StatusCode::FORBIDDEN
-                }
-                crate::circuits_engine::CircuitsError::ValidationError(_) => {
-                    StatusCode::BAD_REQUEST
-                }
-                crate::circuits_engine::CircuitsError::CircuitNotFound
-                | crate::circuits_engine::CircuitsError::NotFound => StatusCode::NOT_FOUND,
-                crate::circuits_engine::CircuitsError::ItemNotFound => StatusCode::NOT_FOUND,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            (status_code, Json(json!({"error": e.to_string()})))
-        })?
+        engine
+            .push_item_to_circuit(&dfid, &circuit_id, &requester_id)
+            .await
+            .map_err(|e| {
+                let status_code = match e {
+                    crate::circuits_engine::CircuitsError::PermissionDenied(_) => {
+                        StatusCode::FORBIDDEN
+                    }
+                    crate::circuits_engine::CircuitsError::AdapterPermissionDenied(_) => {
+                        StatusCode::FORBIDDEN
+                    }
+                    crate::circuits_engine::CircuitsError::ValidationError(_) => {
+                        StatusCode::BAD_REQUEST
+                    }
+                    crate::circuits_engine::CircuitsError::CircuitNotFound
+                    | crate::circuits_engine::CircuitsError::NotFound => StatusCode::NOT_FOUND,
+                    crate::circuits_engine::CircuitsError::ItemNotFound => StatusCode::NOT_FOUND,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                (status_code, Json(json!({"error": e.to_string()})))
+            })?
     };
 
     Ok(Json(operation_to_response(operation)))
@@ -978,9 +970,10 @@ async fn pull_item(
     })?;
 
     let (item, operation) = {
-        let mut engine = lock_circuits_engine(&state)?;
+        let mut engine = lock_circuits_engine(&state).await?;
         engine
             .pull_item_from_circuit(&dfid, &circuit_id, &requester_id)
+            .await
             .map_err(|e| {
                 (
                     StatusCode::BAD_REQUEST,
@@ -991,7 +984,7 @@ async fn pull_item(
 
     // Fetch all events for this item
     let events = {
-        let engine = lock_circuits_engine(&state)?;
+        let engine = lock_circuits_engine(&state).await?;
         engine
             .get_events_for_item(&dfid)
             .unwrap_or_else(|_| Vec::new())
@@ -1048,92 +1041,64 @@ async fn push_local_item(
         )
     })?;
 
-    // Clone the Arc so we can use it after dropping the lock
-    let engine_clone = Arc::clone(&state.circuits_engine);
-
     // Call the push_local_item_to_circuit method
-    // We need to use tokio::task::spawn_blocking or refactor to not hold mutex across await
-    // For now, let's try to make the call without holding the lock by using interior mutability
     let result = {
-        let mut engine = engine_clone.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Circuits engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = lock_circuits_engine(&state).await?;
 
-        // Make the async call - this will fail with std::sync::Mutex
-        // We need to use tokio::task::block_in_place to allow this
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                engine
-                    .push_local_item_to_circuit(
-                        &local_id,
-                        identifiers,
-                        enriched_data,
-                        &circuit_id,
-                        &requester_id, // Extracted from JWT token automatically
-                    )
-                    .await
-            })
-        })
-        .map_err(|e| {
-            let status_code = match e {
-                crate::circuits_engine::CircuitsError::PermissionDenied(_) => StatusCode::FORBIDDEN,
-                crate::circuits_engine::CircuitsError::ValidationError(_) => {
-                    StatusCode::BAD_REQUEST
-                }
-                crate::circuits_engine::CircuitsError::CircuitNotFound => StatusCode::NOT_FOUND,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            (status_code, Json(json!({"error": format!("{}", e)})))
-        })?
+        engine
+            .push_local_item_to_circuit(
+                &local_id,
+                identifiers,
+                enriched_data,
+                &circuit_id,
+                &requester_id, // Extracted from JWT token automatically
+            )
+            .await
+            .map_err(|e| {
+                let status_code = match e {
+                    crate::circuits_engine::CircuitsError::PermissionDenied(_) => {
+                        StatusCode::FORBIDDEN
+                    }
+                    crate::circuits_engine::CircuitsError::ValidationError(_) => {
+                        StatusCode::BAD_REQUEST
+                    }
+                    crate::circuits_engine::CircuitsError::CircuitNotFound => StatusCode::NOT_FOUND,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                (status_code, Json(json!({"error": format!("{}", e)})))
+            })?
     };
 
     // Capture the item with its latest DFID for persistence outside of the async lock scope
     let item_to_persist = {
-        if let Ok(storage_guard) = state.shared_storage.lock() {
-            match storage_guard.get_item_by_dfid(&result.dfid) {
-                Ok(Some(item)) => Some(item),
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to fetch item {} from shared storage for persistence: {}",
-                        result.dfid,
-                        e
-                    );
-                    None
-                }
+        let storage_guard = state.shared_storage.lock().unwrap();
+        match storage_guard.get_item_by_dfid(&result.dfid) {
+            Ok(Some(item)) => Some(item),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to fetch item {} from shared storage for persistence: {}",
+                    result.dfid,
+                    e
+                );
+                None
             }
-        } else {
-            tracing::warn!(
-                "Failed to acquire shared storage lock while preparing persistence for {}",
-                result.dfid
-            );
-            None
         }
     };
 
     let operation_to_persist = {
-        if let Ok(storage_guard) = state.shared_storage.lock() {
-            match storage_guard.get_circuit_operation(&result.operation_id) {
-                Ok(Some(operation)) => Some(operation),
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to fetch circuit operation {} for persistence: {}",
-                        result.operation_id,
-                        e
-                    );
-                    None
-                }
+        let storage_guard = state.shared_storage.lock().unwrap();
+        match storage_guard.get_circuit_operation(&result.operation_id) {
+            Ok(Some(operation)) => Some(operation),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to fetch circuit operation {} for persistence: {}",
+                    result.operation_id,
+                    e
+                );
+                None
             }
-        } else {
-            tracing::warn!(
-                "Failed to acquire shared storage lock while preparing operation persistence for {}",
-                result.operation_id
-            );
-            None
         }
     };
 
@@ -1176,14 +1141,9 @@ async fn push_local_item(
             // Persist storage records (transaction hashes, CIDs, etc.)
             // Extract records first to avoid holding lock across await
             let records_to_persist = {
-                if let Ok(storage_guard) = state.shared_storage.lock() {
-                    if let Ok(Some(storage_history)) =
-                        storage_guard.get_storage_history(&result.dfid)
-                    {
-                        Some(storage_history.storage_records.clone())
-                    } else {
-                        None
-                    }
+                let storage_guard = state.shared_storage.lock().unwrap();
+                if let Ok(Some(storage_history)) = storage_guard.get_storage_history(&result.dfid) {
+                    Some(storage_history.storage_records.clone())
                 } else {
                     None
                 }
@@ -1320,7 +1280,7 @@ async fn get_circuit_operations(
         )
     })?;
 
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
 
     match engine.get_circuit_operations(&circuit_id) {
         Ok(operations) => {
@@ -1346,7 +1306,7 @@ async fn get_pending_operations(
         )
     })?;
 
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
 
     match engine.get_pending_operations(&circuit_id) {
         Ok(operations) => {
@@ -1373,9 +1333,12 @@ async fn approve_operation(
         )
     })?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.approve_operation(&operation_uuid, &payload.approver_id) {
+    match engine
+        .approve_operation(&operation_uuid, &payload.approver_id)
+        .await
+    {
         Ok(operation) => {
             let operation_clone = operation.clone();
             drop(engine);
@@ -1402,9 +1365,9 @@ async fn deactivate_circuit(
         )
     })?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.deactivate_circuit(&circuit_id, &requester_id) {
+    match engine.deactivate_circuit(&circuit_id, &requester_id).await {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -1444,7 +1407,7 @@ async fn list_circuits(
     State(state): State<Arc<AppState>>,
     Query(params): Query<CircuitListQuery>,
 ) -> Result<Json<Vec<CircuitResponse>>, (StatusCode, Json<Value>)> {
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
 
     match engine.list_circuits() {
         Ok(mut circuits) => {
@@ -1490,7 +1453,7 @@ async fn get_circuits_for_member(
     State(state): State<Arc<AppState>>,
     Path(member_id): Path<String>,
 ) -> Result<Json<Vec<CircuitResponse>>, (StatusCode, Json<Value>)> {
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
 
     match engine.get_circuits_for_member(&member_id) {
         Ok(circuits) => {
@@ -1518,12 +1481,16 @@ async fn request_to_join_circuit(
         )
     })?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.request_to_join_circuit(&circuit_id, &requester_id, payload.message.clone()) {
+    match engine
+        .request_to_join_circuit(&circuit_id, &requester_id, payload.message.clone())
+        .await
+    {
         Ok(circuit) => {
             // Send notifications to circuit owner and admins
-            if let Ok(notification_engine) = state.notification_engine.lock() {
+            {
+                let notification_engine = state.notification_engine.write().await;
                 let circuit_name = circuit.name.clone();
                 let requester_id_clone = requester_id.clone();
                 let message_ref = payload.message.as_deref();
@@ -1591,7 +1558,7 @@ async fn get_pending_join_requests(
         )
     })?;
 
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
 
     match engine.get_pending_join_requests(&circuit_id) {
         Ok(requests) => {
@@ -1628,9 +1595,12 @@ async fn approve_join_request(
     let role = parse_member_role(&payload.role)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.approve_join_request(&circuit_id, &requester_id, &payload.admin_id, role) {
+    match engine
+        .approve_join_request(&circuit_id, &requester_id, &payload.admin_id, role)
+        .await
+    {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -1658,7 +1628,8 @@ async fn approve_join_request(
             });
 
             // Create and broadcast notification to the requester
-            if let Ok(notification_engine) = state.notification_engine.lock() {
+            {
+                let notification_engine = state.notification_engine.write().await;
                 if let Ok(notification) = notification_engine.create_join_approved_notification(
                     &requester_id,
                     &circuit_id.to_string(),
@@ -1696,9 +1667,12 @@ async fn reject_join_request(
         )
     })?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.reject_join_request(&circuit_id, &requester_id, &payload.admin_id) {
+    match engine
+        .reject_join_request(&circuit_id, &requester_id, &payload.admin_id)
+        .await
+    {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -1726,7 +1700,8 @@ async fn reject_join_request(
             });
 
             // Create and broadcast notification to the requester
-            if let Ok(notification_engine) = state.notification_engine.lock() {
+            {
+                let notification_engine = state.notification_engine.write().await;
                 if let Ok(notification) = notification_engine.create_join_rejected_notification(
                     &requester_id,
                     &circuit_id.to_string(),
@@ -1764,7 +1739,7 @@ async fn update_circuit(
         )
     })?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
     // Get current circuit to preserve existing values
     let current_circuit = engine
@@ -1799,13 +1774,16 @@ async fn update_circuit(
         None
     };
 
-    match engine.update_circuit(
-        &circuit_id,
-        payload.name,
-        payload.description,
-        permissions,
-        &requester_id,
-    ) {
+    match engine
+        .update_circuit(
+            &circuit_id,
+            payload.name,
+            payload.description,
+            permissions,
+            &requester_id,
+        )
+        .await
+    {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -1861,16 +1839,19 @@ async fn create_custom_role(
     let permissions =
         permissions.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.create_custom_role(
-        &circuit_id,
-        payload.role_name,
-        permissions,
-        payload.description,
-        payload.color,
-        &requester_id,
-    ) {
+    match engine
+        .create_custom_role(
+            &circuit_id,
+            payload.role_name,
+            permissions,
+            payload.description,
+            payload.color,
+            &requester_id,
+        )
+        .await
+    {
         Ok(custom_role) => {
             let role_counts = engine
                 .get_circuit(&circuit_id)
@@ -1912,7 +1893,7 @@ async fn get_custom_roles(
         )
     })?;
 
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
 
     match engine.get_custom_roles(&circuit_id) {
         Ok(roles) => {
@@ -1974,16 +1955,19 @@ async fn update_custom_role(
         None
     };
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.update_custom_role(
-        &circuit_id,
-        &role_name,
-        permissions,
-        payload.description,
-        payload.color,
-        &requester_id,
-    ) {
+    match engine
+        .update_custom_role(
+            &circuit_id,
+            &role_name,
+            permissions,
+            payload.description,
+            payload.color,
+            &requester_id,
+        )
+        .await
+    {
         Ok(updated_role) => {
             let role_counts = engine
                 .get_circuit(&circuit_id)
@@ -2034,9 +2018,12 @@ async fn delete_custom_role(
         )
     })?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.remove_custom_role(&circuit_id, &role_name, &claims.user_id) {
+    match engine
+        .remove_custom_role(&circuit_id, &role_name, &claims.user_id)
+        .await
+    {
         Ok(_) => Ok(Json(json!({
             "success": true,
             "message": format!("Custom role '{}' deleted successfully", role_name)
@@ -2069,12 +2056,15 @@ async fn assign_member_role(
         )
     })?;
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
     // If a custom role is specified, assign it
     let role_name = payload.custom_role_name.unwrap_or(payload.role);
 
-    match engine.assign_member_custom_role(&circuit_id, &user_id, &role_name, &requester_id) {
+    match engine
+        .assign_member_custom_role(&circuit_id, &user_id, &role_name, &requester_id)
+        .await
+    {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
@@ -2241,8 +2231,11 @@ async fn update_public_settings(
         export_permissions,
     };
 
-    let mut engine = lock_circuits_engine(&state)?;
-    match engine.update_public_settings(&circuit_id, public_settings, &requester_id) {
+    let mut engine = lock_circuits_engine(&state).await?;
+    match engine
+        .update_public_settings(&circuit_id, public_settings, &requester_id)
+        .await
+    {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -2295,7 +2288,7 @@ async fn get_public_circuit(
         )
     })?;
 
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
     match engine.get_public_circuit_info(&circuit_id) {
         Ok(Some(public_info)) => Ok(Json(json!({
             "success": true,
@@ -2341,13 +2334,16 @@ async fn join_public_circuit(
         )
     })?;
 
-    let mut engine = lock_circuits_engine(&state)?;
-    match engine.join_public_circuit(
-        &circuit_id,
-        &requester_id,
-        payload.access_password,
-        payload.message,
-    ) {
+    let mut engine = lock_circuits_engine(&state).await?;
+    match engine
+        .join_public_circuit(
+            &circuit_id,
+            &requester_id,
+            payload.access_password,
+            payload.message,
+        )
+        .await
+    {
         Ok((requires_approval, message)) => Ok(Json(PublicJoinResponse {
             success: true,
             message,
@@ -2371,7 +2367,7 @@ async fn get_circuit_activities(
         )
     })?;
 
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
 
     match engine.get_activities_for_circuit(&circuit_id) {
         Ok(activities) => {
@@ -2399,7 +2395,7 @@ async fn get_circuit_items(
     })?;
 
     let items = {
-        let engine = lock_circuits_engine(&state)?;
+        let engine = lock_circuits_engine(&state).await?;
         engine.get_circuit_items(&circuit_id).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -2418,7 +2414,7 @@ async fn get_circuit_items(
 
             // Fetch events for this DFID
             let events = {
-                let engine = lock_circuits_engine(&state)?;
+                let engine = lock_circuits_engine(&state).await?;
                 engine
                     .get_events_for_item(&dfid)
                     .unwrap_or_else(|_| Vec::new())
@@ -2468,34 +2464,25 @@ async fn batch_push_items(
     let mut success_count = 0;
     let mut failed_count = 0;
 
-    // Process each item sequentially using block_in_place
+    // Process each item sequentially
     for item in payload.items.iter() {
         let dfid = item.dfid.clone();
         let circuit_id_copy = circuit_id;
         let requester_id_clone = requester_id.clone();
-        let engine_arc = state.circuits_engine.clone();
 
-        let result = tokio::task::block_in_place(|| {
-            let mut engine = engine_arc.lock().map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Engine mutex poisoned"})),
-                )
-            })?;
-
-            tokio::runtime::Handle::current()
-                .block_on(async {
-                    engine
-                        .push_item_to_circuit(&dfid, &circuit_id_copy, &requester_id_clone)
-                        .await
-                })
+        let result = async {
+            let mut engine = lock_circuits_engine(&state).await?;
+            engine
+                .push_item_to_circuit(&dfid, &circuit_id_copy, &requester_id_clone)
+                .await
                 .map_err(|e| {
                     (
                         StatusCode::BAD_REQUEST,
                         Json(json!({"error": format!("Push failed: {}", e)})),
                     )
                 })
-        });
+        }
+        .await;
 
         match result {
             Ok(_) => {
@@ -2535,7 +2522,7 @@ async fn get_circuit_pending_items(
         )
     })?;
 
-    let circuits_engine = lock_circuits_engine(&state)?;
+    let circuits_engine = lock_circuits_engine(&state).await?;
 
     // Get pending operations for this circuit
     let pending_operations = circuits_engine
@@ -2554,7 +2541,7 @@ async fn get_circuit_pending_items(
     for operation in pending_operations {
         // Try to fetch the item to build preview
         let item_preview = {
-            let items_engine = lock_items_engine(&state)?;
+            let items_engine = lock_items_engine(&state).await?;
             match items_engine.get_item(&operation.dfid) {
                 Ok(Some(item)) => Some(PendingItemPreview {
                     identifiers: item
@@ -2604,10 +2591,11 @@ async fn approve_pending_item(
         )
     })?;
 
-    let mut circuits_engine = lock_circuits_engine(&state)?;
+    let mut circuits_engine = lock_circuits_engine(&state).await?;
 
     let approved_operation = circuits_engine
         .approve_operation(&operation_id, &payload.admin_id)
+        .await
         .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
@@ -2649,10 +2637,11 @@ async fn reject_pending_item(
         )
     })?;
 
-    let mut circuits_engine = lock_circuits_engine(&state)?;
+    let mut circuits_engine = lock_circuits_engine(&state).await?;
 
     circuits_engine
         .reject_operation(&operation_id, &payload.admin_id, payload.reason.clone())
+        .await
         .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
@@ -2663,31 +2652,24 @@ async fn reject_pending_item(
     drop(circuits_engine);
 
     let operation_to_persist = {
-        if let Ok(storage_guard) = state.shared_storage.lock() {
-            match storage_guard.get_circuit_operation(&operation_id) {
-                Ok(Some(operation)) => Some(operation),
-                Ok(None) => {
-                    tracing::warn!(
-                        "Circuit operation {} missing after rejection; skipping persistence",
-                        operation_id
-                    );
-                    None
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to fetch circuit operation {} for persistence: {}",
-                        operation_id,
-                        e
-                    );
-                    None
-                }
+        let storage_guard = state.shared_storage.lock().unwrap();
+        match storage_guard.get_circuit_operation(&operation_id) {
+            Ok(Some(operation)) => Some(operation),
+            Ok(None) => {
+                tracing::warn!(
+                    "Circuit operation {} missing after rejection; skipping persistence",
+                    operation_id
+                );
+                None
             }
-        } else {
-            tracing::warn!(
-                "Failed to acquire shared storage lock while preparing persistence for operation {}",
-                operation_id
-            );
-            None
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to fetch circuit operation {} for persistence: {}",
+                    operation_id,
+                    e
+                );
+                None
+            }
         }
     };
 
@@ -2712,7 +2694,7 @@ async fn get_circuit_adapter_config(
         )
     })?;
 
-    let engine = lock_circuits_engine(&state)?;
+    let engine = lock_circuits_engine(&state).await?;
 
     match engine.get_circuit(&circuit_id) {
         Ok(Some(circuit)) => {
@@ -2786,16 +2768,19 @@ async fn set_circuit_adapter_config(
         None
     };
 
-    let mut engine = lock_circuits_engine(&state)?;
+    let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine.set_circuit_adapter_config(
-        &circuit_id,
-        &claims.user_id,
-        adapter_type,
-        payload.auto_migrate_existing,
-        payload.requires_approval,
-        payload.sponsor_adapter_access,
-    ) {
+    match engine
+        .set_circuit_adapter_config(
+            &circuit_id,
+            &claims.user_id,
+            adapter_type,
+            payload.auto_migrate_existing,
+            payload.requires_approval,
+            payload.sponsor_adapter_access,
+        )
+        .await
+    {
         Ok(adapter_config) => {
             if let Ok(Some(circuit)) = engine.get_circuit(&circuit_id) {
                 spawn_persist_circuit(&state, circuit.clone());
@@ -2845,12 +2830,7 @@ async fn get_post_action_settings(
         )
     })?;
 
-    let storage = state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = state.shared_storage.lock().unwrap();
     let circuit = storage
         .get_circuit(&circuit_id)
         .map_err(|e| {
@@ -2891,12 +2871,7 @@ async fn update_post_action_settings(
         )
     })?;
 
-    let mut storage = state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let mut storage = state.shared_storage.lock().unwrap();
     let mut circuit = storage
         .get_circuit(&circuit_id)
         .map_err(|e| {
@@ -2976,12 +2951,7 @@ async fn create_webhook(
         )
     })?;
 
-    let mut storage = state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let mut storage = state.shared_storage.lock().unwrap();
     let mut circuit = storage
         .get_circuit(&circuit_id)
         .map_err(|e| {
@@ -3074,12 +3044,7 @@ async fn get_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = state.shared_storage.lock().unwrap();
     let circuit = storage
         .get_circuit(&circuit_uuid)
         .map_err(|e| {
@@ -3140,12 +3105,7 @@ async fn update_webhook(
         )
     })?;
 
-    let mut storage = state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let mut storage = state.shared_storage.lock().unwrap();
     let mut circuit = storage
         .get_circuit(&circuit_uuid)
         .map_err(|e| {
@@ -3238,12 +3198,7 @@ async fn delete_webhook(
         )
     })?;
 
-    let mut storage = state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let mut storage = state.shared_storage.lock().unwrap();
     let mut circuit = storage
         .get_circuit(&circuit_uuid)
         .map_err(|e| {
@@ -3308,12 +3263,7 @@ async fn test_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = state.shared_storage.lock().unwrap();
     let circuit = storage
         .get_circuit(&circuit_uuid)
         .map_err(|e| {
@@ -3383,12 +3333,7 @@ async fn get_webhook_deliveries(
         )
     })?;
 
-    let storage = state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = state.shared_storage.lock().unwrap();
     let circuit = storage
         .get_circuit(&circuit_id)
         .map_err(|e| {

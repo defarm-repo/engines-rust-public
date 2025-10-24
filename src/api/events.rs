@@ -117,7 +117,7 @@ async fn create_event(
         ));
     };
 
-    let mut engine = state.events_engine.lock().unwrap();
+    let mut engine = state.events_engine.write().await;
 
     match engine.create_event(payload.dfid, event_type, source, visibility) {
         Ok(event) => {
@@ -184,7 +184,7 @@ async fn get_events_for_item(
     State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.events_engine.lock().unwrap();
+    let engine = state.events_engine.write().await;
 
     match engine.get_events_for_item(&dfid) {
         Ok(events) => {
@@ -205,7 +205,7 @@ async fn get_events_by_type(
     let event_type = parse_event_type(&event_type_str)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let engine = state.events_engine.lock().unwrap();
+    let engine = state.events_engine.write().await;
 
     match engine.get_events_by_type(event_type) {
         Ok(events) => {
@@ -226,7 +226,7 @@ async fn get_events_by_visibility(
     let visibility = parse_event_visibility(&visibility_str)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
 
-    let engine = state.events_engine.lock().unwrap();
+    let engine = state.events_engine.write().await;
 
     match engine.get_events_by_visibility(visibility) {
         Ok(events) => {
@@ -244,7 +244,7 @@ async fn get_events_timeline(
     State(state): State<Arc<AppState>>,
     Query(params): Query<EventQueryParams>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.events_engine.lock().unwrap();
+    let engine = state.events_engine.write().await;
 
     match (params.start_date, params.end_date) {
         (Some(start), Some(end)) => {
@@ -293,7 +293,7 @@ async fn get_events_timeline(
 async fn get_public_events(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.events_engine.lock().unwrap();
+    let engine = state.events_engine.write().await;
 
     match engine.get_public_events() {
         Ok(events) => {
@@ -310,7 +310,7 @@ async fn get_public_events(
 async fn get_private_events(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<EventResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.events_engine.lock().unwrap();
+    let engine = state.events_engine.write().await;
 
     match engine.get_private_events() {
         Ok(events) => {
@@ -335,7 +335,7 @@ async fn get_event(
         )
     })?;
 
-    let engine = state.events_engine.lock().unwrap();
+    let engine = state.events_engine.write().await;
 
     match engine.get_event(&event_uuid) {
         Ok(Some(event)) => Ok(Json(event_to_response(event))),
@@ -362,7 +362,7 @@ async fn add_event_metadata(
         )
     })?;
 
-    let mut engine = state.events_engine.lock().unwrap();
+    let mut engine = state.events_engine.write().await;
 
     match engine.add_event_metadata(&event_uuid, metadata) {
         Ok(event) => Ok(Json(event_to_response(event))),

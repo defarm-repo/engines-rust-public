@@ -83,7 +83,7 @@ async fn get_notifications(
         ));
     };
 
-    let notification_engine = state.notification_engine.lock().unwrap();
+    let notification_engine = state.notification_engine.write().await;
 
     let since = params
         .since
@@ -128,7 +128,7 @@ async fn get_unread_count(
         ));
     };
 
-    let notification_engine = state.notification_engine.lock().unwrap();
+    let notification_engine = state.notification_engine.write().await;
 
     let count = notification_engine
         .get_unread_count(&user_id)
@@ -164,7 +164,7 @@ async fn mark_notification_read(
         ));
     };
 
-    let notification_engine = state.notification_engine.lock().unwrap();
+    let notification_engine = state.notification_engine.write().await;
 
     let notification = notification_engine
         .mark_as_read(&id, &user_id)
@@ -200,7 +200,7 @@ async fn delete_notification(
         ));
     };
 
-    let notification_engine = state.notification_engine.lock().unwrap();
+    let notification_engine = state.notification_engine.write().await;
 
     notification_engine
         .delete_notification(&id, &user_id)
@@ -235,7 +235,7 @@ async fn mark_all_read(
         ));
     };
 
-    let notification_engine = state.notification_engine.lock().unwrap();
+    let notification_engine = state.notification_engine.write().await;
 
     let count = notification_engine
         .mark_all_as_read(&user_id)
@@ -322,11 +322,8 @@ async fn handle_socket(
 
     // Send initial unread count
     let unread_count = {
-        if let Ok(notification_engine) = state.notification_engine.lock() {
-            notification_engine.get_unread_count(&user_id).ok()
-        } else {
-            None
-        }
+        let notification_engine = state.notification_engine.write().await;
+        notification_engine.get_unread_count(&user_id).ok()
     };
 
     if let Some(count) = unread_count {
@@ -432,7 +429,8 @@ async fn handle_client_message(request: Value, state: &Arc<AppState>, user_id: &
                 if let Some(notification_id) =
                     request.get("notification_id").and_then(|v| v.as_str())
                 {
-                    if let Ok(notification_engine) = state.notification_engine.lock() {
+                    {
+                        let notification_engine = state.notification_engine.write().await;
                         match notification_engine.mark_as_read(notification_id, user_id) {
                             Ok(_) => info!(
                                 "Marked notification {} as read for user {}",
@@ -444,14 +442,13 @@ async fn handle_client_message(request: Value, state: &Arc<AppState>, user_id: &
                 }
             }
             "mark_all_read" => {
-                if let Ok(notification_engine) = state.notification_engine.lock() {
-                    match notification_engine.mark_all_as_read(user_id) {
-                        Ok(count) => info!(
-                            "Marked {} notifications as read for user {}",
-                            count, user_id
-                        ),
-                        Err(e) => warn!("Failed to mark all as read: {}", e),
-                    }
+                let notification_engine = state.notification_engine.write().await;
+                match notification_engine.mark_all_as_read(user_id) {
+                    Ok(count) => info!(
+                        "Marked {} notifications as read for user {}",
+                        count, user_id
+                    ),
+                    Err(e) => warn!("Failed to mark all as read: {}", e),
                 }
             }
             "ping" => {

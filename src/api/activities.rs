@@ -20,7 +20,7 @@ pub fn activity_routes(app_state: Arc<AppState>) -> Router {
 async fn get_all_activities(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<ActivityResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.circuits_engine.lock().unwrap();
+    let engine = state.circuits_engine.write().await;
 
     match engine.get_all_activities() {
         Ok(activities) => {
@@ -39,7 +39,7 @@ async fn get_user_activities(
     State(state): State<Arc<AppState>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<ActivityResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.circuits_engine.lock().unwrap();
+    let engine = state.circuits_engine.write().await;
 
     match engine.get_activities_for_user(&user_id) {
         Ok(activities) => {

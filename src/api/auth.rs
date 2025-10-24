@@ -177,12 +177,7 @@ async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
     // Get user by username from shared storage
-    let storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = app_state.shared_storage.lock().unwrap();
 
     if let Some(user) = storage
         .get_user_by_username(&payload.username)
@@ -273,12 +268,7 @@ async fn register(
         return Err((StatusCode::BAD_REQUEST, Json(json!({"error": e}))));
     }
 
-    let mut storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let mut storage = app_state.shared_storage.lock().unwrap();
 
     // Check if username already exists
     if storage
@@ -423,12 +413,7 @@ async fn get_profile(
     // Extract user_id from JWT Claims injected by jwt_auth_middleware
     let user_id = &claims.user_id;
 
-    let storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = app_state.shared_storage.lock().unwrap();
 
     if let Some(user) = storage.get_user_account(user_id).map_err(|_| {
         (
@@ -458,12 +443,7 @@ async fn refresh_token(
     // Extract user_id from JWT Claims injected by jwt_auth_middleware
     let user_id = &claims.user_id;
 
-    let storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = app_state.shared_storage.lock().unwrap();
 
     if let Some(user) = storage.get_user_account(user_id).map_err(|_| {
         (

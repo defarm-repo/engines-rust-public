@@ -502,12 +502,7 @@ async fn create_item(
     };
 
     let item = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
 
         let source_entry = uuid::Uuid::parse_str(&payload.source_entry).map_err(|_| {
             (
@@ -577,12 +572,7 @@ async fn create_items_batch(
     };
 
     let (results, success_count, failed_count, items_to_persist) = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
 
         let mut results = Vec::new();
         let mut success_count = 0;
@@ -687,12 +677,7 @@ async fn get_item(
         ));
     };
 
-    let engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let engine = state.items_engine.write().await;
 
     match engine.get_item(&dfid) {
         Ok(Some(item)) => Ok(Json(item_to_response(item))),
@@ -732,12 +717,7 @@ async fn update_item(
     } = payload;
 
     let updated_item = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
 
         // Update enriched data if provided
         if let Some(enriched_data) = enriched_data {
@@ -822,12 +802,7 @@ async fn delete_item(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let mut engine = state.items_engine.write().await;
 
     match engine.deprecate_item(&dfid) {
         Ok(_) => Ok(Json(json!({"message": "Item deprecated successfully"}))),
@@ -856,12 +831,7 @@ async fn list_items(
         ));
     };
 
-    let engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let engine = state.items_engine.write().await;
 
     match engine.list_items() {
         Ok(mut items) => {
@@ -919,12 +889,7 @@ async fn merge_items(
     };
 
     let (response, items_to_persist) = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
 
         match engine.merge_items(&primary_dfid, &secondary_dfid) {
             Ok(primary_item) => {
@@ -991,12 +956,7 @@ async fn split_item(
     };
 
     let (response, items_to_persist) = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
 
         let identifiers =
             build_identifiers(split_request.identifiers_for_new_item).map_err(|e| {
@@ -1063,12 +1023,7 @@ async fn deprecate_item(
     };
 
     let item = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
 
         match engine.deprecate_item(&dfid) {
             Ok(item) => item,
@@ -1128,12 +1083,7 @@ async fn get_item_stats(
         ));
     };
 
-    let engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let engine = state.items_engine.write().await;
 
     match engine.list_items() {
         Ok(items) => {
@@ -1191,12 +1141,7 @@ async fn get_items_by_identifier(
         ));
     };
 
-    let engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let engine = state.items_engine.write().await;
     let identifier = Identifier::contextual(namespaces::GENERIC, key, value);
 
     match engine.find_items_by_identifier(&identifier) {
@@ -1231,12 +1176,7 @@ async fn share_item(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let mut engine = state.items_engine.write().await;
 
     match engine.share_item(
         &dfid,
@@ -1275,12 +1215,7 @@ async fn check_item_shared_with_user(
         ));
     };
 
-    let engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let engine = state.items_engine.write().await;
 
     match engine.is_item_shared_with_user(&dfid, &user_id) {
         Ok(is_shared) => {
@@ -1327,12 +1262,7 @@ pub async fn get_shared_items_for_user(
         ));
     };
 
-    let engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let engine = state.items_engine.write().await;
 
     match engine.get_shares_for_user(&user_id) {
         Ok(shared_items) => {
@@ -1374,12 +1304,7 @@ async fn list_pending_items(
         ));
     };
 
-    let engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let engine = state.items_engine.write().await;
 
     match engine.get_pending_items() {
         Ok(pending_items) => {
@@ -1434,12 +1359,7 @@ async fn get_pending_item(
         ));
     };
 
-    let engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let engine = state.items_engine.write().await;
 
     let pending_id = match Uuid::parse_str(&id) {
         Ok(uuid) => uuid,
@@ -1483,12 +1403,7 @@ async fn resolve_pending_item(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let mut engine = state.items_engine.write().await;
 
     let pending_id = match Uuid::parse_str(&id) {
         Ok(uuid) => uuid,
@@ -1609,12 +1524,7 @@ async fn create_local_item(
 
     // Create item in in-memory storage (must not hold lock across await)
     let item = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
 
         let identifiers = build_identifiers(identifier_requests).map_err(|e| {
             (
@@ -1675,7 +1585,8 @@ async fn create_local_item(
         user_agent: None, // TODO: Extract from request
     };
 
-    if let Ok(engine) = state.activity_engine.lock() {
+    {
+        let engine = state.activity_engine.write().await;
         if let Err(e) = engine.record_activity(&user_activity) {
             tracing::warn!(
                 "Failed to record user activity {}: {}",
@@ -1762,12 +1673,7 @@ async fn merge_local_items(
 
     // Perform merge
     let (master_item, items_to_persist) = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
 
         let master_item = engine
             .merge_local_items(&master_lid, merge_lids.clone(), strategy)
@@ -1853,12 +1759,7 @@ async fn find_duplicate_local_items(
         ));
     };
 
-    let mut engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let mut engine = state.items_engine.write().await;
 
     let duplicate_groups_raw = engine.find_duplicate_local_items().map_err(|e| {
         (
@@ -1990,12 +1891,7 @@ async fn organize_local_items(
 
     // Get duplicate groups
     let duplicate_groups_raw = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
         engine.find_duplicate_local_items().map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -2031,12 +1927,7 @@ async fn organize_local_items(
 
         if !dry_run {
             // Perform actual merge
-            let mut engine = state.items_engine.lock().map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Items engine mutex poisoned"})),
-                )
-            })?;
+            let mut engine = state.items_engine.write().await;
 
             match engine.merge_local_items(&master_lid, merge_lids.clone(), strategy.clone()) {
                 Ok(_) => {
@@ -2117,12 +2008,7 @@ async fn unmerge_local_item(
 
     // Get previous master before unmerge
     let previous_master = {
-        let engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let engine = state.items_engine.write().await;
 
         let item = engine
             .get_item_by_lid(&merged_lid)
@@ -2152,12 +2038,7 @@ async fn unmerge_local_item(
 
     // Perform unmerge
     let restored_item = {
-        let mut engine = state.items_engine.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Items engine mutex poisoned"})),
-            )
-        })?;
+        let mut engine = state.items_engine.write().await;
 
         engine.unmerge_local_item(&merged_lid).map_err(|e| {
             let status_code = match e {
@@ -2225,12 +2106,7 @@ async fn get_lid_dfid_mapping(
         ));
     };
 
-    let engine = state.items_engine.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Items engine mutex poisoned"})),
-        )
-    })?;
+    let engine = state.items_engine.write().await;
 
     let local_id = match Uuid::parse_str(&local_id_str) {
         Ok(uuid) => uuid,
@@ -2315,12 +2191,7 @@ async fn get_storage_history(
     };
 
     // Get storage history from shared storage
-    let storage_guard = state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage_guard = state.shared_storage.lock().unwrap();
 
     match storage_guard.get_storage_history(&dfid) {
         Ok(Some(history)) => {

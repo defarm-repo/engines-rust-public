@@ -60,12 +60,7 @@ async fn test_blockchain_push(
 
     // Store in database first
     {
-        let mut storage = state.shared_storage.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Storage mutex poisoned"})),
-            )
-        })?;
+        let mut storage = state.shared_storage.lock().unwrap();
         storage.store_item(&test_item).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

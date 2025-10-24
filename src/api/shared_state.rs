@@ -1,74 +1,76 @@
 use crate::api::notifications::NotificationMessage;
 use crate::api_key_engine::ApiKeyEngine;
-use crate::api_key_storage::ApiKeyStorage;
 use crate::logging::LoggingEngine;
 use crate::postgres_persistence::PostgresPersistence;
 use crate::postgres_storage_with_cache::PostgresStorageWithCache;
 use crate::rate_limiter::RateLimiter;
 use crate::redis_cache::RedisCache;
-use crate::storage::{StorageBackend, StorageError};
 use crate::storage_history_reader::StorageHistoryReader;
 use crate::{
     ActivityEngine, AuditEngine, CircuitsEngine, EventsEngine, ItemsEngine, NotificationEngine,
 };
 use std::sync::{Arc, Mutex};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, RwLock as AsyncRwLock};
 
 /// AppState with PostgreSQL primary storage and optional Redis cache
 ///
 /// All production and test environments use PostgreSQL as the storage backend.
 /// This ensures consistency between development, testing, and production.
+///
+/// Storage is accessed via spawn_blocking to safely bridge sync storage with async runtime.
+type SharedStorage = Arc<Mutex<PostgresStorageWithCache>>;
+
 pub struct AppState {
-    pub circuits_engine: Arc<Mutex<CircuitsEngine<PostgresStorageWithCache>>>,
-    pub items_engine: Arc<Mutex<ItemsEngine<Arc<Mutex<PostgresStorageWithCache>>>>>,
-    pub events_engine: Arc<Mutex<EventsEngine<PostgresStorageWithCache>>>,
-    pub audit_engine: AuditEngine<PostgresStorageWithCache>,
-    pub activity_engine: Arc<Mutex<ActivityEngine<PostgresStorageWithCache>>>,
-    pub shared_storage: Arc<Mutex<PostgresStorageWithCache>>,
-    pub storage_history_reader: StorageHistoryReader<PostgresStorageWithCache>,
+    pub circuits_engine: Arc<AsyncRwLock<CircuitsEngine<SharedStorage>>>,
+    pub items_engine: Arc<AsyncRwLock<ItemsEngine<SharedStorage>>>,
+    pub events_engine: Arc<AsyncRwLock<EventsEngine<SharedStorage>>>,
+    pub audit_engine: AuditEngine<SharedStorage>,
+    pub activity_engine: Arc<AsyncRwLock<ActivityEngine<SharedStorage>>>,
+    pub shared_storage: SharedStorage,
+    pub storage_history_reader: StorageHistoryReader<SharedStorage>,
     pub logging: Arc<Mutex<LoggingEngine>>,
     pub api_key_engine: Arc<ApiKeyEngine>,
     pub api_key_storage: Arc<crate::api_key_storage::InMemoryApiKeyStorage>,
     pub rate_limiter: Arc<RateLimiter>,
-    pub notification_engine: Arc<Mutex<NotificationEngine<PostgresStorageWithCache>>>,
+    pub notification_engine: Arc<AsyncRwLock<NotificationEngine<SharedStorage>>>,
     pub notification_tx: broadcast::Sender<NotificationMessage>,
     pub jwt_secret: String,
     /// Optional PostgreSQL persistence layer - lazy initialized
-    pub postgres_persistence: Arc<RwLock<Option<PostgresPersistence>>>,
+    pub postgres_persistence: Arc<AsyncRwLock<Option<PostgresPersistence>>>,
     /// Optional Redis cache layer for horizontal scaling
-    pub redis_cache: Arc<RwLock<Option<RedisCache>>>,
+    pub redis_cache: Arc<AsyncRwLock<Option<RedisCache>>>,
 }
 
 impl AppState {
     /// Create AppState with PostgreSQL primary storage (with optional Redis cache)
-    pub fn new(storage: Arc<Mutex<PostgresStorageWithCache>>) -> Self {
-        // All engines use the same shared storage backend (cloning Arc, not the data)
-        let storage_for_circuits = storage.clone();
-        let storage_for_items = storage.clone();
-        let storage_for_events = storage.clone();
-        let storage_for_audit = storage.clone();
-        let storage_for_activity = storage.clone();
-        let storage_for_notifications = storage.clone();
-        let storage_for_history = storage.clone();
+    pub fn new(storage: SharedStorage) -> Self {
+        // All engines share the same storage Arc - access via spawn_blocking for thread safety
+        let storage_for_circuits = Arc::clone(&storage);
+        let storage_for_items = Arc::clone(&storage);
+        let storage_for_events = Arc::clone(&storage);
+        let storage_for_audit = Arc::clone(&storage);
+        let storage_for_activity = Arc::clone(&storage);
+        let storage_for_notifications = Arc::clone(&storage);
+        let storage_for_history = Arc::clone(&storage);
 
-        let circuits_engine = Arc::new(Mutex::new(
-            CircuitsEngine::<PostgresStorageWithCache>::new(storage_for_circuits),
-        ));
-        let items_engine = Arc::new(Mutex::new(ItemsEngine::<
-            Arc<Mutex<PostgresStorageWithCache>>,
-        >::new(storage_for_items)));
-        let events_engine = Arc::new(Mutex::new(EventsEngine::<PostgresStorageWithCache>::new(
+        let circuits_engine = Arc::new(AsyncRwLock::new(CircuitsEngine::<SharedStorage>::new(
+            storage_for_circuits,
+        )));
+        let items_engine = Arc::new(AsyncRwLock::new(ItemsEngine::<SharedStorage>::new(
+            storage_for_items,
+        )));
+        let events_engine = Arc::new(AsyncRwLock::new(EventsEngine::<SharedStorage>::new(
             storage_for_events,
         )));
-        let audit_engine = AuditEngine::<PostgresStorageWithCache>::new(storage_for_audit);
-        let activity_engine = Arc::new(Mutex::new(
-            ActivityEngine::<PostgresStorageWithCache>::new(storage_for_activity),
+        let audit_engine = AuditEngine::<SharedStorage>::new(storage_for_audit);
+        let activity_engine = Arc::new(AsyncRwLock::new(ActivityEngine::<SharedStorage>::new(
+            storage_for_activity,
+        )));
+        let notification_engine = Arc::new(AsyncRwLock::new(
+            NotificationEngine::<SharedStorage>::new(storage_for_notifications),
         ));
-        let notification_engine = Arc::new(Mutex::new(NotificationEngine::<
-            PostgresStorageWithCache,
-        >::new(storage_for_notifications)));
         let storage_history_reader =
-            StorageHistoryReader::<PostgresStorageWithCache>::new(storage_for_history);
+            StorageHistoryReader::<SharedStorage>::new(storage_for_history);
 
         // Create broadcast channel for WebSocket notifications
         let (notification_tx, _notification_rx) = broadcast::channel(1000);
@@ -102,30 +104,59 @@ impl AppState {
             notification_engine,
             notification_tx,
             jwt_secret,
-            postgres_persistence: Arc::new(RwLock::new(None)),
-            redis_cache: Arc::new(RwLock::new(None)),
+            postgres_persistence: Arc::new(AsyncRwLock::new(None)),
+            redis_cache: Arc::new(AsyncRwLock::new(None)),
         }
     }
 
     /// Enable PostgreSQL persistence for events engine
-    pub fn enable_event_persistence(&self) {
-        if let Ok(mut engine) = self.events_engine.lock() {
-            *engine = EventsEngine::new(Arc::clone(&self.shared_storage))
-                .with_postgres(Arc::clone(&self.postgres_persistence));
-        }
+    pub async fn enable_event_persistence(&self) {
+        let mut engine = self.events_engine.write().await;
+        *engine = EventsEngine::new(self.shared_storage.clone())
+            .with_postgres(Arc::clone(&self.postgres_persistence));
     }
 
     /// Enable PostgreSQL persistence for user activity tracking
-    pub fn enable_activity_persistence(&self) {
-        if let Ok(mut engine) = self.activity_engine.lock() {
-            engine.set_postgres(Arc::clone(&self.postgres_persistence));
-        }
+    pub async fn enable_activity_persistence(&self) {
+        let mut engine = self.activity_engine.write().await;
+        engine.set_postgres(Arc::clone(&self.postgres_persistence));
     }
 
     /// Enable PostgreSQL persistence for circuit activity logs
-    pub fn enable_circuit_activity_persistence(&self) {
-        if let Ok(mut engine) = self.circuits_engine.lock() {
-            engine.set_postgres(Arc::clone(&self.postgres_persistence));
-        }
+    pub async fn enable_circuit_activity_persistence(&self) {
+        let mut engine = self.circuits_engine.write().await;
+        engine.set_postgres(Arc::clone(&self.postgres_persistence));
+    }
+
+    /// Helper to safely access storage with read lock from async context
+    /// Uses spawn_blocking to avoid holding sync lock across await points
+    pub async fn with_storage_read<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&PostgresStorageWithCache) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let storage = self.shared_storage.clone();
+        tokio::task::spawn_blocking(move || {
+            let guard = storage.lock().unwrap();
+            f(&*guard)
+        })
+        .await
+        .expect("Storage read task panicked")
+    }
+
+    /// Helper to safely access storage with write lock from async context
+    /// Uses spawn_blocking to avoid holding sync lock across await points
+    pub async fn with_storage_write<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut PostgresStorageWithCache) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let storage = self.shared_storage.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = storage.lock().unwrap();
+            f(&mut *guard)
+        })
+        .await
+        .expect("Storage write task panicked")
     }
 }

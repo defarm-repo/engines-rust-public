@@ -2,7 +2,6 @@ use crate::storage::StorageBackend;
 use crate::types::{Notification, NotificationType};
 use chrono::{DateTime, Utc};
 use serde_json::json;
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum NotificationError {
@@ -24,11 +23,11 @@ impl std::fmt::Display for NotificationError {
 impl std::error::Error for NotificationError {}
 
 pub struct NotificationEngine<S: StorageBackend> {
-    storage: Arc<std::sync::Mutex<S>>,
+    storage: S,
 }
 
-impl<S: StorageBackend> NotificationEngine<S> {
-    pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
+impl<S: StorageBackend + 'static> NotificationEngine<S> {
+    pub fn new(storage: S) -> Self {
         Self { storage }
     }
 
@@ -279,11 +278,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
         limit: Option<usize>,
         unread_only: bool,
     ) -> Result<Vec<Notification>, NotificationError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
-        storage
+        self.storage
             .get_user_notifications(user_id, since, limit, unread_only)
             .map_err(|e| NotificationError::StorageError(e.to_string()))
     }
@@ -293,11 +288,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
         &self,
         notification_id: &str,
     ) -> Result<Option<Notification>, NotificationError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
-        storage
+        self.storage
             .get_notification(notification_id)
             .map_err(|e| NotificationError::StorageError(e.to_string()))
     }
@@ -308,12 +299,8 @@ impl<S: StorageBackend> NotificationEngine<S> {
         notification_id: &str,
         user_id: &str,
     ) -> Result<Notification, NotificationError> {
-        let mut storage = self
+        let mut notification = self
             .storage
-            .lock()
-            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
-
-        let mut notification = storage
             .get_notification(notification_id)
             .map_err(|e| NotificationError::StorageError(e.to_string()))?
             .ok_or(NotificationError::NotFound)?;
@@ -326,7 +313,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
         }
 
         notification.mark_as_read();
-        storage
+        self.storage
             .update_notification(&notification)
             .map_err(|e| NotificationError::StorageError(e.to_string()))?;
 
@@ -335,11 +322,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
 
     /// Mark all notifications as read for a user
     pub fn mark_all_as_read(&self, user_id: &str) -> Result<usize, NotificationError> {
-        let mut storage = self
-            .storage
-            .lock()
-            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
-        storage
+        self.storage
             .mark_all_notifications_read(user_id)
             .map_err(|e| NotificationError::StorageError(e.to_string()))
     }
@@ -350,12 +333,8 @@ impl<S: StorageBackend> NotificationEngine<S> {
         notification_id: &str,
         user_id: &str,
     ) -> Result<(), NotificationError> {
-        let mut storage = self
+        let notification = self
             .storage
-            .lock()
-            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
-
-        let notification = storage
             .get_notification(notification_id)
             .map_err(|e| NotificationError::StorageError(e.to_string()))?
             .ok_or(NotificationError::NotFound)?;
@@ -367,7 +346,7 @@ impl<S: StorageBackend> NotificationEngine<S> {
             ));
         }
 
-        storage
+        self.storage
             .delete_notification(notification_id)
             .map_err(|e| NotificationError::StorageError(e.to_string()))?;
 
@@ -376,24 +355,15 @@ impl<S: StorageBackend> NotificationEngine<S> {
 
     /// Get count of unread notifications for a user
     pub fn get_unread_count(&self, user_id: &str) -> Result<usize, NotificationError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
-        storage
+        self.storage
             .get_unread_notification_count(user_id)
             .map_err(|e| NotificationError::StorageError(e.to_string()))
     }
 
     // Internal helper to store a notification
     fn store_notification(&self, notification: &Notification) -> Result<(), NotificationError> {
-        let mut storage = self
-            .storage
-            .lock()
-            .map_err(|_| NotificationError::StorageError("Storage mutex poisoned".to_string()))?;
-        storage
+        self.storage
             .store_notification(notification)
-            .map_err(|e| NotificationError::StorageError(e.to_string()))?;
-        Ok(())
+            .map_err(|e| NotificationError::StorageError(e.to_string()))
     }
 }

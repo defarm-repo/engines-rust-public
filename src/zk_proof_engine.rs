@@ -3,7 +3,6 @@ use crate::types::Item;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
 // ============================================================================
@@ -124,12 +123,12 @@ impl From<StorageError> for ZkProofError {
 
 #[derive(Clone)]
 pub struct ZkProofEngine<S: StorageBackend> {
-    storage: Arc<std::sync::Mutex<S>>,
+    storage: S,
     circuit_templates: HashMap<String, CircuitTemplate>,
 }
 
 impl<S: StorageBackend> ZkProofEngine<S> {
-    pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
+    pub fn new(storage: S) -> Self {
         let mut engine = Self {
             storage,
             circuit_templates: HashMap::new(),
@@ -181,8 +180,7 @@ impl<S: StorageBackend> ZkProofEngine<S> {
 
         // Store proof
         {
-            let mut storage = self.storage.lock().unwrap();
-            storage.store_zk_proof(&proof)?;
+            self.storage.store_zk_proof(&proof)?;
         }
 
         Ok(proof_id)
@@ -194,8 +192,7 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         verifier_id: String,
     ) -> Result<VerificationResult, ZkProofError> {
         let mut proof = {
-            let storage = self.storage.lock().unwrap();
-            storage
+            self.storage
                 .get_zk_proof(&proof_id)?
                 .ok_or_else(|| ZkProofError::VerificationError("Proof not found".to_string()))?
         };
@@ -204,8 +201,7 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         if let Some(expires_at) = proof.expires_at {
             if Utc::now() > expires_at {
                 proof.status = ProofStatus::Expired;
-                let mut storage = self.storage.lock().unwrap();
-                storage.update_zk_proof(&proof)?;
+                self.storage.update_zk_proof(&proof)?;
                 return Err(ZkProofError::ExpiredProof(proof_id));
             }
         }
@@ -231,16 +227,14 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         proof.verification_result = Some(verification_result.clone());
 
         {
-            let mut storage = self.storage.lock().unwrap();
-            storage.update_zk_proof(&proof)?;
+            self.storage.update_zk_proof(&proof)?;
         }
 
         Ok(verification_result)
     }
 
     pub fn get_proof(&self, proof_id: &Uuid) -> Result<Option<ZkProof>, ZkProofError> {
-        let storage = self.storage.lock().unwrap();
-        Ok(storage.get_zk_proof(proof_id)?)
+        Ok(self.storage.get_zk_proof(proof_id)?)
     }
 
     pub fn search_proofs(
@@ -250,9 +244,9 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         item_id: Option<Uuid>,
         status: Option<ProofStatus>,
     ) -> Result<Vec<ZkProof>, ZkProofError> {
-        let storage = self.storage.lock().unwrap();
         // Use existing storage methods instead of non-existent search_zk_proofs
-        let proofs = storage
+        let proofs = self
+            .storage
             .list_zk_proofs()
             .map_err(ZkProofError::StorageError)?;
         let filtered_proofs: Vec<ZkProof> = proofs
@@ -275,28 +269,19 @@ impl<S: StorageBackend> ZkProofEngine<S> {
         &self,
         query: &crate::api::zk_proofs::ZkProofQuery,
     ) -> Result<Vec<ZkProof>, ZkProofError> {
-        let storage = self.storage.lock().map_err(|_| {
-            ZkProofError::StorageError(StorageError::IoError("Lock error".to_string()))
-        })?;
-        storage
+        self.storage
             .query_zk_proofs(query)
             .map_err(ZkProofError::StorageError)
     }
 
     pub fn get_statistics(&self) -> Result<crate::api::zk_proofs::ZkProofStatistics, ZkProofError> {
-        let storage = self.storage.lock().map_err(|_| {
-            ZkProofError::StorageError(StorageError::IoError("Lock error".to_string()))
-        })?;
-        storage
+        self.storage
             .get_zk_proof_statistics()
             .map_err(ZkProofError::StorageError)
     }
 
     pub fn delete_proof(&self, proof_id: &Uuid) -> Result<(), ZkProofError> {
-        let mut storage = self.storage.lock().map_err(|_| {
-            ZkProofError::StorageError(StorageError::IoError("Lock error".to_string()))
-        })?;
-        storage
+        self.storage
             .delete_zk_proof(proof_id)
             .map_err(ZkProofError::StorageError)
     }

@@ -6,7 +6,6 @@ use crate::types::{
 };
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -36,15 +35,15 @@ impl std::error::Error for AuditError {}
 
 #[derive(Clone)]
 pub struct AuditEngine<S: StorageBackend> {
-    storage: Arc<std::sync::Mutex<S>>,
+    storage: S,
 }
 
-impl<S: StorageBackend> AuditEngine<S> {
-    pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
+impl<S: StorageBackend + 'static> AuditEngine<S> {
+    pub fn new(storage: S) -> Self {
         Self { storage }
     }
 
-    pub fn get_storage(&self) -> &Arc<std::sync::Mutex<S>> {
+    pub fn get_storage(&self) -> &S {
         &self.storage
     }
 
@@ -77,14 +76,7 @@ impl<S: StorageBackend> AuditEngine<S> {
         }
 
         let event_id = event.event_id;
-        self.storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .store_audit_event(&event)?;
+        self.storage.store_audit_event(&event)?;
 
         Ok(event_id)
     }
@@ -130,14 +122,7 @@ impl<S: StorageBackend> AuditEngine<S> {
             incident.add_related_event(event_id);
 
             let incident_id = incident.incident_id;
-            self.storage
-                .lock()
-                .map_err(|_| {
-                    AuditError::StorageError(StorageError::IoError(
-                        "Storage mutex poisoned".to_string(),
-                    ))
-                })?
-                .store_security_incident(&incident)?;
+            self.storage.store_security_incident(&incident)?;
             Some(incident_id)
         } else {
             None
@@ -202,14 +187,7 @@ impl<S: StorageBackend> AuditEngine<S> {
         }
 
         let event_id = event.event_id;
-        self.storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .store_audit_event(&event)?;
+        self.storage.store_audit_event(&event)?;
 
         Ok(event_id)
     }
@@ -304,28 +282,12 @@ impl<S: StorageBackend> AuditEngine<S> {
 
     // Query audit events
     pub fn query_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, AuditError> {
-        Ok(self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .query_audit_events(query)?)
+        Ok(self.storage.query_audit_events(query)?)
     }
 
     // Get events by user
     pub fn get_user_events(&self, user_id: &str) -> Result<Vec<AuditEvent>, AuditError> {
-        Ok(self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .get_audit_events_by_user(user_id)?)
+        Ok(self.storage.get_audit_events_by_user(user_id)?)
     }
 
     // Get events by type
@@ -333,15 +295,7 @@ impl<S: StorageBackend> AuditEngine<S> {
         &self,
         event_type: AuditEventType,
     ) -> Result<Vec<AuditEvent>, AuditError> {
-        Ok(self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .get_audit_events_by_type(event_type)?)
+        Ok(self.storage.get_audit_events_by_type(event_type)?)
     }
 
     // Get events in time range
@@ -350,15 +304,7 @@ impl<S: StorageBackend> AuditEngine<S> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<AuditEvent>, AuditError> {
-        Ok(self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .get_audit_events_in_time_range(start, end)?)
+        Ok(self.storage.get_audit_events_in_time_range(start, end)?)
     }
 
     // Security incident management
@@ -388,63 +334,34 @@ impl<S: StorageBackend> AuditEngine<S> {
         }
 
         let incident_id = incident.incident_id;
-        self.storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .store_security_incident(&incident)?;
+        self.storage.store_security_incident(&incident)?;
 
         Ok(incident_id)
     }
 
     pub fn assign_incident(&self, incident_id: &Uuid, assignee: String) -> Result<(), AuditError> {
-        let mut storage = self.storage.lock().map_err(|_| {
-            AuditError::StorageError(StorageError::IoError("Storage mutex poisoned".to_string()))
-        })?;
-        if let Some(mut incident) = storage.get_security_incident(incident_id)? {
+        if let Some(mut incident) = self.storage.get_security_incident(incident_id)? {
             incident.assign_to(assignee);
-            storage.update_security_incident(&incident)?;
+            self.storage.update_security_incident(&incident)?;
         }
         Ok(())
     }
 
     pub fn resolve_incident(&self, incident_id: &Uuid) -> Result<(), AuditError> {
-        let mut storage = self.storage.lock().map_err(|_| {
-            AuditError::StorageError(StorageError::IoError("Storage mutex poisoned".to_string()))
-        })?;
-        if let Some(mut incident) = storage.get_security_incident(incident_id)? {
+        if let Some(mut incident) = self.storage.get_security_incident(incident_id)? {
             incident.resolve();
-            storage.update_security_incident(&incident)?;
+            self.storage.update_security_incident(&incident)?;
         }
         Ok(())
     }
 
     pub fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, AuditError> {
-        Ok(self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .get_open_incidents()?)
+        Ok(self.storage.get_open_incidents()?)
     }
 
     // Dashboard and metrics
     pub fn get_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, AuditError> {
-        Ok(self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .get_audit_dashboard_metrics()?)
+        Ok(self.storage.get_audit_dashboard_metrics()?)
     }
 
     pub fn get_event_count_in_range(
@@ -452,15 +369,7 @@ impl<S: StorageBackend> AuditEngine<S> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<u64, AuditError> {
-        Ok(self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .get_event_count_by_time_range(start, end)?)
+        Ok(self.storage.get_event_count_by_time_range(start, end)?)
     }
 
     // Compliance reporting
@@ -475,27 +384,12 @@ impl<S: StorageBackend> AuditEngine<S> {
         let report =
             ComplianceReport::new(report_type, period_start, period_end, scope, export_format);
         let report_id = report.report_id;
-        self.storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .store_compliance_report(&report)?;
+        self.storage.store_compliance_report(&report)?;
         Ok(report_id)
     }
 
     pub fn get_compliance_reports(&self) -> Result<Vec<ComplianceReport>, AuditError> {
-        Ok(self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .list_compliance_reports()?)
+        Ok(self.storage.list_compliance_reports()?)
     }
 
     // Enhanced compliance reporting methods
@@ -518,15 +412,7 @@ impl<S: StorageBackend> AuditEngine<S> {
             ExportFormat::Json,
         );
 
-        // Store the report for audit trail
-        self.storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .store_compliance_report(&report)?;
+        self.storage.store_compliance_report(&report)?;
         Ok(report)
     }
 
@@ -549,14 +435,7 @@ impl<S: StorageBackend> AuditEngine<S> {
             ExportFormat::Pdf,
         );
 
-        self.storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .store_compliance_report(&report)?;
+        self.storage.store_compliance_report(&report)?;
         Ok(report)
     }
 
@@ -584,15 +463,7 @@ impl<S: StorageBackend> AuditEngine<S> {
         start_date: DateTime<Utc>,
         end_date: DateTime<Utc>,
     ) -> Result<Vec<SecurityIncident>, AuditError> {
-        let all_incidents = self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .list_security_incidents()?;
+        let all_incidents = self.storage.list_security_incidents()?;
         let filtered_incidents: Vec<SecurityIncident> = all_incidents
             .into_iter()
             .filter(|incident| incident.created_at >= start_date && incident.created_at <= end_date)
@@ -602,15 +473,7 @@ impl<S: StorageBackend> AuditEngine<S> {
 
     // Event synchronization for distributed systems
     pub fn sync_events(&self, events: Vec<AuditEvent>) -> Result<(), AuditError> {
-        Ok(self
-            .storage
-            .lock()
-            .map_err(|_| {
-                AuditError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .sync_audit_events(events)?)
+        Ok(self.storage.sync_audit_events(events)?)
     }
 
     // Helper methods

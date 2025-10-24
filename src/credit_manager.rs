@@ -26,7 +26,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+            .map_err(|_| StorageError::IoError("Credit manager Mutex poisoned".to_string()))?;
 
         // Get user account
         let mut user = match storage.get_user_account(user_id)? {
@@ -77,7 +77,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         let mut storage = self
             .storage
             .lock()
-            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+            .map_err(|_| StorageError::IoError("Credit manager Mutex poisoned".to_string()))?;
 
         let mut user = storage
             .get_user_account(user_id)?
@@ -115,7 +115,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+            .map_err(|_| StorageError::IoError("Credit manager Mutex poisoned".to_string()))?;
         match storage.get_user_account(user_id)? {
             Some(user) => Ok(Some(user.credits)),
             None => Ok(None),
@@ -130,7 +130,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+            .map_err(|_| StorageError::IoError("Credit manager Mutex poisoned".to_string()))?;
         storage.get_credit_transactions(user_id, limit)
     }
 
@@ -144,7 +144,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+            .map_err(|_| StorageError::IoError("Credit manager Mutex poisoned".to_string()))?;
 
         // Find the original transaction
         let transactions = storage.get_credit_transactions(user_id, None)?;
@@ -222,7 +222,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+            .map_err(|_| StorageError::IoError("Credit manager Mutex poisoned".to_string()))?;
         let transactions = storage.get_credit_transactions(user_id, None)?;
 
         let start_of_month = chrono::Utc::now()
@@ -255,7 +255,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         let storage = self
             .storage
             .lock()
-            .map_err(|_| StorageError::IoError("Credit manager mutex poisoned".to_string()))?;
+            .map_err(|_| StorageError::IoError("Credit manager Mutex poisoned".to_string()))?;
         let user = match storage.get_user_account(user_id)? {
             Some(user) => user,
             None => return Ok(false),

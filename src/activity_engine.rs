@@ -36,12 +36,12 @@ impl std::error::Error for ActivityError {}
 
 #[derive(Clone)]
 pub struct ActivityEngine<S: StorageBackend> {
-    storage: Arc<std::sync::Mutex<S>>,
+    storage: S,
     postgres: Option<Arc<RwLock<Option<PostgresPersistence>>>>,
 }
 
-impl<S: StorageBackend> ActivityEngine<S> {
-    pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
+impl<S: StorageBackend + 'static> ActivityEngine<S> {
+    pub fn new(storage: S) -> Self {
         Self {
             storage,
             postgres: None,
@@ -57,20 +57,13 @@ impl<S: StorageBackend> ActivityEngine<S> {
         self.postgres = Some(postgres);
     }
 
-    pub fn get_storage(&self) -> &Arc<std::sync::Mutex<S>> {
+    pub fn get_storage(&self) -> &S {
         &self.storage
     }
 
     /// Record a user activity
     pub fn record_activity(&self, activity: &UserActivity) -> Result<(), ActivityError> {
-        self.storage
-            .lock()
-            .map_err(|_| {
-                ActivityError::StorageError(StorageError::IoError(
-                    "Storage mutex poisoned".to_string(),
-                ))
-            })?
-            .store_user_activity(activity)?;
+        self.storage.store_user_activity(activity)?;
 
         if let Some(pg_ref) = &self.postgres {
             let activity_clone = activity.clone();
@@ -126,11 +119,7 @@ impl<S: StorageBackend> ActivityEngine<S> {
         &self,
         filters: &UserActivityFilters,
     ) -> Result<UserActivityListResponse, ActivityError> {
-        let storage = self.storage.lock().map_err(|_| {
-            ActivityError::StorageError(StorageError::IoError("Storage mutex poisoned".to_string()))
-        })?;
-
-        let mut all_activities = storage.list_user_activities()?;
+        let mut all_activities = self.storage.list_user_activities()?;
 
         // Apply filters
         if let Some(ref category) = filters.category {
@@ -190,11 +179,7 @@ impl<S: StorageBackend> ActivityEngine<S> {
 
     /// Get a specific activity by ID
     pub fn get_activity(&self, activity_id: &str) -> Result<Option<UserActivity>, ActivityError> {
-        let storage = self.storage.lock().map_err(|_| {
-            ActivityError::StorageError(StorageError::IoError("Storage mutex poisoned".to_string()))
-        })?;
-
-        let activities = storage.list_user_activities()?;
+        let activities = self.storage.list_user_activities()?;
         Ok(activities
             .into_iter()
             .find(|a| a.activity_id == activity_id))
@@ -202,15 +187,11 @@ impl<S: StorageBackend> ActivityEngine<S> {
 
     /// Get activity statistics for a given period
     pub fn get_stats(&self, period_days: i64) -> Result<UserActivityStats, ActivityError> {
-        let storage = self.storage.lock().map_err(|_| {
-            ActivityError::StorageError(StorageError::IoError("Storage mutex poisoned".to_string()))
-        })?;
-
         let now = Utc::now();
         let period_start = now - Duration::days(period_days);
         let period_end = now;
 
-        let activities = storage.list_user_activities()?;
+        let activities = self.storage.list_user_activities()?;
 
         // Filter to period
         let period_activities: Vec<_> = activities
@@ -269,22 +250,17 @@ impl<S: StorageBackend> ActivityEngine<S> {
         &self,
         before_date: DateTime<Utc>,
     ) -> Result<usize, ActivityError> {
-        let mut storage = self.storage.lock().map_err(|_| {
-            ActivityError::StorageError(StorageError::IoError("Storage mutex poisoned".to_string()))
-        })?;
-
-        let mut activities = storage.list_user_activities()?;
+        let mut activities = self.storage.list_user_activities()?;
         let original_count = activities.len();
 
         activities.retain(|a| a.timestamp >= before_date);
 
-        // Store back the filtered list
-        storage.clear_user_activities()?;
+        self.storage.clear_user_activities()?;
         for activity in activities {
-            storage.store_user_activity(&activity)?;
+            self.storage.store_user_activity(&activity)?;
         }
 
-        let deleted_count = original_count - storage.list_user_activities()?.len();
+        let deleted_count = original_count - self.storage.list_user_activities()?.len();
         Ok(deleted_count)
     }
 }

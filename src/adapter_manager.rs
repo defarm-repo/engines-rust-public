@@ -9,16 +9,13 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 pub struct AdapterManager<S: StorageBackend> {
-    storage: Arc<Mutex<S>>,
-    logger: std::cell::RefCell<LoggingEngine>,
+    storage: S,
+    logger: Arc<Mutex<LoggingEngine>>,
 }
 
 impl<S: StorageBackend> AdapterManager<S> {
-    pub fn new(storage: Arc<Mutex<S>>, logger: LoggingEngine) -> Self {
-        Self {
-            storage,
-            logger: std::cell::RefCell::new(logger),
-        }
+    pub fn new(storage: S, logger: Arc<Mutex<LoggingEngine>>) -> Self {
+        Self { storage, logger }
     }
 
     /// Create a new adapter configuration
@@ -34,8 +31,6 @@ impl<S: StorageBackend> AdapterManager<S> {
         // Validate name uniqueness
         let existing_configs = self
             .storage
-            .lock()
-            .unwrap()
             .list_adapter_configs()
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
@@ -63,13 +58,12 @@ impl<S: StorageBackend> AdapterManager<S> {
 
         // Store the configuration
         self.storage
-            .lock()
-            .unwrap()
             .store_adapter_config(&config)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "adapter_manager",
                 "adapter_created",
@@ -95,8 +89,6 @@ impl<S: StorageBackend> AdapterManager<S> {
     ) -> Result<AdapterConfig, AdapterManagerError> {
         let mut config = self
             .storage
-            .lock()
-            .unwrap()
             .get_adapter_config(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?
             .ok_or(AdapterManagerError::NotFound)?;
@@ -106,8 +98,6 @@ impl<S: StorageBackend> AdapterManager<S> {
             // Check name uniqueness
             let existing_configs = self
                 .storage
-                .lock()
-                .unwrap()
                 .list_adapter_configs()
                 .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
@@ -140,13 +130,12 @@ impl<S: StorageBackend> AdapterManager<S> {
 
         // Save updated config
         self.storage
-            .lock()
-            .unwrap()
             .update_adapter_config(&config)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "adapter_manager",
                 "adapter_updated",
@@ -163,8 +152,6 @@ impl<S: StorageBackend> AdapterManager<S> {
         // Check if it exists
         let config = self
             .storage
-            .lock()
-            .unwrap()
             .get_adapter_config(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?
             .ok_or(AdapterManagerError::NotFound)?;
@@ -175,13 +162,12 @@ impl<S: StorageBackend> AdapterManager<S> {
         }
 
         self.storage
-            .lock()
-            .unwrap()
             .delete_adapter_config(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "adapter_manager",
                 "adapter_deleted",
@@ -199,8 +185,6 @@ impl<S: StorageBackend> AdapterManager<S> {
         config_id: &Uuid,
     ) -> Result<AdapterConfig, AdapterManagerError> {
         self.storage
-            .lock()
-            .unwrap()
             .get_adapter_config(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?
             .ok_or(AdapterManagerError::NotFound)
@@ -213,14 +197,10 @@ impl<S: StorageBackend> AdapterManager<S> {
     ) -> Result<Vec<AdapterConfig>, AdapterManagerError> {
         if active_only {
             self.storage
-                .lock()
-                .unwrap()
                 .list_active_adapter_configs()
                 .map_err(|e| AdapterManagerError::StorageError(e.to_string()))
         } else {
             self.storage
-                .lock()
-                .unwrap()
                 .list_adapter_configs()
                 .map_err(|e| AdapterManagerError::StorageError(e.to_string()))
         }
@@ -229,13 +209,12 @@ impl<S: StorageBackend> AdapterManager<S> {
     /// Set an adapter as the default
     pub fn set_default_adapter(&mut self, config_id: &Uuid) -> Result<(), AdapterManagerError> {
         self.storage
-            .lock()
-            .unwrap()
             .set_default_adapter(config_id)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "adapter_manager",
                 "default_adapter_set",
@@ -298,13 +277,12 @@ impl<S: StorageBackend> AdapterManager<S> {
 
         // Store test result
         self.storage
-            .lock()
-            .unwrap()
             .store_adapter_test_result(&result)
             .map_err(|e| AdapterManagerError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "adapter_manager",
                 "adapter_tested",

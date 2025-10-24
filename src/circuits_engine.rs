@@ -96,25 +96,28 @@ fn validate_adapter_tier_access(user_tier: &UserTier, adapter_type: &AdapterType
 }
 
 pub struct CircuitsEngine<S: StorageBackend> {
-    storage: Arc<std::sync::Mutex<S>>,
-    logger: std::cell::RefCell<LoggingEngine>,
+    storage: S,
+    logger: Arc<std::sync::Mutex<LoggingEngine>>,
     events_engine: EventsEngine<S>,
     dfid_engine: DfidEngine,
-    webhook_engine: std::cell::RefCell<WebhookEngine<S>>,
+    webhook_engine: Arc<tokio::sync::RwLock<WebhookEngine<S>>>,
     postgres: Option<Arc<RwLock<Option<PostgresPersistence>>>>,
 }
 
-impl<S: StorageBackend> CircuitsEngine<S> {
-    pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
+impl<S: StorageBackend + 'static> CircuitsEngine<S> {
+    pub fn new(storage: S) -> Self
+    where
+        S: Clone,
+    {
         let logger = LoggingEngine::new();
-        let events_engine = EventsEngine::new(Arc::clone(&storage));
-        let webhook_engine = WebhookEngine::new(Arc::clone(&storage));
+        let events_engine = EventsEngine::new(storage.clone());
+        let webhook_engine = WebhookEngine::new(storage.clone());
         Self {
             storage,
-            logger: std::cell::RefCell::new(logger),
+            logger: Arc::new(std::sync::Mutex::new(logger)),
             events_engine,
             dfid_engine: DfidEngine::new(),
-            webhook_engine: std::cell::RefCell::new(webhook_engine),
+            webhook_engine: Arc::new(tokio::sync::RwLock::new(webhook_engine)),
             postgres: None,
         }
     }
@@ -141,15 +144,15 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         }
     }
 
-    fn handle_auto_publish(
+    async fn handle_auto_publish(
         &self,
         circuit: &Circuit,
         dfid: &str,
         circuit_id: &Uuid,
-        storage: &mut std::sync::MutexGuard<'_, S>,
     ) -> Result<(), CircuitsError> {
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "auto_publish_check",
@@ -164,12 +167,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 if let Some(ref mut settings) = updated_circuit.public_settings {
                     if !settings.published_items.contains(&dfid.to_string()) {
                         settings.published_items.push(dfid.to_string());
-                        storage
+                        self.storage
                             .store_circuit(&updated_circuit)
                             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
                         self.logger
-                            .borrow_mut()
+                            .lock()
+                            .unwrap()
                             .info(
                                 "circuits_engine",
                                 "auto_publish_success",
@@ -184,7 +188,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(())
     }
 
-    pub fn create_circuit(
+    pub async fn create_circuit(
         &mut self,
         name: String,
         description: String,
@@ -200,9 +204,10 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             adapter_config,
             alias_config,
         )
+        .await
     }
 
-    pub fn create_circuit_with_namespace(
+    pub async fn create_circuit_with_namespace(
         &mut self,
         name: String,
         description: String,
@@ -217,7 +222,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         circuit.alias_config = alias_config;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "circuit_creation_started",
@@ -226,16 +232,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .with_context("circuit_id", circuit.circuit_id.to_string())
             .with_context("owner_id", owner_id.clone());
 
-        let mut storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        storage
+        self.storage
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "circuit_created",
@@ -247,18 +250,15 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(circuit)
     }
 
-    pub fn add_member_to_circuit(
+    pub async fn add_member_to_circuit(
         &mut self,
         circuit_id: &Uuid,
         member_id: String,
         role: MemberRole,
         requester_id: &str,
     ) -> Result<Circuit, CircuitsError> {
-        let mut storage = self
+        let mut circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -277,12 +277,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         circuit.add_member(member_id.clone(), role);
 
-        storage
+        self.storage
             .update_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info("circuits_engine", "member_added", "Member added to circuit")
             .with_context("circuit_id", circuit_id.to_string())
             .with_context("member_id", member_id)
@@ -300,7 +301,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         requester_id: &str,
     ) -> Result<CircuitOperation, CircuitsError> {
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "push_item_attempt",
@@ -312,21 +314,19 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .with_context("circuit_id", circuit_id.to_string())
             .with_context("requester_id", requester_id);
 
-        let mut storage = self
+        let _item = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-        let _item = storage
             .get_item_by_dfid(dfid)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::ItemNotFound)?;
 
-        let circuit = storage
-            .get_circuit(circuit_id)
-            .map_err(|e| {
+        // Get circuit with error handling that works with async logging
+        let circuit_result = self.storage.get_circuit(circuit_id);
+        let circuit = match circuit_result {
+            Err(e) => {
                 self.logger
-                    .borrow_mut()
+                    .lock()
+                    .unwrap()
                     .error(
                         "circuits_engine",
                         "push_item_storage_error",
@@ -334,22 +334,26 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     )
                     .with_context("circuit_id", circuit_id.to_string())
                     .with_context("error", e.to_string());
-                CircuitsError::StorageError(e.to_string())
-            })?
-            .ok_or_else(|| {
+                return Err(CircuitsError::StorageError(e.to_string()));
+            }
+            Ok(None) => {
                 self.logger
-                    .borrow_mut()
+                    .lock()
+                    .unwrap()
                     .warn(
                         "circuits_engine",
                         "push_item_circuit_not_found",
                         format!("Circuit {circuit_id} not found in storage"),
                     )
                     .with_context("circuit_id", circuit_id.to_string());
-                CircuitsError::CircuitNotFound
-            })?;
+                return Err(CircuitsError::CircuitNotFound);
+            }
+            Ok(Some(circuit)) => circuit,
+        };
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "push_item_permission_check",
@@ -371,7 +375,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 // Skip validation if circuit sponsors adapter access
                 if !adapter_config.sponsor_adapter_access {
                     // Get user account to check their available adapters
-                    let user = storage
+                    let user = self
+                        .storage
                         .get_user_account(requester_id)
                         .map_err(|e| CircuitsError::StorageError(e.to_string()))?
                         .ok_or_else(|| {
@@ -423,7 +428,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 requester_id.to_string(),
                 vec!["read".to_string(), "verify".to_string()],
             );
-            storage
+            self.storage
                 .store_circuit_item(&circuit_item)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -440,7 +445,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     error_message: None,
                 },
             );
-            storage
+            self.storage
                 .store_activity(&activity)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
             self.spawn_persist_activity(activity.clone());
@@ -448,14 +453,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         // Handle auto-publish for immediate pushes (not requiring approval)
         if !circuit.permissions.require_approval_for_push {
-            self.handle_auto_publish(&circuit, dfid, circuit_id, &mut storage)?;
+            self.handle_auto_publish(&circuit, dfid, circuit_id).await?;
         }
 
-        storage
+        self.storage
             .store_circuit_operation(&operation)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
-
-        drop(storage);
 
         let visibility = if circuit.permissions.allow_public_visibility {
             EventVisibility::Public
@@ -483,7 +486,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         }
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info("circuits_engine", "item_pushed", "Item pushed to circuit")
             .with_context("dfid", dfid.to_string())
             .with_context("circuit_id", circuit_id.to_string())
@@ -515,13 +519,9 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         circuit_id: &Uuid,
         requester_id: &str,
     ) -> Result<PushResult, CircuitsError> {
-        let mut storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
         // 1. Get circuit and validate permissions
-        let circuit = storage
+        let circuit = self
+            .storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -557,12 +557,11 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 requester_id,
                 local_id,
                 enriched_data.clone(),
-                &mut storage,
             )
             .await?;
 
         // 5. Save LID -> DFID mapping
-        storage
+        self.storage
             .store_lid_dfid_mapping(local_id, &dfid)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -573,24 +572,27 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             requester_id.to_string(),
             vec!["read".to_string(), "verify".to_string()],
         );
-        storage
+        self.storage
             .store_circuit_item(&circuit_item)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         // 6.5. CALL ADAPTER TO ACTUALLY UPLOAD TO BLOCKCHAIN/IPFS
         // This is where the REAL blockchain integration happens!
-        let storage_details = if let Some(circuit_adapter_config) = storage
+        let storage_details = if let Some(circuit_adapter_config) = self
+            .storage
             .get_circuit_adapter_config(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
         {
             if let Some(adapter_type) = circuit_adapter_config.adapter_type {
                 // Get the full adapter configuration by type
-                let adapter_configs = storage
+                let adapter_configs = self
+                    .storage
                     .get_adapter_configs_by_type(&adapter_type)
                     .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
                 let full_adapter_config = adapter_configs.into_iter().find(|c| c.is_active);
                 // Get the item from storage to upload it
-                let item = storage
+                let item = self
+                    .storage
                     .get_item_by_dfid(&dfid)
                     .map_err(|e| CircuitsError::StorageError(e.to_string()))?
                     .ok_or(CircuitsError::ItemNotFound)?;
@@ -771,7 +773,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     metadata: transaction_metadata.clone(), // Contains: nft_mint_tx, ipcm_update_tx, ipfs_cid, etc.
                 };
 
-                storage
+                self.storage
                     .add_storage_record(&dfid, storage_record) // ← THIS is where history is recorded
                     .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -803,7 +805,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     let blockchain_timestamp = Utc::now().timestamp();
 
                     // Write to storage backend (InMemoryStorage + PostgreSQL queue)
-                    if let Err(e) = storage.add_cid_to_timeline(
+                    if let Err(e) = self.storage.add_cid_to_timeline(
                         &dfid,
                         cid,
                         ipcm_tx,
@@ -828,7 +830,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 }
 
                 self.logger
-                    .borrow_mut()
+                    .lock()
+                    .unwrap()
                     .info(
                         "circuits_engine",
                         "adapter_upload_success",
@@ -891,17 +894,15 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     error_message: None,
                 },
             );
-            storage
+            self.storage
                 .store_activity(&activity)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
             self.spawn_persist_activity(activity.clone());
         }
 
-        storage
+        self.storage
             .store_circuit_operation(&operation)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
-
-        drop(storage);
 
         // Create event
         let visibility = if circuit.permissions.allow_public_visibility {
@@ -921,7 +922,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "item_tokenized",
@@ -1029,12 +1031,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         requester_id: &str,
         local_id: &Uuid,
         enriched_data: Option<HashMap<String, serde_json::Value>>,
-        storage: &mut std::sync::MutexGuard<'_, S>,
     ) -> Result<(String, PushStatus), CircuitsError> {
         // STEP 1: Look for canonical identifiers
         for identifier in identifiers {
             if let IdentifierType::Canonical { ref registry, .. } = identifier.id_type {
-                if let Some(dfid) = storage
+                if let Some(dfid) = self
+                    .storage
                     .get_dfid_by_canonical(&identifier.namespace, registry, &identifier.value)
                     .map_err(|e| CircuitsError::StorageError(e.to_string()))?
                 {
@@ -1044,7 +1046,6 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                         identifiers,
                         enriched_data,
                         requester_id,
-                        storage,
                     )?;
                     return Ok((dfid, PushStatus::ExistingItemEnriched));
                 }
@@ -1060,7 +1061,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         {
             let fingerprint = self.generate_fingerprint(identifiers, requester_id, local_id);
 
-            if let Some(dfid) = storage
+            if let Some(dfid) = self
+                .storage
                 .get_dfid_by_fingerprint(&fingerprint, &circuit.circuit_id)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             {
@@ -1069,7 +1071,6 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     identifiers,
                     enriched_data,
                     requester_id,
-                    storage,
                 )?;
                 return Ok((dfid, PushStatus::ExistingItemEnriched));
             }
@@ -1081,10 +1082,9 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 requester_id,
                 local_id,
                 Some(fingerprint.clone()),
-                storage,
             )?;
 
-            storage
+            self.storage
                 .store_fingerprint_mapping(&fingerprint, &dfid, &circuit.circuit_id)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -1098,7 +1098,6 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             requester_id,
             local_id,
             None,
-            storage,
         )?;
 
         Ok((dfid, PushStatus::NewItemCreated))
@@ -1132,7 +1131,6 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         requester_id: &str,
         local_id: &Uuid,
         fingerprint: Option<String>,
-        storage: &mut std::sync::MutexGuard<'_, S>,
     ) -> Result<String, CircuitsError> {
         let dfid = self.dfid_engine.generate_dfid();
 
@@ -1159,14 +1157,14 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             blake3::hash(local_id.as_bytes()).to_hex().as_ref(),
         ));
 
-        storage
+        self.storage
             .store_item(&item)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         // Save canonical identifier mappings
         for identifier in identifiers {
             if identifier.is_canonical() {
-                storage
+                self.storage
                     .store_enhanced_identifier_mapping(identifier, &dfid)
                     .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
             }
@@ -1181,9 +1179,9 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         new_identifiers: &[Identifier],
         enriched_data: Option<HashMap<String, serde_json::Value>>,
         requester_id: &str,
-        storage: &mut std::sync::MutexGuard<'_, S>,
     ) -> Result<(), CircuitsError> {
-        let mut item = storage
+        let mut item = self
+            .storage
             .get_item_by_dfid(dfid)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::ItemNotFound)?;
@@ -1210,7 +1208,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         item.last_modified = Utc::now();
 
-        storage
+        self.storage
             .update_item(&item)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -1230,7 +1228,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         if let Some(ref history_manager) = self.storage_history_manager {
             // Check if circuit has adapter configuration
             if let Some(ref adapter_config) = circuit.adapter_config {
-                self.logger.borrow_mut().info("circuits_engine", "storage_migration_start", "Starting storage migration for item")
+                self.logger.lock().unwrap().info("circuits_engine", "storage_migration_start", "Starting storage migration for item")
                     .with_context("dfid", dfid.to_string())
                     .with_context("circuit_id", circuit.circuit_id.to_string())
                     .with_context("target_adapter", format!("{:?}", adapter_config.adapter_type));
@@ -1245,16 +1243,16 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     user_id,
                 ).await.map_err(|e| e.to_string())?;
 
-                self.logger.borrow_mut().info("circuits_engine", "storage_migration_complete", "Storage migration completed successfully")
+                self.logger.lock().unwrap().info("circuits_engine", "storage_migration_complete", "Storage migration completed successfully")
                     .with_context("dfid", dfid.to_string())
                     .with_context("circuit_id", circuit.circuit_id.to_string());
             } else {
-                self.logger.borrow_mut().info("circuits_engine", "storage_migration_skipped", "No adapter configuration found for circuit")
+                self.logger.lock().unwrap().info("circuits_engine", "storage_migration_skipped", "No adapter configuration found for circuit")
                     .with_context("dfid", dfid.to_string())
                     .with_context("circuit_id", circuit.circuit_id.to_string());
             }
         } else {
-            self.logger.borrow_mut().warn("circuits_engine", "storage_migration_unavailable", "Storage history manager not available for migration")
+            self.logger.lock().unwrap().warn("circuits_engine", "storage_migration_unavailable", "Storage history manager not available for migration")
                 .with_context("dfid", dfid.to_string())
                 .with_context("circuit_id", circuit.circuit_id.to_string());
         }
@@ -1263,18 +1261,14 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(())
     }
 
-    pub fn pull_item_from_circuit(
+    pub async fn pull_item_from_circuit(
         &mut self,
         dfid: &str,
         circuit_id: &Uuid,
         requester_id: &str,
     ) -> Result<(Item, CircuitOperation), CircuitsError> {
-        let mut storage = self
+        let circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-        let circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1285,7 +1279,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             ));
         }
 
-        let item = storage
+        let item = self
+            .storage
             .get_item_by_dfid(dfid)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::ItemNotFound)?;
@@ -1317,17 +1312,15 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     error_message: None,
                 },
             );
-            storage
+            self.storage
                 .store_activity(&activity)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
             self.spawn_persist_activity(activity.clone());
         }
 
-        storage
+        self.storage
             .store_circuit_operation(&operation)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
-
-        drop(storage);
 
         let visibility = if circuit.permissions.allow_public_visibility {
             EventVisibility::Public
@@ -1346,7 +1339,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info("circuits_engine", "item_pulled", "Item pulled from circuit")
             .with_context("dfid", dfid.to_string())
             .with_context("circuit_id", circuit_id.to_string())
@@ -1356,21 +1350,19 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok((item, operation))
     }
 
-    pub fn approve_operation(
+    pub async fn approve_operation(
         &mut self,
         operation_id: &Uuid,
         approver_id: &str,
     ) -> Result<CircuitOperation, CircuitsError> {
-        let mut storage = self
+        let mut operation = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        let mut operation = storage
             .get_circuit_operation(operation_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::NotFound)?;
 
-        let circuit = storage
+        let circuit = self
+            .storage
             .get_circuit(&operation.circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1392,7 +1384,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 operation.requester_id.clone(),
                 vec!["read".to_string(), "verify".to_string()],
             );
-            storage
+            self.storage
                 .store_circuit_item(&circuit_item)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -1409,7 +1401,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     error_message: None,
                 },
             );
-            storage
+            self.storage
                 .store_activity(&activity)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
             self.spawn_persist_activity(activity.clone());
@@ -1421,7 +1413,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                     if let Some(ref mut settings) = updated_circuit.public_settings {
                         if !settings.published_items.contains(&operation.dfid) {
                             settings.published_items.push(operation.dfid.clone());
-                            storage
+                            self.storage
                                 .store_circuit(&updated_circuit)
                                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
                         }
@@ -1430,12 +1422,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             }
         }
 
-        storage
+        self.storage
             .update_circuit_operation(&operation)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "operation_approved",
@@ -1447,22 +1440,20 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(operation)
     }
 
-    pub fn reject_operation(
+    pub async fn reject_operation(
         &mut self,
         operation_id: &Uuid,
         rejecter_id: &str,
         reason: Option<String>,
     ) -> Result<CircuitOperation, CircuitsError> {
-        let mut storage = self
+        let mut operation = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        let mut operation = storage
             .get_circuit_operation(operation_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::NotFound)?;
 
-        let circuit = storage
+        let circuit = self
+            .storage
             .get_circuit(&operation.circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1491,12 +1482,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             serde_json::Value::String(Utc::now().to_rfc3339()),
         );
 
-        storage
+        self.storage
             .update_circuit_operation(&operation)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "operation_rejected",
@@ -1509,31 +1501,19 @@ impl<S: StorageBackend> CircuitsEngine<S> {
     }
 
     pub fn list_circuits(&self) -> Result<Vec<Circuit>, CircuitsError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        storage
+        self.storage
             .list_circuits()
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
 
     pub fn get_circuit(&self, circuit_id: &Uuid) -> Result<Option<Circuit>, CircuitsError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        storage
+        self.storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
 
     pub fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, CircuitsError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        storage
+        self.storage
             .get_circuits_for_member(member_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
@@ -1542,11 +1522,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Vec<CircuitOperation>, CircuitsError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        storage
+        self.storage
             .get_circuit_operations(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
@@ -1562,16 +1538,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .collect())
     }
 
-    pub fn deactivate_circuit(
+    pub async fn deactivate_circuit(
         &mut self,
         circuit_id: &Uuid,
         requester_id: &str,
     ) -> Result<Circuit, CircuitsError> {
-        let mut storage = self
+        let mut circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1585,12 +1558,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         circuit.status = CircuitStatus::Inactive;
         circuit.last_modified = chrono::Utc::now();
 
-        storage
+        self.storage
             .update_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "circuit_deactivated",
@@ -1602,31 +1576,28 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(circuit)
     }
 
-    pub fn get_logs(&self) -> Vec<crate::logging::LogEntry> {
-        self.logger.borrow().get_logs().to_vec()
+    pub async fn get_logs(&self) -> Vec<crate::logging::LogEntry> {
+        self.logger.lock().unwrap().get_logs().to_vec()
     }
 
-    pub fn get_logs_by_event_type(&self, event_type: &str) -> Vec<crate::logging::LogEntry> {
+    pub async fn get_logs_by_event_type(&self, event_type: &str) -> Vec<crate::logging::LogEntry> {
         self.logger
-            .borrow()
+            .lock()
+            .unwrap()
             .get_logs_by_event_type(event_type)
             .into_iter()
             .cloned()
             .collect()
     }
 
-    pub fn request_to_join_circuit(
+    pub async fn request_to_join_circuit(
         &mut self,
         circuit_id: &Uuid,
         requester_id: &str,
         message: Option<String>,
     ) -> Result<Circuit, CircuitsError> {
-        let mut storage = self
+        let mut circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-        let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1635,12 +1606,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .add_join_request(requester_id.to_string(), message)
             .map_err(CircuitsError::ValidationError)?;
 
-        storage
+        self.storage
             .update_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "join_request_created",
@@ -1652,19 +1624,15 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(circuit)
     }
 
-    pub fn approve_join_request(
+    pub async fn approve_join_request(
         &mut self,
         circuit_id: &Uuid,
         requester_id: &str,
         approver_id: &str,
         role: MemberRole,
     ) -> Result<Circuit, CircuitsError> {
-        let mut storage = self
+        let mut circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-        let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1680,12 +1648,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .approve_join_request(requester_id, role)
             .map_err(CircuitsError::ValidationError)?;
 
-        storage
+        self.storage
             .update_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "join_request_approved",
@@ -1698,18 +1667,14 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(circuit)
     }
 
-    pub fn reject_join_request(
+    pub async fn reject_join_request(
         &mut self,
         circuit_id: &Uuid,
         requester_id: &str,
         rejector_id: &str,
     ) -> Result<Circuit, CircuitsError> {
-        let mut storage = self
+        let mut circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-        let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1725,12 +1690,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .reject_join_request(requester_id)
             .map_err(CircuitsError::ValidationError)?;
 
-        storage
+        self.storage
             .update_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "join_request_rejected",
@@ -1747,12 +1713,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Vec<crate::types::JoinRequest>, CircuitsError> {
-        let storage = self
+        let circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-        let circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1764,7 +1726,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .collect())
     }
 
-    pub fn update_circuit(
+    pub async fn update_circuit(
         &mut self,
         circuit_id: &Uuid,
         name: Option<String>,
@@ -1772,12 +1734,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         permissions: Option<crate::types::CircuitPermissions>,
         requester_id: &str,
     ) -> Result<Circuit, CircuitsError> {
-        let mut storage = self
+        let mut circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-        let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1804,12 +1762,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             circuit.update_permissions(new_permissions);
         }
 
-        storage
+        self.storage
             .update_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "circuit_updated",
@@ -1821,7 +1780,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(circuit)
     }
 
-    pub fn set_circuit_adapter_config(
+    pub async fn set_circuit_adapter_config(
         &mut self,
         circuit_id: &Uuid,
         requester_id: &str,
@@ -1830,13 +1789,9 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         requires_approval: bool,
         sponsor_adapter_access: bool,
     ) -> Result<CircuitAdapterConfig, CircuitsError> {
-        let mut storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
         // Get the circuit
-        let mut circuit = storage
+        let mut circuit = self
+            .storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -1852,7 +1807,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         // If an adapter is specified, validate requester's tier has access to it
         if let Some(ref adapter) = adapter_type {
-            let user = storage
+            let user = self
+                .storage
                 .get_user_account(requester_id)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?
                 .ok_or_else(|| CircuitsError::ValidationError("User not found".to_string()))?;
@@ -1883,7 +1839,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         circuit.adapter_config = Some(adapter_config.clone());
         circuit.last_modified = chrono::Utc::now();
 
-        storage
+        self.storage
             .update_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -1906,13 +1862,14 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 }),
             );
 
-            storage
+            self.storage
                 .store_notification(&notification)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
         }
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "adapter_config_updated",
@@ -1926,7 +1883,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(adapter_config)
     }
 
-    pub fn create_custom_role(
+    pub async fn create_custom_role(
         &mut self,
         circuit_id: &Uuid,
         role_name: String,
@@ -1959,8 +1916,6 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         // Save the updated circuit
         self.storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -1972,7 +1927,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .clone();
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "custom_role_created",
@@ -1992,7 +1948,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(circuit.custom_roles.clone())
     }
 
-    pub fn assign_member_custom_role(
+    pub async fn assign_member_custom_role(
         &mut self,
         circuit_id: &Uuid,
         member_id: &str,
@@ -2017,13 +1973,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         // Save the updated circuit
         self.storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "member_role_assigned",
@@ -2037,7 +1992,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(circuit)
     }
 
-    pub fn remove_custom_role(
+    pub async fn remove_custom_role(
         &mut self,
         circuit_id: &Uuid,
         role_name: &str,
@@ -2061,13 +2016,12 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         // Save the updated circuit
         self.storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "custom_role_removed",
@@ -2080,7 +2034,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(())
     }
 
-    pub fn update_custom_role(
+    pub async fn update_custom_role(
         &mut self,
         circuit_id: &Uuid,
         role_name: &str,
@@ -2112,8 +2066,6 @@ impl<S: StorageBackend> CircuitsEngine<S> {
 
         // Save the updated circuit
         self.storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
@@ -2125,7 +2077,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .clone();
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "custom_role_updated",
@@ -2138,18 +2091,14 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(updated_role)
     }
 
-    pub fn update_public_settings(
+    pub async fn update_public_settings(
         &mut self,
         circuit_id: &Uuid,
         settings: crate::types::PublicSettings,
         requester_id: &str,
     ) -> Result<Circuit, CircuitsError> {
-        let mut storage = self
+        let mut circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-        let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -2169,12 +2118,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             .map_err(CircuitsError::ValidationError)?;
 
         // Store updated circuit
-        storage
+        self.storage
             .store_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
         self.logger
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .info(
                 "circuits_engine",
                 "public_settings_updated",
@@ -2191,12 +2141,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         circuit_id: &Uuid,
     ) -> Result<Option<crate::types::PublicCircuitInfo>, CircuitsError> {
         let (mut public_info, show_encrypted_events) = {
-            let storage = self
+            let circuit = self
                 .storage
-                .lock()
-                .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-            let circuit = storage
                 .get_circuit(circuit_id)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?
                 .ok_or(CircuitsError::CircuitNotFound)?;
@@ -2245,19 +2191,15 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         Ok(Some(public_info))
     }
 
-    pub fn join_public_circuit(
+    pub async fn join_public_circuit(
         &mut self,
         circuit_id: &Uuid,
         requester_id: &str,
         access_password: Option<String>,
         message: Option<String>,
     ) -> Result<(bool, String), CircuitsError> {
-        let mut storage = self
+        let mut circuit = self
             .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-
-        let mut circuit = storage
             .get_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?
             .ok_or(CircuitsError::CircuitNotFound)?;
@@ -2304,12 +2246,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             // Add member directly
             circuit.add_member(requester_id.to_string(), crate::types::MemberRole::Member);
 
-            storage
+            self.storage
                 .store_circuit(&circuit)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
             self.logger
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .info(
                     "circuits_engine",
                     "public_join_auto_approved",
@@ -2325,12 +2268,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
                 .add_join_request(requester_id.to_string(), message)
                 .map_err(CircuitsError::ValidationError)?;
 
-            storage
+            self.storage
                 .store_circuit(&circuit)
                 .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
             self.logger
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .info(
                     "circuits_engine",
                     "public_join_request_created",
@@ -2386,21 +2330,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
     }
 
     pub fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, CircuitsError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        storage
+        self.storage
             .get_circuit_items(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
 
     pub fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, CircuitsError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        storage
+        self.storage
             .get_activities_for_user(user_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
@@ -2409,21 +2345,13 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Vec<Activity>, CircuitsError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        storage
+        self.storage
             .get_activities_for_circuit(circuit_id)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
 
     pub fn get_all_activities(&self) -> Result<Vec<Activity>, CircuitsError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CircuitsError::StorageError(format!("Storage mutex poisoned: {e}")))?;
-        storage
+        self.storage
             .get_all_activities()
             .map_err(|e| CircuitsError::StorageError(e.to_string()))
     }
@@ -2462,15 +2390,7 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         }
 
         // Get item for identifiers
-        let item = {
-            match self.storage.lock() {
-                Ok(storage) => storage.get_item_by_dfid(dfid).ok().flatten(),
-                Err(_) => {
-                    eprintln!("Failed to acquire storage lock for webhook trigger");
-                    return;
-                }
-            }
-        };
+        let item = self.storage.get_item_by_dfid(dfid).ok().flatten();
 
         let identifiers = if let Some(item) = &item {
             // Convert identifiers to simple HashMap format
@@ -2511,14 +2431,16 @@ impl<S: StorageBackend> CircuitsEngine<S> {
         // Trigger webhooks asynchronously
         match self
             .webhook_engine
-            .borrow_mut()
+            .write()
+            .await
             .trigger_webhooks(&circuit.circuit_id, trigger_event, payload)
             .await
         {
             Ok(delivery_ids) => {
                 if !delivery_ids.is_empty() {
                     self.logger
-                        .borrow_mut()
+                        .lock()
+                        .unwrap()
                         .info(
                             "circuits_engine",
                             "webhooks_triggered",
@@ -2535,7 +2457,8 @@ impl<S: StorageBackend> CircuitsEngine<S> {
             }
             Err(e) => {
                 self.logger
-                    .borrow_mut()
+                    .lock()
+                    .unwrap()
                     .warn(
                         "circuits_engine",
                         "webhook_trigger_failed",
@@ -2558,7 +2481,7 @@ mod tests {
     fn create_test_item(storage: &Arc<std::sync::Mutex<InMemoryStorage>>, dfid: &str) {
         let identifiers = vec![Identifier::new("test_key", "test_value")];
         let item = crate::types::Item::new(dfid.to_string(), identifiers, uuid::Uuid::new_v4());
-        match storage.lock() {
+        match storage.write() {
             Ok(mut s) => {
                 let _ = s.store_item(&item);
             }

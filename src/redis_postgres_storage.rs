@@ -100,7 +100,7 @@ impl StorageBackend for RedisPostgresStorage {
     // RECEIPT OPERATIONS (Legacy - Direct PostgreSQL, no cache)
     // ============================================================================
 
-    fn store_receipt(&mut self, _receipt: &Receipt) -> Result<(), StorageError> {
+    fn store_receipt(&self, _receipt: &Receipt) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "Receipts are not persisted in Redis+PostgreSQL backend".to_string(),
         ))
@@ -125,7 +125,7 @@ impl StorageBackend for RedisPostgresStorage {
     // LOG OPERATIONS (In-memory only, not persisted)
     // ============================================================================
 
-    fn store_log(&mut self, _log: &LogEntry) -> Result<(), StorageError> {
+    fn store_log(&self, _log: &LogEntry) -> Result<(), StorageError> {
         // Logs are not persisted to PostgreSQL or Redis
         Ok(())
     }
@@ -138,7 +138,7 @@ impl StorageBackend for RedisPostgresStorage {
     // DATA LAKE OPERATIONS (Legacy - Not implemented)
     // ============================================================================
 
-    fn store_data_lake_entry(&mut self, _entry: &DataLakeEntry) -> Result<(), StorageError> {
+    fn store_data_lake_entry(&self, _entry: &DataLakeEntry) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "Data Lake not implemented in Redis+PostgreSQL backend".to_string(),
         ))
@@ -148,7 +148,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(None)
     }
 
-    fn update_data_lake_entry(&mut self, _entry: &DataLakeEntry) -> Result<(), StorageError> {
+    fn update_data_lake_entry(&self, _entry: &DataLakeEntry) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -167,7 +167,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ITEM OPERATIONS - WITH REDIS CACHE
     // ============================================================================
 
-    fn store_item(&mut self, item: &Item) -> Result<(), StorageError> {
+    fn store_item(&self, item: &Item) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         // Write to PostgreSQL first (source of truth)
@@ -230,7 +230,7 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn update_item(&mut self, item: &Item) -> Result<(), StorageError> {
+    fn update_item(&self, item: &Item) -> Result<(), StorageError> {
         // Same as store_item - PostgreSQL is source of truth
         self.store_item(item)
     }
@@ -266,7 +266,7 @@ impl StorageBackend for RedisPostgresStorage {
             .collect())
     }
 
-    fn delete_item(&mut self, dfid: &str) -> Result<(), StorageError> {
+    fn delete_item(&self, dfid: &str) -> Result<(), StorageError> {
         // PostgreSQL doesn't support delete yet - return error
         Err(StorageError::NotImplemented(format!(
             "Delete item not implemented for DFID: {}",
@@ -278,10 +278,7 @@ impl StorageBackend for RedisPostgresStorage {
     // IDENTIFIER MAPPING OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_identifier_mapping(
-        &mut self,
-        _mapping: &IdentifierMapping,
-    ) -> Result<(), StorageError> {
+    fn store_identifier_mapping(&self, _mapping: &IdentifierMapping) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "Identifier mappings handled differently in Redis+PostgreSQL backend".to_string(),
         ))
@@ -294,10 +291,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn update_identifier_mapping(
-        &mut self,
-        _mapping: &IdentifierMapping,
-    ) -> Result<(), StorageError> {
+    fn update_identifier_mapping(&self, _mapping: &IdentifierMapping) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -310,7 +304,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ============================================================================
 
     fn store_conflict_resolution(
-        &mut self,
+        &self,
         _conflict: &ConflictResolution,
     ) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
@@ -333,7 +327,7 @@ impl StorageBackend for RedisPostgresStorage {
     // EVENT OPERATIONS - WITH REDIS CACHE
     // ============================================================================
 
-    fn store_event(&mut self, event: &Event) -> Result<(), StorageError> {
+    fn store_event(&self, event: &Event) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -361,7 +355,7 @@ impl StorageBackend for RedisPostgresStorage {
         ))
     }
 
-    fn update_event(&mut self, event: &Event) -> Result<(), StorageError> {
+    fn update_event(&self, event: &Event) -> Result<(), StorageError> {
         self.store_event(event)
     }
 
@@ -415,7 +409,7 @@ impl StorageBackend for RedisPostgresStorage {
     // CIRCUIT OPERATIONS - WITH REDIS CACHE
     // ============================================================================
 
-    fn store_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
+    fn store_circuit(&self, circuit: &Circuit) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -487,7 +481,7 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn update_circuit(&mut self, circuit: &Circuit) -> Result<(), StorageError> {
+    fn update_circuit(&self, circuit: &Circuit) -> Result<(), StorageError> {
         self.store_circuit(circuit)
     }
 
@@ -513,10 +507,7 @@ impl StorageBackend for RedisPostgresStorage {
     // CIRCUIT OPERATION OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_circuit_operation(
-        &mut self,
-        operation: &CircuitOperation,
-    ) -> Result<(), StorageError> {
+    fn store_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -535,10 +526,7 @@ impl StorageBackend for RedisPostgresStorage {
         ))
     }
 
-    fn update_circuit_operation(
-        &mut self,
-        operation: &CircuitOperation,
-    ) -> Result<(), StorageError> {
+    fn update_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), StorageError> {
         self.store_circuit_operation(operation)
     }
 
@@ -562,7 +550,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ITEM SHARE OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_item_share(&mut self, _share: &ItemShare) -> Result<(), StorageError> {
+    fn store_item_share(&self, _share: &ItemShare) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "Item shares not implemented yet".to_string(),
         ))
@@ -584,7 +572,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(false)
     }
 
-    fn delete_item_share(&mut self, _share_id: &str) -> Result<(), StorageError> {
+    fn delete_item_share(&self, _share_id: &str) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -592,7 +580,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ACTIVITY OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_activity(&mut self, activity: &Activity) -> Result<(), StorageError> {
+    fn store_activity(&self, activity: &Activity) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -628,7 +616,7 @@ impl StorageBackend for RedisPostgresStorage {
     // CIRCUIT ITEMS OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_circuit_item(&mut self, _circuit_item: &CircuitItem) -> Result<(), StorageError> {
+    fn store_circuit_item(&self, _circuit_item: &CircuitItem) -> Result<(), StorageError> {
         // Circuit items are implicit from circuit operations
         Ok(())
     }
@@ -637,7 +625,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn remove_circuit_item(&mut self, _circuit_id: &Uuid, _dfid: &str) -> Result<(), StorageError> {
+    fn remove_circuit_item(&self, _circuit_id: &Uuid, _dfid: &str) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -645,7 +633,7 @@ impl StorageBackend for RedisPostgresStorage {
     // AUDIT EVENT OPERATIONS (Direct PostgreSQL, no cache)
     // ============================================================================
 
-    fn store_audit_event(&mut self, _event: &AuditEvent) -> Result<(), StorageError> {
+    fn store_audit_event(&self, _event: &AuditEvent) -> Result<(), StorageError> {
         // Audit events not persisted yet
         Ok(())
     }
@@ -688,7 +676,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn sync_audit_events(&mut self, _events: Vec<AuditEvent>) -> Result<(), StorageError> {
+    fn sync_audit_events(&self, _events: Vec<AuditEvent>) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -696,10 +684,7 @@ impl StorageBackend for RedisPostgresStorage {
     // SECURITY INCIDENT OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_security_incident(
-        &mut self,
-        _incident: &SecurityIncident,
-    ) -> Result<(), StorageError> {
+    fn store_security_incident(&self, _incident: &SecurityIncident) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -710,10 +695,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(None)
     }
 
-    fn update_security_incident(
-        &mut self,
-        _incident: &SecurityIncident,
-    ) -> Result<(), StorageError> {
+    fn update_security_incident(&self, _incident: &SecurityIncident) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -743,7 +725,7 @@ impl StorageBackend for RedisPostgresStorage {
     // COMPLIANCE REPORT OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_compliance_report(&mut self, _report: &ComplianceReport) -> Result<(), StorageError> {
+    fn store_compliance_report(&self, _report: &ComplianceReport) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -754,7 +736,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(None)
     }
 
-    fn update_compliance_report(&mut self, _report: &ComplianceReport) -> Result<(), StorageError> {
+    fn update_compliance_report(&self, _report: &ComplianceReport) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -810,7 +792,7 @@ impl StorageBackend for RedisPostgresStorage {
     // PENDING ITEMS OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_pending_item(&mut self, _item: &PendingItem) -> Result<(), StorageError> {
+    fn store_pending_item(&self, _item: &PendingItem) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -847,11 +829,11 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn update_pending_item(&mut self, _item: &PendingItem) -> Result<(), StorageError> {
+    fn update_pending_item(&self, _item: &PendingItem) -> Result<(), StorageError> {
         Ok(())
     }
 
-    fn delete_pending_item(&mut self, _pending_id: &Uuid) -> Result<(), StorageError> {
+    fn delete_pending_item(&self, _pending_id: &Uuid) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -863,10 +845,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ZK PROOF OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_zk_proof(
-        &mut self,
-        _proof: &crate::zk_proof_engine::ZkProof,
-    ) -> Result<(), StorageError> {
+    fn store_zk_proof(&self, _proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -878,7 +857,7 @@ impl StorageBackend for RedisPostgresStorage {
     }
 
     fn update_zk_proof(
-        &mut self,
+        &self,
         _proof: &crate::zk_proof_engine::ZkProof,
     ) -> Result<(), StorageError> {
         Ok(())
@@ -928,7 +907,7 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn delete_zk_proof(&mut self, _proof_id: &Uuid) -> Result<(), StorageError> {
+    fn delete_zk_proof(&self, _proof_id: &Uuid) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -936,7 +915,7 @@ impl StorageBackend for RedisPostgresStorage {
     // STORAGE HISTORY OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_storage_history(&mut self, _history: &ItemStorageHistory) -> Result<(), StorageError> {
+    fn store_storage_history(&self, _history: &ItemStorageHistory) -> Result<(), StorageError> {
         // Storage history handled differently
         Ok(())
     }
@@ -963,11 +942,7 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn add_storage_record(
-        &mut self,
-        dfid: &str,
-        record: StorageRecord,
-    ) -> Result<(), StorageError> {
+    fn add_storage_record(&self, dfid: &str, record: StorageRecord) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -982,7 +957,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ============================================================================
 
     fn add_cid_to_timeline(
-        &mut self,
+        &self,
         dfid: &str,
         cid: &str,
         ipcm_tx: &str,
@@ -1024,7 +999,7 @@ impl StorageBackend for RedisPostgresStorage {
     }
 
     fn map_event_to_cid(
-        &mut self,
+        &self,
         _event_id: &Uuid,
         _dfid: &str,
         _cid: &str,
@@ -1063,7 +1038,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ============================================================================
 
     fn update_indexing_progress(
-        &mut self,
+        &self,
         _network: &str,
         _last_ledger: i64,
         _confirmed_ledger: i64,
@@ -1086,11 +1061,7 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn increment_events_indexed(
-        &mut self,
-        _network: &str,
-        _count: i64,
-    ) -> Result<(), StorageError> {
+    fn increment_events_indexed(&self, _network: &str, _count: i64) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "Events indexed increment handled by PostgresStorage".to_string(),
         ))
@@ -1101,7 +1072,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ============================================================================
 
     fn store_circuit_adapter_config(
-        &mut self,
+        &self,
         _config: &CircuitAdapterConfig,
     ) -> Result<(), StorageError> {
         // Circuit adapter config stored directly in circuits table
@@ -1121,7 +1092,7 @@ impl StorageBackend for RedisPostgresStorage {
     }
 
     fn update_circuit_adapter_config(
-        &mut self,
+        &self,
         config: &CircuitAdapterConfig,
     ) -> Result<(), StorageError> {
         // Update via circuit update
@@ -1146,7 +1117,7 @@ impl StorageBackend for RedisPostgresStorage {
     // USER ACCOUNT OPERATIONS - WITH REDIS CACHE
     // ============================================================================
 
-    fn store_user_account(&mut self, user: &UserAccount) -> Result<(), StorageError> {
+    fn store_user_account(&self, user: &UserAccount) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -1198,7 +1169,7 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn update_user_account(&mut self, user: &UserAccount) -> Result<(), StorageError> {
+    fn update_user_account(&self, user: &UserAccount) -> Result<(), StorageError> {
         self.store_user_account(user)
     }
 
@@ -1212,7 +1183,7 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn delete_user_account(&mut self, _user_id: &str) -> Result<(), StorageError> {
+    fn delete_user_account(&self, _user_id: &str) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "User deletion not implemented yet".to_string(),
         ))
@@ -1223,7 +1194,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ============================================================================
 
     fn record_credit_transaction(
-        &mut self,
+        &self,
         _transaction: &CreditTransaction,
     ) -> Result<(), StorageError> {
         // Credit transactions not persisted yet
@@ -1256,7 +1227,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ADMIN ACTION OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn record_admin_action(&mut self, _action: &AdminAction) -> Result<(), StorageError> {
+    fn record_admin_action(&self, _action: &AdminAction) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -1295,7 +1266,7 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn update_system_statistics(&mut self, _stats: &SystemStatistics) -> Result<(), StorageError> {
+    fn update_system_statistics(&self, _stats: &SystemStatistics) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -1303,7 +1274,7 @@ impl StorageBackend for RedisPostgresStorage {
     // NOTIFICATION OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_notification(&mut self, _notification: &Notification) -> Result<(), StorageError> {
+    fn store_notification(&self, _notification: &Notification) -> Result<(), StorageError> {
         // Notifications not persisted in PostgreSQL yet
         Ok(())
     }
@@ -1325,15 +1296,15 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn update_notification(&mut self, _notification: &Notification) -> Result<(), StorageError> {
+    fn update_notification(&self, _notification: &Notification) -> Result<(), StorageError> {
         Ok(())
     }
 
-    fn delete_notification(&mut self, _notification_id: &str) -> Result<(), StorageError> {
+    fn delete_notification(&self, _notification_id: &str) -> Result<(), StorageError> {
         Ok(())
     }
 
-    fn mark_all_notifications_read(&mut self, _user_id: &str) -> Result<usize, StorageError> {
+    fn mark_all_notifications_read(&self, _user_id: &str) -> Result<usize, StorageError> {
         Ok(0)
     }
 
@@ -1345,7 +1316,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ADAPTER CONFIGURATION MANAGEMENT - IMPORTANT (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
+    fn store_adapter_config(&self, config: &AdapterConfig) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -1367,11 +1338,11 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
-    fn update_adapter_config(&mut self, config: &AdapterConfig) -> Result<(), StorageError> {
+    fn update_adapter_config(&self, config: &AdapterConfig) -> Result<(), StorageError> {
         self.store_adapter_config(config)
     }
 
-    fn delete_adapter_config(&mut self, _config_id: &Uuid) -> Result<(), StorageError> {
+    fn delete_adapter_config(&self, _config_id: &Uuid) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "Adapter config deletion not implemented yet".to_string(),
         ))
@@ -1408,7 +1379,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(configs.into_iter().find(|c| c.is_default))
     }
 
-    fn set_default_adapter(&mut self, config_id: &Uuid) -> Result<(), StorageError> {
+    fn set_default_adapter(&self, config_id: &Uuid) -> Result<(), StorageError> {
         // Unset all defaults first
         let mut configs = self.list_adapter_configs()?;
         for config in &mut configs {
@@ -1422,10 +1393,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(())
     }
 
-    fn store_adapter_test_result(
-        &mut self,
-        _result: &AdapterTestResult,
-    ) -> Result<(), StorageError> {
+    fn store_adapter_test_result(&self, _result: &AdapterTestResult) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -1440,7 +1408,7 @@ impl StorageBackend for RedisPostgresStorage {
     // LID ↔ DFID MAPPING OPERATIONS - CRITICAL (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_lid_dfid_mapping(&mut self, lid: &Uuid, dfid: &str) -> Result<(), StorageError> {
+    fn store_lid_dfid_mapping(&self, lid: &Uuid, dfid: &str) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -1496,7 +1464,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ============================================================================
 
     fn store_fingerprint_mapping(
-        &mut self,
+        &self,
         _fingerprint: &str,
         _dfid: &str,
         _circuit_id: &Uuid,
@@ -1519,7 +1487,7 @@ impl StorageBackend for RedisPostgresStorage {
     // ============================================================================
 
     fn store_enhanced_identifier_mapping(
-        &mut self,
+        &self,
         _identifier: &EnhancedIdentifier,
         _dfid: &str,
     ) -> Result<(), StorageError> {
@@ -1531,7 +1499,7 @@ impl StorageBackend for RedisPostgresStorage {
     // WEBHOOK DELIVERY OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_webhook_delivery(&mut self, _delivery: &WebhookDelivery) -> Result<(), StorageError> {
+    fn store_webhook_delivery(&self, _delivery: &WebhookDelivery) -> Result<(), StorageError> {
         // Webhook deliveries not persisted yet
         Ok(())
     }
@@ -1563,7 +1531,7 @@ impl StorageBackend for RedisPostgresStorage {
     // USER ACTIVITY OPERATIONS (Direct PostgreSQL)
     // ============================================================================
 
-    fn store_user_activity(&mut self, activity: &UserActivity) -> Result<(), StorageError> {
+    fn store_user_activity(&self, activity: &UserActivity) -> Result<(), StorageError> {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
@@ -1578,7 +1546,7 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
-    fn clear_user_activities(&mut self) -> Result<(), StorageError> {
+    fn clear_user_activities(&self) -> Result<(), StorageError> {
         Ok(())
     }
 }

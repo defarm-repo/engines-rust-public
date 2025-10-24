@@ -108,7 +108,8 @@ pub async fn create_api_key(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Ok(mut logger) = state.logging.lock() {
+    {
+        let mut logger = state.logging.lock().unwrap();
         logger.info(
             "api_keys",
             "key_created",
@@ -218,7 +219,8 @@ pub async fn update_api_key(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Ok(mut logger) = state.logging.lock() {
+    {
+        let mut logger = state.logging.lock().unwrap();
         logger.info(
             "api_keys",
             "key_updated",
@@ -255,7 +257,8 @@ pub async fn delete_api_key(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Ok(mut logger) = state.logging.lock() {
+    {
+        let mut logger = state.logging.lock().unwrap();
         logger.info(
             "api_keys",
             "key_deleted",
@@ -294,7 +297,8 @@ pub async fn revoke_api_key(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Ok(mut logger) = state.logging.lock() {
+    {
+        let mut logger = state.logging.lock().unwrap();
         logger.info(
             "api_keys",
             "key_revoked",

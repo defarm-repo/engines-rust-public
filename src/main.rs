@@ -106,6 +106,7 @@ async fn main() {
             None,
             None,
         )
+        .await
         .unwrap();
     println!(
         "   Created circuit: {} (ID: {})",
@@ -120,6 +121,7 @@ async fn main() {
             MemberRole::Member,
             "owner_123",
         )
+        .await
         .unwrap();
     println!(
         "   Added member to circuit. Total members: {}",
@@ -150,6 +152,7 @@ async fn main() {
     // Pull item from circuit
     let (pulled_item, pull_operation) = circuits_engine
         .pull_item_from_circuit(&demo_dfid, &circuit.circuit_id, "member_456")
+        .await
         .unwrap();
     println!(
         "   Pull operation completed: {}",

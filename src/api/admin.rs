@@ -8,7 +8,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::adapter_manager::AdapterManager;
@@ -30,12 +30,7 @@ use bcrypt::{hash, DEFAULT_COST};
 
 /// Verify that the authenticated user is an admin
 fn verify_admin(user_id: &str, app_state: &Arc<AppState>) -> Result<(), (StatusCode, Json<Value>)> {
-    let storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
     let user = storage
         .get_user_account(user_id)
         .map_err(|e| {
@@ -219,12 +214,7 @@ async fn create_user(
         available_adapters: None, // Use tier defaults
     };
 
-    let mut storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let mut storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
 
     // Check if username or email already exists
     if storage
@@ -311,12 +301,7 @@ async fn get_user(
 
     verify_admin(&auth_user_id, &app_state)?;
 
-    let storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
 
     match storage.get_user_account(&user_id).map_err(|_| {
         (
@@ -353,6 +338,7 @@ async fn get_user(
     }
 }
 
+#[axum::debug_handler]
 async fn update_user(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
@@ -373,140 +359,128 @@ async fn update_user(
     };
 
     verify_admin(&admin_user_id, &app_state)?;
-    let mut storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
 
-    let mut user = match storage.get_user_account(&user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })? {
-        Some(user) => user,
-        None => {
-            return Ok(Json(json!({
-                "success": false,
-                "error": "User not found"
-            })))
-        }
-    };
+    // Phase 1: Synchronous storage operations - extract all owned data
+    let (user_clone, changes_str, admin_username) = {
+        let mut storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
 
-    let mut changes = Vec::new();
-
-    if let Some(tier) = request.tier {
-        let old_tier = user.tier.clone();
-        if old_tier != tier {
-            user.tier = tier.clone();
-            user.limits = TierLimits::for_tier(&tier);
-            changes.push(format!("tier: {old_tier:?} -> {tier:?}"));
-        }
-    }
-
-    if let Some(status) = request.status {
-        let old_status = user.status.clone();
-        if old_status != status {
-            user.status = status.clone();
-            changes.push(format!("status: {old_status:?} -> {status:?}"));
-        }
-    }
-
-    if let Some(credits) = request.credits {
-        let old_credits = user.credits;
-        if old_credits != credits {
-            user.credits = credits;
-            changes.push(format!("credits: {old_credits} -> {credits}"));
-        }
-    }
-
-    if let Some(is_admin) = request.is_admin {
-        let old_admin = user.is_admin;
-        if old_admin != is_admin {
-            user.is_admin = is_admin;
-            changes.push(format!("is_admin: {old_admin} -> {is_admin}"));
-        }
-    }
-
-    if let Some(available_adapters) = request.available_adapters {
-        let old_adapters = user.available_adapters.clone();
-        if old_adapters != Some(available_adapters.clone()) {
-            let old_str = old_adapters
-                .as_ref()
-                .map(|adapters| {
-                    adapters
-                        .iter()
-                        .map(|a| a.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_else(|| "tier defaults".to_string());
-            let new_str = available_adapters
-                .iter()
-                .map(|a| a.to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            user.available_adapters = Some(available_adapters);
-            changes.push(format!("adapters: {old_str} -> {new_str}"));
-        }
-    }
-
-    user.updated_at = Utc::now();
-
-    storage.update_user_account(&user).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to update user"})),
-        )
-    })?;
-
-    // Write-through to PostgreSQL if enabled
-    {
-        let pg_persistence = Arc::clone(&app_state.postgres_persistence);
-        let user_clone = user.clone();
-        tokio::spawn(async move {
-            let pg_guard = pg_persistence.read().await;
-            if let Some(pg) = pg_guard.as_ref() {
-                if let Err(e) = pg.persist_user(&user_clone).await {
-                    tracing::error!("Failed to persist user update to PostgreSQL: {}", e);
-                } else {
-                    tracing::debug!("User {} persisted to PostgreSQL", user_clone.user_id);
-                }
+        let mut user = match storage.get_user_account(&user_id).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })? {
+            Some(user) => user,
+            None => {
+                return Ok(Json(json!({
+                    "success": false,
+                    "error": "User not found"
+                })))
             }
-        });
-    }
+        };
 
-    // Record admin action
-    let admin_action = AdminAction {
-        action_id: Uuid::new_v4().to_string(),
-        admin_user_id: admin_user_id.clone(),
-        action_type: AdminActionType::UserUpdated,
-        target_user_id: Some(user_id.clone()),
-        target_resource_id: None,
-        details: {
-            let mut map = std::collections::HashMap::new();
-            map.insert("username".to_string(), serde_json::json!(user.username));
-            map.insert("changes".to_string(), serde_json::json!(changes.join(", ")));
-            map
-        },
-        timestamp: Utc::now(),
-        ip_address: None,
-    };
+        let mut changes = Vec::new();
 
-    storage.record_admin_action(&admin_action).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to record admin action"})),
-        )
-    })?;
+        if let Some(tier) = request.tier {
+            let old_tier = user.tier.clone();
+            if old_tier != tier {
+                user.tier = tier.clone();
+                user.limits = TierLimits::for_tier(&tier);
+                changes.push(format!("tier: {old_tier:?} -> {tier:?}"));
+            }
+        }
 
-    // Clone user for PostgreSQL persistence
-    let user_clone = user.clone();
+        if let Some(status) = request.status {
+            let old_status = user.status.clone();
+            if old_status != status {
+                user.status = status.clone();
+                changes.push(format!("status: {old_status:?} -> {status:?}"));
+            }
+        }
 
-    // Release storage lock before async operations
-    drop(storage);
+        if let Some(credits) = request.credits {
+            let old_credits = user.credits;
+            if old_credits != credits {
+                user.credits = credits;
+                changes.push(format!("credits: {old_credits} -> {credits}"));
+            }
+        }
+
+        if let Some(is_admin) = request.is_admin {
+            let old_admin = user.is_admin;
+            if old_admin != is_admin {
+                user.is_admin = is_admin;
+                changes.push(format!("is_admin: {old_admin} -> {is_admin}"));
+            }
+        }
+
+        if let Some(available_adapters) = request.available_adapters {
+            let old_adapters = user.available_adapters.clone();
+            if old_adapters != Some(available_adapters.clone()) {
+                let old_str = old_adapters
+                    .as_ref()
+                    .map(|adapters| {
+                        adapters
+                            .iter()
+                            .map(|a| a.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_else(|| "tier defaults".to_string());
+                let new_str = available_adapters
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                user.available_adapters = Some(available_adapters);
+                changes.push(format!("adapters: {old_str} -> {new_str}"));
+            }
+        }
+
+        user.updated_at = Utc::now();
+
+        storage.update_user_account(&user).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to update user"})),
+            )
+        })?;
+
+        // Record admin action
+        let admin_action = AdminAction {
+            action_id: Uuid::new_v4().to_string(),
+            admin_user_id: admin_user_id.clone(),
+            action_type: AdminActionType::UserUpdated,
+            target_user_id: Some(user_id.clone()),
+            target_resource_id: None,
+            details: {
+                let mut map = std::collections::HashMap::new();
+                map.insert("username".to_string(), serde_json::json!(user.username));
+                map.insert("changes".to_string(), serde_json::json!(changes.join(", ")));
+                map
+            },
+            timestamp: Utc::now(),
+            ip_address: None,
+        };
+
+        storage.record_admin_action(&admin_action).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to record admin action"})),
+            )
+        })?;
+
+        // Get admin username for notification
+        let admin_username = storage
+            .get_user_account(&admin_user_id)
+            .ok()
+            .flatten()
+            .map(|u| u.username)
+            .unwrap_or_else(|| "Admin".to_string());
+
+        // Return owned data before guard drops
+        (user.clone(), changes.join(", "), admin_username)
+    }; // MutexGuard drops here, before any await
 
     // PostgreSQL persistence happens asynchronously in background
     let pg = app_state.postgres_persistence.clone();
@@ -524,28 +498,13 @@ async fn update_user(
         }
     });
 
-    // Send notification to affected user
-    if let Ok(notification_engine) = app_state.notification_engine.lock() {
-        // Get admin username for notification
-        let admin_username = {
-            let storage = app_state.shared_storage.lock().map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Storage mutex poisoned"})),
-                )
-            })?;
-            storage
-                .get_user_account(&admin_user_id)
-                .ok()
-                .flatten()
-                .map(|u| u.username)
-                .unwrap_or_else(|| "Admin".to_string())
-        };
-
+    // Phase 2: Async operations (notifications, etc.) - no storage lock needed
+    {
+        let notification_engine = app_state.notification_engine.write().await;
         if let Ok(notification) = notification_engine.create_account_updated_notification(
             &user_id,
             &admin_username,
-            &changes.join(", "),
+            &changes_str,
         ) {
             // Broadcast via WebSocket
             let _ =
@@ -561,10 +520,11 @@ async fn update_user(
     Ok(Json(json!({
         "success": true,
         "message": "User updated successfully",
-        "changes": changes
+        "changes": changes_str
     })))
 }
 
+#[axum::debug_handler]
 async fn freeze_user(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
@@ -584,76 +544,72 @@ async fn freeze_user(
     };
 
     verify_admin(&admin_user_id, &app_state)?;
-    let mut storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
 
-    let mut user = match storage.get_user_account(&user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })? {
-        Some(user) => user,
-        None => {
-            return Ok(Json(json!({
-                "success": false,
-                "error": "User not found"
-            })))
-        }
-    };
+    // Phase 1: Synchronous storage operations - extract all owned data
+    let (user_clone, admin_username) = {
+        let mut storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
 
-    // Get admin username for notification
-    let admin_username = storage
-        .get_user_account(&admin_user_id)
-        .ok()
-        .flatten()
-        .map(|u| u.username)
-        .unwrap_or_else(|| "Admin".to_string());
+        let mut user = match storage.get_user_account(&user_id).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })? {
+            Some(user) => user,
+            None => {
+                return Ok(Json(json!({
+                    "success": false,
+                    "error": "User not found"
+                })))
+            }
+        };
 
-    // Change status to Suspended instead of deleting
-    user.status = AccountStatus::Suspended;
-    user.updated_at = Utc::now();
+        // Get admin username for notification
+        let admin_username = storage
+            .get_user_account(&admin_user_id)
+            .ok()
+            .flatten()
+            .map(|u| u.username)
+            .unwrap_or_else(|| "Admin".to_string());
 
-    storage.update_user_account(&user).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to freeze user"})),
-        )
-    })?;
+        // Change status to Suspended instead of deleting
+        user.status = AccountStatus::Suspended;
+        user.updated_at = Utc::now();
 
-    // Record admin action
-    let admin_action = AdminAction {
-        action_id: Uuid::new_v4().to_string(),
-        admin_user_id: admin_user_id.clone(),
-        action_type: AdminActionType::UserDeleted, // Keeping same action type for audit compatibility
-        target_user_id: Some(user_id.clone()),
-        target_resource_id: None,
-        details: {
-            let mut map = std::collections::HashMap::new();
-            map.insert("username".to_string(), serde_json::json!(user.username));
-            map.insert("action".to_string(), serde_json::json!("frozen"));
-            map
-        },
-        timestamp: Utc::now(),
-        ip_address: None,
-    };
+        storage.update_user_account(&user).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to freeze user"})),
+            )
+        })?;
 
-    storage.record_admin_action(&admin_action).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to record admin action"})),
-        )
-    })?;
+        // Record admin action
+        let admin_action = AdminAction {
+            action_id: Uuid::new_v4().to_string(),
+            admin_user_id: admin_user_id.clone(),
+            action_type: AdminActionType::UserDeleted, // Keeping same action type for audit compatibility
+            target_user_id: Some(user_id.clone()),
+            target_resource_id: None,
+            details: {
+                let mut map = std::collections::HashMap::new();
+                map.insert("username".to_string(), serde_json::json!(user.username));
+                map.insert("action".to_string(), serde_json::json!("frozen"));
+                map
+            },
+            timestamp: Utc::now(),
+            ip_address: None,
+        };
 
-    // Clone user for PostgreSQL persistence
-    let user_clone = user.clone();
+        storage.record_admin_action(&admin_action).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to record admin action"})),
+            )
+        })?;
 
-    // Release storage lock before async operations
-    drop(storage);
+        // Return owned data before guard drops
+        (user.clone(), admin_username)
+    }; // MutexGuard drops here, before any await
 
     // PostgreSQL persistence happens asynchronously in background
     let pg = app_state.postgres_persistence.clone();
@@ -672,7 +628,8 @@ async fn freeze_user(
     });
 
     // Send notification to affected user AFTER freezing
-    if let Ok(notification_engine) = app_state.notification_engine.lock() {
+    {
+        let notification_engine = app_state.notification_engine.write().await;
         if let Ok(notification) = notification_engine.create_account_frozen_notification(
             &user_id,
             &admin_username,
@@ -695,6 +652,7 @@ async fn freeze_user(
     })))
 }
 
+#[axum::debug_handler]
 async fn unfreeze_user(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
@@ -714,76 +672,72 @@ async fn unfreeze_user(
     };
 
     verify_admin(&admin_user_id, &app_state)?;
-    let mut storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
 
-    let mut user = match storage.get_user_account(&user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })? {
-        Some(user) => user,
-        None => {
-            return Ok(Json(json!({
-                "success": false,
-                "error": "User not found"
-            })))
-        }
-    };
+    // Phase 1: Synchronous storage operations - extract all owned data
+    let (user_clone, admin_username) = {
+        let mut storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
 
-    // Get admin username for notification
-    let admin_username = storage
-        .get_user_account(&admin_user_id)
-        .ok()
-        .flatten()
-        .map(|u| u.username)
-        .unwrap_or_else(|| "Admin".to_string());
+        let mut user = match storage.get_user_account(&user_id).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })? {
+            Some(user) => user,
+            None => {
+                return Ok(Json(json!({
+                    "success": false,
+                    "error": "User not found"
+                })))
+            }
+        };
 
-    // Change status to Active
-    user.status = AccountStatus::Active;
-    user.updated_at = Utc::now();
+        // Get admin username for notification
+        let admin_username = storage
+            .get_user_account(&admin_user_id)
+            .ok()
+            .flatten()
+            .map(|u| u.username)
+            .unwrap_or_else(|| "Admin".to_string());
 
-    storage.update_user_account(&user).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to unfreeze user"})),
-        )
-    })?;
+        // Change status to Active
+        user.status = AccountStatus::Active;
+        user.updated_at = Utc::now();
 
-    // Record admin action
-    let admin_action = AdminAction {
-        action_id: Uuid::new_v4().to_string(),
-        admin_user_id: admin_user_id.clone(),
-        action_type: AdminActionType::UserUpdated,
-        target_user_id: Some(user_id.clone()),
-        target_resource_id: None,
-        details: {
-            let mut map = std::collections::HashMap::new();
-            map.insert("username".to_string(), serde_json::json!(user.username));
-            map.insert("action".to_string(), serde_json::json!("unfrozen"));
-            map
-        },
-        timestamp: Utc::now(),
-        ip_address: None,
-    };
+        storage.update_user_account(&user).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to unfreeze user"})),
+            )
+        })?;
 
-    storage.record_admin_action(&admin_action).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to record admin action"})),
-        )
-    })?;
+        // Record admin action
+        let admin_action = AdminAction {
+            action_id: Uuid::new_v4().to_string(),
+            admin_user_id: admin_user_id.clone(),
+            action_type: AdminActionType::UserUpdated,
+            target_user_id: Some(user_id.clone()),
+            target_resource_id: None,
+            details: {
+                let mut map = std::collections::HashMap::new();
+                map.insert("username".to_string(), serde_json::json!(user.username));
+                map.insert("action".to_string(), serde_json::json!("unfrozen"));
+                map
+            },
+            timestamp: Utc::now(),
+            ip_address: None,
+        };
 
-    // Clone user for PostgreSQL persistence
-    let user_clone = user.clone();
+        storage.record_admin_action(&admin_action).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to record admin action"})),
+            )
+        })?;
 
-    // Release storage lock before async operations
-    drop(storage);
+        // Return owned data before guard drops
+        (user.clone(), admin_username)
+    }; // MutexGuard drops here, before any await
 
     // PostgreSQL persistence happens asynchronously in background
     let pg = app_state.postgres_persistence.clone();
@@ -802,7 +756,8 @@ async fn unfreeze_user(
     });
 
     // Send notification to affected user
-    if let Ok(notification_engine) = app_state.notification_engine.lock() {
+    {
+        let notification_engine = app_state.notification_engine.write().await;
         if let Ok(notification) =
             notification_engine.create_account_unfrozen_notification(&user_id, &admin_username)
         {
@@ -842,12 +797,7 @@ async fn list_users(
     };
 
     verify_admin(&admin_user_id, &app_state)?;
-    let storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
 
     let users = storage.list_user_accounts().map_err(|_| {
         (
@@ -913,6 +863,7 @@ async fn list_users(
     })))
 }
 
+#[axum::debug_handler]
 async fn adjust_user_credits(
     Path(user_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
@@ -942,38 +893,36 @@ async fn adjust_user_credits(
         .await
     {
         Ok(()) => {
-            // Record admin action
-            let mut storage = app_state.shared_storage.lock().map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Storage mutex poisoned"})),
-                )
-            })?;
-            let admin_action = AdminAction {
-                action_id: Uuid::new_v4().to_string(),
-                admin_user_id: admin_user_id.clone(),
-                action_type: AdminActionType::CreditsAdjusted,
-                target_user_id: Some(user_id.clone()),
-                target_resource_id: None,
-                details: {
-                    let mut map = std::collections::HashMap::new();
-                    map.insert("amount".to_string(), serde_json::json!(request.amount));
-                    map.insert("reason".to_string(), serde_json::json!(request.reason));
-                    map
-                },
-                timestamp: Utc::now(),
-                ip_address: None,
-            };
-
-            storage.record_admin_action(&admin_action).map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Failed to record admin action"})),
-                )
-            })?;
-
-            // Get updated user balance and admin username for notification
+            // Phase 1: Synchronous storage operations - extract all owned data
             let (new_balance, admin_username) = {
+                let mut storage =
+                    tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
+
+                // Record admin action
+                let admin_action = AdminAction {
+                    action_id: Uuid::new_v4().to_string(),
+                    admin_user_id: admin_user_id.clone(),
+                    action_type: AdminActionType::CreditsAdjusted,
+                    target_user_id: Some(user_id.clone()),
+                    target_resource_id: None,
+                    details: {
+                        let mut map = std::collections::HashMap::new();
+                        map.insert("amount".to_string(), serde_json::json!(request.amount));
+                        map.insert("reason".to_string(), serde_json::json!(request.reason));
+                        map
+                    },
+                    timestamp: Utc::now(),
+                    ip_address: None,
+                };
+
+                storage.record_admin_action(&admin_action).map_err(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": "Failed to record admin action"})),
+                    )
+                })?;
+
+                // Get updated user balance and admin username for notification
                 let user = storage
                     .get_user_account(&user_id)
                     .ok()
@@ -990,13 +939,14 @@ async fn adjust_user_credits(
                     .flatten()
                     .map(|u| u.username)
                     .unwrap_or_else(|| "Admin".to_string());
-                (user.credits, admin)
-            };
 
-            drop(storage); // Release storage lock before notification
+                // Return owned data before guard drops
+                (user.credits, admin)
+            }; // MutexGuard drops here, before any await
 
             // Send notification to affected user
-            if let Ok(notification_engine) = app_state.notification_engine.lock() {
+            {
+                let notification_engine = app_state.notification_engine.write().await;
                 if let Ok(notification) = notification_engine.create_credits_adjusted_notification(
                     &user_id,
                     &admin_username,
@@ -1062,12 +1012,7 @@ async fn bulk_grant_credits(
     }
 
     // Record admin action
-    let mut storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let mut storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
     let admin_action = AdminAction {
         action_id: Uuid::new_v4().to_string(),
         admin_user_id,
@@ -1173,12 +1118,7 @@ async fn get_admin_dashboard_stats(
     };
 
     verify_admin(&admin_user_id, &app_state)?;
-    let storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
 
     let users = storage.list_user_accounts().map_err(|_| {
         (
@@ -1275,12 +1215,7 @@ async fn get_admin_actions(
     };
 
     verify_admin(&admin_user_id, &app_state)?;
-    let storage = app_state.shared_storage.lock().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Storage mutex poisoned"})),
-        )
-    })?;
+    let storage = tokio::task::block_in_place(|| app_state.shared_storage.lock().unwrap());
 
     let admin_id = params.get("admin_id").map(|s| s.as_str());
     let limit = params
@@ -1326,7 +1261,7 @@ async fn create_adapter_config(
     verify_admin(&admin_user_id, &app_state)?;
 
     // Create logger for adapter manager
-    let logger = LoggingEngine::new();
+    let logger = Arc::new(Mutex::new(LoggingEngine::new()));
     let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
     match adapter_manager.create_adapter_config(
@@ -1369,7 +1304,7 @@ async fn list_adapter_configs(
 
     verify_admin(&admin_user_id, &app_state)?;
 
-    let logger = LoggingEngine::new();
+    let logger = Arc::new(Mutex::new(LoggingEngine::new()));
     let adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
     let active_only = params
@@ -1417,7 +1352,7 @@ async fn get_adapter_config(
         )
     })?;
 
-    let logger = LoggingEngine::new();
+    let logger = Arc::new(Mutex::new(LoggingEngine::new()));
     let adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
     match adapter_manager.get_adapter_config(&config_uuid) {
@@ -1460,7 +1395,7 @@ async fn update_adapter_config(
         )
     })?;
 
-    let logger = LoggingEngine::new();
+    let logger = Arc::new(Mutex::new(LoggingEngine::new()));
     let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
     match adapter_manager.update_adapter_config(
@@ -1510,7 +1445,7 @@ async fn delete_adapter_config(
         )
     })?;
 
-    let logger = LoggingEngine::new();
+    let logger = Arc::new(Mutex::new(LoggingEngine::new()));
     let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
     match adapter_manager.delete_adapter_config(&config_uuid) {
@@ -1552,7 +1487,7 @@ async fn set_default_adapter(
         )
     })?;
 
-    let logger = LoggingEngine::new();
+    let logger = Arc::new(Mutex::new(LoggingEngine::new()));
     let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 
     match adapter_manager.set_default_adapter(&config_uuid) {
@@ -1578,7 +1513,7 @@ async fn set_default_adapter(
 //     verify_admin(&claims, &app_state)?;
 //     let config_uuid = Uuid::parse_str(&config_id)
 //         .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid UUID format"}))))?;
-//     let logger = LoggingEngine::new();
+//     let logger = Arc::new(Mutex::new(LoggingEngine::new()));
 //     let mut adapter_manager = AdapterManager::new(Arc::clone(&app_state.shared_storage), logger);
 //     match adapter_manager.test_adapter(&config_uuid).await {
 //         Ok(result) => Ok(Json(json!({"success": true, "test_result": result}))),

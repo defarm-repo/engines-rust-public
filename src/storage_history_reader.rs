@@ -12,7 +12,7 @@
 // 1. circuits_engine.rs calls adapter.store_new_item()
 // 2. Adapter returns AdapterResult with StorageMetadata
 // 3. circuits_engine.rs creates StorageRecord from metadata
-// 4. circuits_engine.rs calls storage.add_storage_record() directly
+// 4. circuits_engine.rs calls self.storage.add_storage_record() directly
 //
 // This reader then allows API endpoints to query that stored history.
 // ============================================================================
@@ -20,17 +20,16 @@
 use crate::adapters::base::StorageLocation;
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::ItemStorageHistory;
-use std::sync::Arc;
 
 /// Read-only interface for querying storage history.
 /// Does NOT record new history - that happens in circuits_engine.rs
 pub struct StorageHistoryReader<S: StorageBackend> {
-    storage: Arc<std::sync::Mutex<S>>,
+    storage: S,
 }
 
-impl<S: StorageBackend> StorageHistoryReader<S> {
+impl<S: StorageBackend + 'static> StorageHistoryReader<S> {
     /// Create a new storage history reader
-    pub fn new(storage: Arc<std::sync::Mutex<S>>) -> Self {
+    pub fn new(storage: S) -> Self {
         Self { storage }
     }
 
@@ -39,8 +38,7 @@ impl<S: StorageBackend> StorageHistoryReader<S> {
         &self,
         dfid: &str,
     ) -> Result<Option<ItemStorageHistory>, StorageError> {
-        let storage = self.storage.lock().unwrap();
-        storage.get_storage_history(dfid)
+        self.storage.get_storage_history(dfid)
     }
 
     /// Get all storage locations where an item has been stored
@@ -48,8 +46,7 @@ impl<S: StorageBackend> StorageHistoryReader<S> {
         &self,
         dfid: &str,
     ) -> Result<Vec<StorageLocation>, StorageError> {
-        let storage = self.storage.lock().unwrap();
-        if let Some(history) = storage.get_storage_history(dfid)? {
+        if let Some(history) = self.storage.get_storage_history(dfid)? {
             Ok(history
                 .storage_records
                 .into_iter()
@@ -65,8 +62,7 @@ impl<S: StorageBackend> StorageHistoryReader<S> {
         &self,
         dfid: &str,
     ) -> Result<Option<StorageLocation>, StorageError> {
-        let storage = self.storage.lock().unwrap();
-        if let Some(history) = storage.get_storage_history(dfid)? {
+        if let Some(history) = self.storage.get_storage_history(dfid)? {
             // Return the most recent active storage record
             let latest = history
                 .storage_records
@@ -93,8 +89,7 @@ impl<S: StorageBackend> StorageHistoryReader<S> {
 
     /// Get storage history count for statistics
     pub async fn get_storage_count(&self, dfid: &str) -> Result<usize, StorageError> {
-        let storage = self.storage.lock().unwrap();
-        if let Some(history) = storage.get_storage_history(dfid)? {
+        if let Some(history) = self.storage.get_storage_history(dfid)? {
             Ok(history.storage_records.len())
         } else {
             Ok(0)
