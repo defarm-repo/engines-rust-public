@@ -82,6 +82,12 @@ CREATE TABLE IF NOT EXISTS items (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Add missing columns to existing items table (idempotent migration)
+ALTER TABLE items ADD COLUMN IF NOT EXISTS legacy_mode BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS fingerprint TEXT;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS aliases JSONB;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS confidence_score DOUBLE PRECISION NOT NULL DEFAULT 1.0;
+
 CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
 CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at_ts DESC);
 
@@ -95,6 +101,11 @@ CREATE TABLE IF NOT EXISTS item_identifiers (
     type_metadata JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add missing columns to existing item_identifiers table (idempotent migration)
+ALTER TABLE item_identifiers ADD COLUMN IF NOT EXISTS namespace VARCHAR(255) NOT NULL DEFAULT 'generic';
+ALTER TABLE item_identifiers ADD COLUMN IF NOT EXISTS id_type VARCHAR(50) NOT NULL DEFAULT 'Contextual';
+ALTER TABLE item_identifiers ADD COLUMN IF NOT EXISTS type_metadata JSONB;
 
 CREATE INDEX IF NOT EXISTS idx_item_identifiers_dfid ON item_identifiers(dfid);
 CREATE INDEX IF NOT EXISTS idx_item_identifiers_key_value ON item_identifiers(key, value);
@@ -198,6 +209,12 @@ CREATE TABLE IF NOT EXISTS circuits (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Add missing columns to existing circuits table (idempotent migration)
+ALTER TABLE circuits ADD COLUMN IF NOT EXISTS alias_config JSONB;
+ALTER TABLE circuits ADD COLUMN IF NOT EXISTS adapter_config JSONB;
+ALTER TABLE circuits ADD COLUMN IF NOT EXISTS public_settings JSONB;
+ALTER TABLE circuits ADD COLUMN IF NOT EXISTS post_action_settings JSONB;
+
 CREATE INDEX IF NOT EXISTS idx_circuits_owner_id ON circuits(owner_id);
 CREATE INDEX IF NOT EXISTS idx_circuits_status ON circuits(status);
 
@@ -290,6 +307,9 @@ CREATE TABLE IF NOT EXISTS user_accounts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add missing columns to existing user_accounts table (idempotent migration)
+ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS available_adapters TEXT[];
 
 CREATE INDEX IF NOT EXISTS idx_user_accounts_username ON user_accounts(username);
 CREATE INDEX IF NOT EXISTS idx_user_accounts_email ON user_accounts(email);
