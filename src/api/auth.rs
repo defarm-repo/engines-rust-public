@@ -177,18 +177,20 @@ async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
     // Get user by username from shared storage
-    let storage = app_state.shared_storage.lock().unwrap();
+    let user = {
+        let storage = app_state.shared_storage.lock().unwrap();
+        storage
+            .get_user_by_username(&payload.username)
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Database error"})),
+                )
+            })?
+    }; // MutexGuard dropped here!
 
-    if let Some(user) = storage
-        .get_user_by_username(&payload.username)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            )
-        })?
-    {
-        // Verify password
+    if let Some(user) = user {
+        // Verify password (bcrypt is CPU intensive - must be done WITHOUT holding the lock!)
         if verify(&payload.password, &user.password_hash).unwrap_or(false) {
             // Check account status
             match user.status {
@@ -268,42 +270,46 @@ async fn register(
         return Err((StatusCode::BAD_REQUEST, Json(json!({"error": e}))));
     }
 
-    let storage = app_state.shared_storage.lock().unwrap();
-
-    // Check if username already exists
-    if storage
-        .get_user_by_username(&payload.username)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            )
-        })?
-        .is_some()
+    // Check for existing username/email (release lock immediately after)
     {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(json!({"error": "Username already exists"})),
-        ));
-    }
+        let storage = app_state.shared_storage.lock().unwrap();
 
-    // Check if email already exists
-    if storage
-        .get_user_by_email(&payload.email)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            )
-        })?
-        .is_some()
-    {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(json!({"error": "Email already exists"})),
-        ));
-    }
+        // Check if username already exists
+        if storage
+            .get_user_by_username(&payload.username)
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Database error"})),
+                )
+            })?
+            .is_some()
+        {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({"error": "Username already exists"})),
+            ));
+        }
 
+        // Check if email already exists
+        if storage
+            .get_user_by_email(&payload.email)
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Database error"})),
+                )
+            })?
+            .is_some()
+        {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({"error": "Email already exists"})),
+            ));
+        }
+    } // MutexGuard dropped here!
+
+    // Hash password (CPU intensive - must be done WITHOUT holding the lock!)
     let password_hash = hash(&payload.password, DEFAULT_COST).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -337,37 +343,39 @@ async fn register(
         available_adapters: None, // Use tier defaults
     };
 
-    // Store user account
-    storage.store_user_account(&new_user).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )
-    })?;
+    // Store user account and initial credit (acquire lock only for storage operations)
+    {
+        let storage = app_state.shared_storage.lock().unwrap();
 
-    // Record initial credit grant
-    let initial_credit_transaction = CreditTransaction {
-        transaction_id: Uuid::new_v4().to_string(),
-        user_id: user_id.clone(),
-        amount: 100,
-        transaction_type: CreditTransactionType::Grant,
-        description: "New user registration bonus".to_string(),
-        operation_type: Some("registration".to_string()),
-        operation_id: Some(user_id.clone()),
-        timestamp: Utc::now(),
-        balance_after: 100,
-    };
-
-    storage
-        .record_credit_transaction(&initial_credit_transaction)
-        .map_err(|e| {
+        storage.store_user_account(&new_user).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": e.to_string()})),
             )
         })?;
 
-    drop(storage); // Release the lock
+        // Record initial credit grant
+        let initial_credit_transaction = CreditTransaction {
+            transaction_id: Uuid::new_v4().to_string(),
+            user_id: user_id.clone(),
+            amount: 100,
+            transaction_type: CreditTransactionType::Grant,
+            description: "New user registration bonus".to_string(),
+            operation_type: Some("registration".to_string()),
+            operation_id: Some(user_id.clone()),
+            timestamp: Utc::now(),
+            balance_after: 100,
+        };
+
+        storage
+            .record_credit_transaction(&initial_credit_transaction)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": e.to_string()})),
+                )
+            })?;
+    } // MutexGuard dropped here!
 
     // PostgreSQL persistence happens asynchronously in background
     // to avoid Send/Sync issues with the handler
