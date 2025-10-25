@@ -55,7 +55,7 @@ fn create_test_adapter_config(adapter_type: AdapterType, name: &str) -> AdapterC
 #[test]
 fn test_admin_creates_adapter_configuration() {
     let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
-    let logger = LoggingEngine::new();
+    let logger = Arc::new(Mutex::new(LoggingEngine::new()));
     let mut manager = AdapterManager::new(Arc::clone(&storage), logger);
 
     let mut custom_headers = HashMap::new();

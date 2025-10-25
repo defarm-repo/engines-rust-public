@@ -426,7 +426,7 @@ mod tests {
         let base_identifier = Identifier::new("user_id", "12345");
 
         {
-            let mut guard = storage.lock().unwrap();
+            let guard = storage.lock().unwrap();
             let existing_item =
                 Item::new(dfid.clone(), vec![base_identifier.clone()], Uuid::new_v4());
             guard.store_item(&existing_item).unwrap();

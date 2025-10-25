@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 fn setup_engines() -> (
-    CircuitsEngine<InMemoryStorage>,
+    CircuitsEngine<Arc<Mutex<InMemoryStorage>>>,
     ItemsEngine<Arc<Mutex<InMemoryStorage>>>,
     Arc<Mutex<InMemoryStorage>>,
 ) {
@@ -32,6 +32,7 @@ async fn circuit_push_creates_mapping_and_dfid() {
                 ..Default::default()
             }),
         )
+        .await
         .expect("create circuit");
 
     let local_item = items
@@ -87,6 +88,7 @@ async fn canonical_deduplication_returns_same_dfid() {
                 ..Default::default()
             }),
         )
+        .await
         .expect("create circuit");
 
     let canonical = "BR987654321098";

@@ -27,6 +27,7 @@ async fn circuits_items_and_events_smoke() {
             None,
             None,
         )
+        .await
         .expect("circuit should be created");
 
     let identifiers = vec![Identifier::contextual("generic", "secondary_id", "123")];

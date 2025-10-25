@@ -5,7 +5,10 @@ use defarm_engine::Identifier;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-fn new_engine() -> (CircuitsEngine<InMemoryStorage>, Arc<Mutex<InMemoryStorage>>) {
+fn new_engine() -> (
+    CircuitsEngine<Arc<Mutex<InMemoryStorage>>>,
+    Arc<Mutex<InMemoryStorage>>,
+) {
     let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
     let engine = CircuitsEngine::new(Arc::clone(&storage));
     (engine, storage)
@@ -30,6 +33,7 @@ async fn test_canonical_identifier_deduplication() {
             None, // adapter_config
             Some(alias_config),
         )
+        .await
         .expect("circuit created");
 
     // First push - creates new DFID
@@ -87,6 +91,7 @@ async fn test_fingerprint_deduplication() {
             None, // adapter_config
             Some(alias_config),
         )
+        .await
         .expect("circuit created");
 
     // Push without canonical - uses fingerprint
@@ -142,6 +147,7 @@ async fn test_namespace_validation() {
             None, // adapter_config
             Some(alias_config),
         )
+        .await
         .expect("circuit created");
 
     // Try to push with wrong namespace
@@ -185,6 +191,7 @@ async fn test_auto_namespace_application() {
             None, // adapter_config
             Some(alias_config),
         )
+        .await
         .expect("circuit created");
 
     // Push with empty namespace - should auto-apply
@@ -226,6 +233,7 @@ async fn test_lid_dfid_mapping() {
             None,
             None,
         )
+        .await
         .expect("circuit created");
 
     let lid = Uuid::new_v4();
@@ -259,6 +267,7 @@ async fn test_non_owner_cannot_push() {
             None,
             None,
         )
+        .await
         .expect("circuit created");
 
     let lid = Uuid::new_v4();

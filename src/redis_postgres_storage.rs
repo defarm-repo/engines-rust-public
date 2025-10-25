@@ -410,9 +410,9 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.persist_circuit(circuit).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist circuit: {e}"))
-            })?;
+            pg.persist_circuit(circuit)
+                .await
+                .map_err(|e| StorageError::WriteError(format!("Failed to persist circuit: {e}")))?;
 
             // Invalidate cache
             let cache = self.cache.clone();
@@ -508,9 +508,9 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.persist_circuit_operation(operation).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist operation: {e}"))
-            })
+            pg.persist_circuit_operation(operation)
+                .await
+                .map_err(|e| StorageError::WriteError(format!("Failed to persist operation: {e}")))
         })
     }
 
@@ -943,9 +943,9 @@ impl StorageBackend for RedisPostgresStorage {
         let pg = self.get_pg()?;
 
         tokio::runtime::Handle::current().block_on(async {
-            pg.persist_storage_record(dfid, &record).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to add storage record: {e}"))
-            })
+            pg.persist_storage_record(dfid, &record)
+                .await
+                .map_err(|e| StorageError::WriteError(format!("Failed to add storage record: {e}")))
         })
     }
 
@@ -988,9 +988,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.get_timeline_by_sequence(dfid, sequence)
                 .await
-                .map_err(|e| {
-                    StorageError::ReadError(format!("Failed to get timeline entry: {e}"))
-                })
+                .map_err(|e| StorageError::ReadError(format!("Failed to get timeline entry: {e}")))
         })
     }
 

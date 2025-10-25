@@ -26,6 +26,7 @@ async fn test_circuit_basic_flow() {
             None,
             None,
         )
+        .await
         .unwrap();
 
     println!("   ✅ Circuit created: {}", circuit.circuit_id);
@@ -34,14 +35,16 @@ async fn test_circuit_basic_flow() {
 
     // Test 2: Configure adapter
     println!("\n2️⃣  Configuring adapter...");
-    let result = circuits_engine.set_circuit_adapter_config(
-        &circuit.circuit_id,
-        "test-user",
-        Some(AdapterType::IpfsIpfs),
-        false, // auto_migrate_existing
-        false, // requires_approval
-        true,  // sponsor_adapter_access
-    );
+    let result = circuits_engine
+        .set_circuit_adapter_config(
+            &circuit.circuit_id,
+            "test-user",
+            Some(AdapterType::IpfsIpfs),
+            false, // auto_migrate_existing
+            false, // requires_approval
+            true,  // sponsor_adapter_access
+        )
+        .await;
 
     match result {
         Ok(config) => {
@@ -56,12 +59,14 @@ async fn test_circuit_basic_flow() {
 
     // Test 3: Add member
     println!("\n3️⃣  Adding circuit member...");
-    let member_result = circuits_engine.add_member_to_circuit(
-        &circuit.circuit_id,
-        "another-user".to_string(),
-        MemberRole::Member,
-        "test-user",
-    );
+    let member_result = circuits_engine
+        .add_member_to_circuit(
+            &circuit.circuit_id,
+            "another-user".to_string(),
+            MemberRole::Member,
+            "test-user",
+        )
+        .await;
 
     match member_result {
         Ok(updated_circuit) => {

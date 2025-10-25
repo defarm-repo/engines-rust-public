@@ -187,8 +187,8 @@ impl RedisCache {
     pub async fn set_event(&self, event: &Event) -> Result<(), String> {
         let mut conn = self.get_conn().await?;
         let key = format!("event:{}", event.event_id);
-        let json = serde_json::to_string(event)
-            .map_err(|e| format!("Failed to serialize event: {e}"))?;
+        let json =
+            serde_json::to_string(event).map_err(|e| format!("Failed to serialize event: {e}"))?;
 
         let _: () = conn
             .set_ex(&key, json, self.default_ttl.as_secs())

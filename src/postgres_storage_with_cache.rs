@@ -107,9 +107,10 @@ impl StorageBackend for PostgresStorageWithCache {
 
                 // 2. Load from PostgreSQL (source of truth)
                 let pg = self.get_postgres().await?;
-                let items = pg.load_items().await.map_err(|e| {
-                    StorageError::ReadError(format!("PostgreSQL read failed: {e}"))
-                })?;
+                let items = pg
+                    .load_items()
+                    .await
+                    .map_err(|e| StorageError::ReadError(format!("PostgreSQL read failed: {e}")))?;
 
                 let item = items.into_iter().find(|i| i.dfid == dfid);
 

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 // Helper to create test engines
 #[allow(clippy::type_complexity)]
 fn create_test_engines() -> (
-    CircuitsEngine<InMemoryStorage>,
+    CircuitsEngine<Arc<Mutex<InMemoryStorage>>>,
     ItemsEngine<Arc<Mutex<InMemoryStorage>>>,
     Arc<Mutex<InMemoryStorage>>,
 ) {
@@ -67,6 +67,7 @@ async fn test_create_circuit_workflow() {
             None,
             None,
         )
+        .await
         .expect("Should create circuit");
 
     assert_eq!(circuit.name, "Test API Circuit");
@@ -93,6 +94,7 @@ async fn test_add_member_to_circuit_workflow() {
             None,
             None,
         )
+        .await
         .unwrap();
 
     // Add member
@@ -103,6 +105,7 @@ async fn test_add_member_to_circuit_workflow() {
             defarm_engine::types::MemberRole::Member,
             "owner123",
         )
+        .await
         .expect("Should add member");
 
     assert_eq!(
@@ -163,6 +166,7 @@ async fn test_full_circuit_push_workflow() {
             None,
             None,
         )
+        .await
         .unwrap();
     let circuit_id = circuit.circuit_id;
 
@@ -228,6 +232,7 @@ async fn test_circuit_with_adapter_config() {
             Some(adapter_config),
             None,
         )
+        .await
         .unwrap();
 
     assert!(
@@ -261,15 +266,18 @@ async fn test_non_owner_cannot_add_members() {
             None,
             None,
         )
+        .await
         .unwrap();
 
     // Try to add member as non-owner (should fail)
-    let result = circuits.add_member_to_circuit(
-        &circuit.circuit_id,
-        "new_member".to_string(),
-        defarm_engine::types::MemberRole::Member,
-        "random_user", // Not the owner!
-    );
+    let result = circuits
+        .add_member_to_circuit(
+            &circuit.circuit_id,
+            "new_member".to_string(),
+            defarm_engine::types::MemberRole::Member,
+            "random_user", // Not the owner!
+        )
+        .await;
 
     assert!(
         result.is_err(),
@@ -288,13 +296,15 @@ async fn test_create_circuit_with_invalid_data() {
     let (mut circuits, _items, _storage) = create_test_engines();
 
     // Try to create circuit with empty name (should be validated)
-    let result = circuits.create_circuit(
-        "".to_string(), // Empty name
-        "Description".to_string(),
-        "user123".to_string(),
-        None,
-        None,
-    );
+    let result = circuits
+        .create_circuit(
+            "".to_string(), // Empty name
+            "Description".to_string(),
+            "user123".to_string(),
+            None,
+            None,
+        )
+        .await;
 
     // Depending on validation, this might succeed or fail
     // The important thing is it doesn't panic
@@ -339,6 +349,7 @@ async fn test_circuit_timestamps_are_set() {
             None,
             None,
         )
+        .await
         .unwrap();
 
     let after = chrono::Utc::now();
@@ -371,6 +382,7 @@ async fn test_circuit_members_have_timestamps() {
             None,
             None,
         )
+        .await
         .unwrap();
 
     // Check owner (auto-added as member) has timestamp

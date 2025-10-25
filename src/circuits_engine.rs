@@ -2482,7 +2482,7 @@ mod tests {
     fn create_test_item(storage: &Arc<std::sync::Mutex<InMemoryStorage>>, dfid: &str) {
         let identifiers = vec![Identifier::new("test_key", "test_value")];
         let item = crate::types::Item::new(dfid.to_string(), identifiers, uuid::Uuid::new_v4());
-        let mut s = storage.lock().unwrap();
+        let s = storage.lock().unwrap();
         let _ = s.store_item(&item);
     }
 
@@ -2509,8 +2509,8 @@ mod tests {
         assert_eq!(circuit.members[0].member_id, "owner123");
     }
 
-    #[test]
-    fn test_add_member_to_circuit() {
+    #[tokio::test]
+    async fn test_add_member_to_circuit() {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         let mut circuits_engine = CircuitsEngine::new(storage);
 
@@ -2522,14 +2522,17 @@ mod tests {
                 None,
                 None,
             )
+            .await
             .unwrap();
 
-        let result = circuits_engine.add_member_to_circuit(
-            &circuit.circuit_id,
-            "member456".to_string(),
-            MemberRole::Member,
-            "owner123",
-        );
+        let result = circuits_engine
+            .add_member_to_circuit(
+                &circuit.circuit_id,
+                "member456".to_string(),
+                MemberRole::Member,
+                "owner123",
+            )
+            .await;
 
         assert!(result.is_ok());
         let updated_circuit = result.unwrap();
@@ -2550,6 +2553,7 @@ mod tests {
                 None,
                 None,
             )
+            .await
             .unwrap();
 
         let result = circuits_engine
@@ -2563,8 +2567,8 @@ mod tests {
         assert_eq!(operation.requester_id, "owner123");
     }
 
-    #[test]
-    fn test_pull_item_from_circuit() {
+    #[tokio::test]
+    async fn test_pull_item_from_circuit() {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         create_test_item(&storage, "DFID-123");
         let mut circuits_engine = CircuitsEngine::new(storage);
@@ -2577,6 +2581,7 @@ mod tests {
                 None,
                 None,
             )
+            .await
             .unwrap();
 
         let result = circuits_engine
@@ -2604,6 +2609,7 @@ mod tests {
                 None,
                 None,
             )
+            .await
             .unwrap();
 
         let result = circuits_engine

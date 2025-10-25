@@ -10,7 +10,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-fn new_engine() -> (CircuitsEngine<InMemoryStorage>, Arc<Mutex<InMemoryStorage>>) {
+fn new_engine() -> (
+    CircuitsEngine<Arc<Mutex<InMemoryStorage>>>,
+    Arc<Mutex<InMemoryStorage>>,
+) {
     let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
     let engine = CircuitsEngine::new(Arc::clone(&storage));
     (engine, storage)
@@ -29,6 +32,7 @@ async fn test_push_operation_creates_storage_history_entry() {
             None,
             None,
         )
+        .await
         .expect("Circuit creation should succeed");
 
     // Push item

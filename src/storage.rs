@@ -1774,10 +1774,7 @@ impl StorageBackend for InMemoryStorage {
         network: &str,
     ) -> Result<(), StorageError> {
         self.with_state(|s| {
-            let timeline = s
-                .cid_timeline
-                .entry(dfid.to_string())
-                .or_default();
+            let timeline = s.cid_timeline.entry(dfid.to_string()).or_default();
 
             // Auto-increment sequence
             let event_sequence = timeline.len() as i32 + 1;
@@ -5779,14 +5776,14 @@ impl InMemoryStorage {
     /// Helper for tests to seed a circuit directly
     pub fn seed_circuit(&self, circuit: Circuit) {
         self.with_state(|s| {
-            s.circuits.insert(circuit.id.clone(), circuit);
+            s.circuits.insert(circuit.circuit_id.clone(), circuit);
         });
     }
 
     /// Helper for tests to seed an event directly
     pub fn seed_event(&self, event: Event) {
         self.with_state(|s| {
-            s.events.insert(event.id, event);
+            s.events.insert(event.event_id, event);
         });
     }
 
@@ -5798,28 +5795,19 @@ impl InMemoryStorage {
             s.events.clear();
             s.receipts.clear();
             s.logs.clear();
-            s.data_lake.clear();
-            s.identifier_mapping.clear();
-            s.conflict_resolutions.clear();
+            s.data_lake_entries.clear();
+            s.identifier_mappings.clear();
+            s.conflicts.clear();
             s.circuit_operations.clear();
             s.audit_events.clear();
             s.security_incidents.clear();
             s.compliance_reports.clear();
-            s.api_keys.clear();
-            s.api_key_usage.clear();
-            s.api_key_prefix_map.clear();
-            s.rate_limits.clear();
-            s.api_key_permissions.clear();
             s.zk_proofs.clear();
-            s.circuit_templates.clear();
-            s.zk_proof_verifications.clear();
             s.notifications.clear();
             s.notifications_by_user.clear();
             s.adapter_configs.clear();
-            s.storage_history.clear();
+            s.storage_histories.clear();
             s.adapter_test_results.clear();
-            s.post_action_settings.clear();
-            s.webhooks.clear();
             s.webhook_deliveries.clear();
             s.webhook_deliveries_by_webhook.clear();
             s.webhook_deliveries_by_circuit.clear();
@@ -5827,8 +5815,16 @@ impl InMemoryStorage {
             s.fingerprint_map.clear();
             s.canonical_index.clear();
             s.credit_transactions.clear();
-            s.credit_operation_log.clear();
+            s.credit_transactions_by_user.clear();
+            s.admin_actions.clear();
             s.user_activities.clear();
+            s.cid_timeline.clear();
+            s.event_cid_mappings.clear();
+            s.indexing_progress.clear();
+            s.user_accounts.clear();
+            s.user_accounts_by_username.clear();
+            s.user_accounts_by_email.clear();
+            s.circuit_adapter_configs.clear();
             s.system_statistics = None;
         });
     }

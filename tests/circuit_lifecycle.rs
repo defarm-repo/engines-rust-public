@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 fn setup() -> (
-    CircuitsEngine<InMemoryStorage>,
+    CircuitsEngine<Arc<Mutex<InMemoryStorage>>>,
     ItemsEngine<Arc<Mutex<InMemoryStorage>>>,
     Arc<Mutex<InMemoryStorage>>,
 ) {
@@ -34,6 +34,7 @@ async fn lifecycle_smoke_test() {
                 ..Default::default()
             }),
         )
+        .await
         .expect("create circuit");
 
     let local_item = items
@@ -84,6 +85,7 @@ async fn timeline_entries_can_be_added() {
             None,
             None,
         )
+        .await
         .expect("create circuit");
 
     let item = items

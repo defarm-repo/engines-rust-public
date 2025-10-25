@@ -657,11 +657,8 @@ impl PostgresPersistence {
 
         // 5. Insert all current custom roles
         for role in &circuit.custom_roles {
-            let permissions_str: Vec<String> = role
-                .permissions
-                .iter()
-                .map(|p| format!("{p:?}"))
-                .collect();
+            let permissions_str: Vec<String> =
+                role.permissions.iter().map(|p| format!("{p:?}")).collect();
 
             transaction
                 .execute(

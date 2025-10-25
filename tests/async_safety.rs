@@ -23,7 +23,7 @@ use uuid::Uuid;
 // Helper to create test engines
 #[allow(clippy::type_complexity)]
 fn create_test_engines() -> (
-    CircuitsEngine<InMemoryStorage>,
+    CircuitsEngine<Arc<Mutex<InMemoryStorage>>>,
     ItemsEngine<Arc<Mutex<InMemoryStorage>>>,
     Arc<Mutex<InMemoryStorage>>,
 ) {
@@ -55,6 +55,7 @@ async fn test_concurrent_circuit_creation() {
                     None,
                     None,
                 )
+                .await
                 .expect("Should create circuit")
         }
     };
@@ -96,6 +97,7 @@ async fn test_concurrent_member_additions() {
             None,
             None,
         )
+        .await
         .expect("Should create circuit");
 
     let circuit_id = circuit.circuit_id;
@@ -107,7 +109,9 @@ async fn test_concurrent_member_additions() {
         let cid = circuit_id;
         handles.push(tokio::spawn(async move {
             let mut circuits = CircuitsEngine::new(storage_clone);
-            circuits.add_member_to_circuit(&cid, format!("user{i}"), MemberRole::Member, "owner")
+            circuits
+                .add_member_to_circuit(&cid, format!("user{i}"), MemberRole::Member, "owner")
+                .await
         }));
     }
 
@@ -196,13 +200,15 @@ async fn test_no_deadlock_on_timeout() {
 
     // Create circuit with timeout
     let circuit_result = timeout(Duration::from_secs(2), async {
-        circuits.create_circuit(
-            "Timeout Test".to_string(),
-            "Should complete quickly".to_string(),
-            "user1".to_string(),
-            None,
-            None,
-        )
+        circuits
+            .create_circuit(
+                "Timeout Test".to_string(),
+                "Should complete quickly".to_string(),
+                "user1".to_string(),
+                None,
+                None,
+            )
+            .await
     })
     .await;
 
@@ -339,6 +345,7 @@ async fn test_concurrent_circuit_operations_mixed() {
             }),
             None,
         )
+        .await
         .expect("Should create circuit");
 
     let circuit_id = circuit.circuit_id;
