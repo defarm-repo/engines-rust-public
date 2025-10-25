@@ -36,3 +36,8 @@ jobs:
         run: |
           chmod +x ./scripts/check_concurrency.sh
           ./scripts/check_concurrency.sh
+
+      - name: Check for unsafe mutex usage patterns
+        run: |
+          chmod +x ./scripts/check_mutex_safety.sh
+          ./scripts/check_mutex_safety.sh

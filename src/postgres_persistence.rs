@@ -185,10 +185,10 @@ impl PostgresPersistence {
         let manager = Manager::from_config(config, NoTls, manager_config);
 
         let pool = Pool::builder(manager)
-            .max_size(32) // Increased from 16 to handle concurrent loads
-            .wait_timeout(Some(Duration::from_secs(10))) // Increased from 5 to 10
-            .create_timeout(Some(Duration::from_secs(15))) // Increased from 10 to 15
-            .recycle_timeout(Some(Duration::from_secs(10))) // Increased from 5 to 10
+            .max_size(20) // Reduced from 32: mutex fix allows lower pool size
+            .wait_timeout(Some(Duration::from_secs(30))) // Increased from 10: more time for busy periods
+            .create_timeout(Some(Duration::from_secs(15))) // Time to establish new connection
+            .recycle_timeout(Some(Duration::from_secs(10))) // Time to test connection health
             .runtime(Runtime::Tokio1)
             .build()
             .map_err(|e| format!("Failed to create pool: {e}"))?;
