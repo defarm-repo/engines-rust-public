@@ -2581,12 +2581,12 @@ impl StorageBackend for InMemoryStorage {
 }
 impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
     fn store_receipt(&self, receipt: &Receipt) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_receipt(receipt)
     }
 
     fn get_receipt(&self, id: &Uuid) -> Result<Option<Receipt>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_receipt(id)
     }
 
@@ -2594,37 +2594,37 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         identifier: &Identifier,
     ) -> Result<Vec<Receipt>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.find_receipts_by_identifier(identifier)
     }
 
     fn list_receipts(&self) -> Result<Vec<Receipt>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_receipts()
     }
 
     fn store_log(&self, log: &LogEntry) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_log(log)
     }
 
     fn get_logs(&self) -> Result<Vec<LogEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_logs()
     }
 
     fn store_data_lake_entry(&self, entry: &DataLakeEntry) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_data_lake_entry(entry)
     }
 
     fn get_data_lake_entry(&self, entry_id: &Uuid) -> Result<Option<DataLakeEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_data_lake_entry(entry_id)
     }
 
     fn update_data_lake_entry(&self, entry: &DataLakeEntry) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_data_lake_entry(entry)
     }
 
@@ -2632,52 +2632,52 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         status: ProcessingStatus,
     ) -> Result<Vec<DataLakeEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_data_lake_entries_by_status(status)
     }
 
     fn list_data_lake_entries(&self) -> Result<Vec<DataLakeEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_data_lake_entries()
     }
 
     fn store_item(&self, item: &Item) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_item(item)
     }
 
     fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_item_by_dfid(dfid)
     }
 
     fn update_item(&self, item: &Item) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_item(item)
     }
 
     fn list_items(&self) -> Result<Vec<Item>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_items()
     }
 
     fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.find_items_by_identifier(identifier)
     }
 
     fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.find_items_by_status(status)
     }
 
     fn delete_item(&self, dfid: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_item(dfid)
     }
 
     fn store_identifier_mapping(&self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_identifier_mapping(mapping)
     }
 
@@ -2685,22 +2685,22 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         identifier: &Identifier,
     ) -> Result<Vec<IdentifierMapping>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_identifier_mappings(identifier)
     }
 
     fn update_identifier_mapping(&self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_identifier_mapping(mapping)
     }
 
     fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_identifier_mappings()
     }
 
     fn store_conflict_resolution(&self, conflict: &ConflictResolution) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_conflict_resolution(conflict)
     }
 
@@ -2708,42 +2708,42 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         conflict_id: &Uuid,
     ) -> Result<Option<ConflictResolution>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_conflict_resolution(conflict_id)
     }
 
     fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_conflicts()
     }
 
     fn store_event(&self, event: &Event) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_event(event)
     }
 
     fn get_event(&self, event_id: &Uuid) -> Result<Option<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_event(event_id)
     }
 
     fn update_event(&self, event: &Event) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_event(event)
     }
 
     fn list_events(&self) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_events()
     }
 
     fn get_events_by_dfid(&self, dfid: &str) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_by_dfid(dfid)
     }
 
     fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_by_type(event_type)
     }
 
@@ -2751,7 +2751,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         visibility: EventVisibility,
     ) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_by_visibility(visibility)
     }
 
@@ -2760,37 +2760,37 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_in_time_range(start, end)
     }
 
     fn store_circuit(&self, circuit: &Circuit) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_circuit(circuit)
     }
 
     fn get_circuit(&self, circuit_id: &Uuid) -> Result<Option<Circuit>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit(circuit_id)
     }
 
     fn update_circuit(&self, circuit: &Circuit) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_circuit(circuit)
     }
 
     fn list_circuits(&self) -> Result<Vec<Circuit>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_circuits()
     }
 
     fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuits_for_member(member_id)
     }
 
     fn store_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_circuit_operation(operation)
     }
 
@@ -2798,12 +2798,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         operation_id: &Uuid,
     ) -> Result<Option<CircuitOperation>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit_operation(operation_id)
     }
 
     fn update_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_circuit_operation(operation)
     }
 
@@ -2811,97 +2811,97 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Vec<CircuitOperation>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit_operations(circuit_id)
     }
 
     fn store_item_share(&self, share: &ItemShare) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_item_share(share)
     }
 
     fn get_item_share(&self, share_id: &str) -> Result<Option<ItemShare>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_item_share(share_id)
     }
 
     fn get_shares_for_user(&self, user_id: &str) -> Result<Vec<ItemShare>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_shares_for_user(user_id)
     }
 
     fn get_shares_for_item(&self, dfid: &str) -> Result<Vec<ItemShare>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_shares_for_item(dfid)
     }
 
     fn is_item_shared_with_user(&self, dfid: &str, user_id: &str) -> Result<bool, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.is_item_shared_with_user(dfid, user_id)
     }
 
     fn delete_item_share(&self, share_id: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_item_share(share_id)
     }
 
     fn store_activity(&self, activity: &Activity) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_activity(activity)
     }
 
     fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_activities_for_user(user_id)
     }
 
     fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_activities_for_circuit(circuit_id)
     }
 
     fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_all_activities()
     }
 
     fn store_circuit_item(&self, circuit_item: &CircuitItem) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_circuit_item(circuit_item)
     }
 
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit_items(circuit_id)
     }
 
     fn remove_circuit_item(&self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.remove_circuit_item(circuit_id, dfid)
     }
 
     fn store_audit_event(&self, event: &AuditEvent) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_audit_event(event)
     }
 
     fn get_audit_event(&self, event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_event(event_id)
     }
 
     fn query_audit_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.query_audit_events(query)
     }
 
     fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_audit_events()
     }
 
     fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_events_by_user(user_id)
     }
 
@@ -2909,7 +2909,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         event_type: AuditEventType,
     ) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_events_by_type(event_type)
     }
 
@@ -2917,7 +2917,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         severity: AuditSeverity,
     ) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_events_by_severity(severity)
     }
 
@@ -2926,17 +2926,17 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_events_in_time_range(start, end)
     }
 
     fn sync_audit_events(&self, events: Vec<AuditEvent>) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.sync_audit_events(events)
     }
 
     fn store_security_incident(&self, incident: &SecurityIncident) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_security_incident(incident)
     }
 
@@ -2944,17 +2944,17 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         incident_id: &Uuid,
     ) -> Result<Option<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_security_incident(incident_id)
     }
 
     fn update_security_incident(&self, incident: &SecurityIncident) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_security_incident(incident)
     }
 
     fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_security_incidents()
     }
 
@@ -2962,12 +2962,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         severity: AuditSeverity,
     ) -> Result<Vec<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_incidents_by_severity(severity)
     }
 
     fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_open_incidents()
     }
 
@@ -2975,12 +2975,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         assignee: &str,
     ) -> Result<Vec<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_incidents_by_assignee(assignee)
     }
 
     fn store_compliance_report(&self, report: &ComplianceReport) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_compliance_report(report)
     }
 
@@ -2988,17 +2988,17 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         report_id: &Uuid,
     ) -> Result<Option<ComplianceReport>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_compliance_report(report_id)
     }
 
     fn update_compliance_report(&self, report: &ComplianceReport) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_compliance_report(report)
     }
 
     fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_compliance_reports()
     }
 
@@ -3006,17 +3006,17 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         report_type: &str,
     ) -> Result<Vec<ComplianceReport>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_reports_by_type(report_type)
     }
 
     fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_reports()
     }
 
     fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_dashboard_metrics()
     }
 
@@ -3025,22 +3025,22 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<u64, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_event_count_by_time_range(start, end)
     }
 
     fn store_pending_item(&self, item: &PendingItem) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_pending_item(item)
     }
 
     fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_item(pending_id)
     }
 
     fn list_pending_items(&self) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_pending_items()
     }
 
@@ -3048,12 +3048,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         reason_type: &str,
     ) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_by_reason(reason_type)
     }
 
     fn get_pending_items_by_user(&self, user_id: &str) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_by_user(user_id)
     }
 
@@ -3061,7 +3061,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         workspace_id: &str,
     ) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_by_workspace(workspace_id)
     }
 
@@ -3069,27 +3069,27 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         priority: PendingPriority,
     ) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_by_priority(priority)
     }
 
     fn update_pending_item(&self, item: &PendingItem) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_pending_item(item)
     }
 
     fn delete_pending_item(&self, pending_id: &Uuid) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_pending_item(pending_id)
     }
 
     fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_requiring_manual_review()
     }
 
     fn store_zk_proof(&self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_zk_proof(proof)
     }
 
@@ -3097,12 +3097,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         proof_id: &Uuid,
     ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proof(proof_id)
     }
 
     fn update_zk_proof(&self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_zk_proof(proof)
     }
 
@@ -3110,12 +3110,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         query: &crate::api::zk_proofs::ZkProofQuery,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.query_zk_proofs(query)
     }
 
     fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_zk_proofs()
     }
 
@@ -3123,7 +3123,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         user_id: &str,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proofs_by_user(user_id)
     }
 
@@ -3131,7 +3131,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         circuit_type: CircuitType,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proofs_by_circuit_type(circuit_type)
     }
 
@@ -3139,34 +3139,34 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         status: crate::zk_proof_engine::ProofStatus,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proofs_by_status(status)
     }
 
     fn get_zk_proof_statistics(
         &self,
     ) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proof_statistics()
     }
 
     fn delete_zk_proof(&self, proof_id: &Uuid) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_zk_proof(proof_id)
     }
 
     fn store_storage_history(&self, history: &ItemStorageHistory) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_storage_history(history)
     }
 
     fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_storage_history(dfid)
     }
 
     fn add_storage_record(&self, dfid: &str, record: StorageRecord) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.add_storage_record(dfid, record)
     }
 
@@ -3178,12 +3178,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         timestamp: i64,
         network: &str,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.add_cid_to_timeline(dfid, cid, ipcm_tx, timestamp, network)
     }
 
     fn get_item_timeline(&self, dfid: &str) -> Result<Vec<TimelineEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_item_timeline(dfid)
     }
 
@@ -3192,7 +3192,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         dfid: &str,
         sequence: i32,
     ) -> Result<Option<TimelineEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_timeline_by_sequence(dfid, sequence)
     }
 
@@ -3203,7 +3203,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         cid: &str,
         sequence: i32,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.map_event_to_cid(event_id, dfid, cid, sequence)
     }
 
@@ -3211,12 +3211,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         event_id: &Uuid,
     ) -> Result<Option<EventCidMapping>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_event_first_cid(event_id)
     }
 
     fn get_events_in_cid(&self, cid: &str) -> Result<Vec<EventCidMapping>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_in_cid(cid)
     }
 
@@ -3226,7 +3226,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         last_ledger: i64,
         confirmed_ledger: i64,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_indexing_progress(network, last_ledger, confirmed_ledger)
     }
 
@@ -3234,12 +3234,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         network: &str,
     ) -> Result<Option<IndexingProgress>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_indexing_progress(network)
     }
 
     fn increment_events_indexed(&self, network: &str, count: i64) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.increment_events_indexed(network, count)
     }
 
@@ -3247,7 +3247,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         config: &CircuitAdapterConfig,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_circuit_adapter_config(config)
     }
 
@@ -3255,7 +3255,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Option<CircuitAdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit_adapter_config(circuit_id)
     }
 
@@ -3263,47 +3263,47 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         config: &CircuitAdapterConfig,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_circuit_adapter_config(config)
     }
 
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_circuit_adapter_configs()
     }
 
     fn store_user_account(&self, user: &UserAccount) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_user_account(user)
     }
 
     fn get_user_account(&self, user_id: &str) -> Result<Option<UserAccount>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_user_account(user_id)
     }
 
     fn get_user_by_username(&self, username: &str) -> Result<Option<UserAccount>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_user_by_username(username)
     }
 
     fn get_user_by_email(&self, email: &str) -> Result<Option<UserAccount>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_user_by_email(email)
     }
 
     fn update_user_account(&self, user: &UserAccount) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_user_account(user)
     }
 
     fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_user_accounts()
     }
 
     fn delete_user_account(&self, user_id: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_user_account(user_id)
     }
 
@@ -3311,7 +3311,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         transaction: &CreditTransaction,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.record_credit_transaction(transaction)
     }
 
@@ -3319,7 +3319,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         transaction_id: &str,
     ) -> Result<Option<CreditTransaction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_credit_transaction(transaction_id)
     }
 
@@ -3328,7 +3328,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         user_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<CreditTransaction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_credit_transactions(user_id, limit)
     }
 
@@ -3336,12 +3336,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         operation_type: &str,
     ) -> Result<Vec<CreditTransaction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_credit_transactions_by_operation(operation_type)
     }
 
     fn record_admin_action(&self, action: &AdminAction) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.record_admin_action(action)
     }
 
@@ -3350,7 +3350,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         admin_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<AdminAction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_admin_actions(admin_id, limit)
     }
 
@@ -3358,22 +3358,22 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         action_type: &str,
     ) -> Result<Vec<AdminAction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_admin_actions_by_type(action_type)
     }
 
     fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_system_statistics()
     }
 
     fn update_system_statistics(&self, stats: &SystemStatistics) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_system_statistics(stats)
     }
 
     fn store_notification(&self, notification: &Notification) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_notification(notification)
     }
 
@@ -3381,7 +3381,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         notification_id: &str,
     ) -> Result<Option<Notification>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_notification(notification_id)
     }
 
@@ -3392,57 +3392,57 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         limit: Option<usize>,
         unread_only: bool,
     ) -> Result<Vec<Notification>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_user_notifications(user_id, since, limit, unread_only)
     }
 
     fn update_notification(&self, notification: &Notification) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_notification(notification)
     }
 
     fn delete_notification(&self, notification_id: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_notification(notification_id)
     }
 
     fn mark_all_notifications_read(&self, user_id: &str) -> Result<usize, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.mark_all_notifications_read(user_id)
     }
 
     fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_unread_notification_count(user_id)
     }
 
     fn store_adapter_config(&self, config: &AdapterConfig) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_adapter_config(config)
     }
 
     fn get_adapter_config(&self, config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_adapter_config(config_id)
     }
 
     fn update_adapter_config(&self, config: &AdapterConfig) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_adapter_config(config)
     }
 
     fn delete_adapter_config(&self, config_id: &Uuid) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_adapter_config(config_id)
     }
 
     fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_adapter_configs()
     }
 
     fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_active_adapter_configs()
     }
 
@@ -3450,22 +3450,22 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         adapter_type: &AdapterType,
     ) -> Result<Vec<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_adapter_configs_by_type(adapter_type)
     }
 
     fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_default_adapter_config()
     }
 
     fn set_default_adapter(&self, config_id: &Uuid) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.set_default_adapter(config_id)
     }
 
     fn store_adapter_test_result(&self, result: &AdapterTestResult) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_adapter_test_result(result)
     }
 
@@ -3473,17 +3473,17 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         config_id: &Uuid,
     ) -> Result<Option<AdapterTestResult>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_adapter_test_result(config_id)
     }
 
     fn store_lid_dfid_mapping(&self, lid: &Uuid, dfid: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_lid_dfid_mapping(lid, dfid)
     }
 
     fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_dfid_by_lid(lid)
     }
 
@@ -3493,7 +3493,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         registry: &str,
         value: &str,
     ) -> Result<Option<String>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_dfid_by_canonical(namespace, registry, value)
     }
 
@@ -3503,7 +3503,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         dfid: &str,
         circuit_id: &Uuid,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_fingerprint_mapping(fingerprint, dfid, circuit_id)
     }
 
@@ -3512,7 +3512,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         fingerprint: &str,
         circuit_id: &Uuid,
     ) -> Result<Option<String>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_dfid_by_fingerprint(fingerprint, circuit_id)
     }
 
@@ -3521,12 +3521,12 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         identifier: &EnhancedIdentifier,
         dfid: &str,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_enhanced_identifier_mapping(identifier, dfid)
     }
 
     fn store_webhook_delivery(&self, delivery: &WebhookDelivery) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_webhook_delivery(delivery)
     }
 
@@ -3534,7 +3534,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         &self,
         delivery_id: &Uuid,
     ) -> Result<Option<WebhookDelivery>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_webhook_delivery(delivery_id)
     }
 
@@ -3543,7 +3543,7 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         circuit_id: &Uuid,
         limit: Option<usize>,
     ) -> Result<Vec<WebhookDelivery>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_webhook_deliveries_by_circuit(circuit_id, limit)
     }
 
@@ -3552,22 +3552,22 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         webhook_id: &Uuid,
         limit: Option<usize>,
     ) -> Result<Vec<WebhookDelivery>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_webhook_deliveries_by_webhook(webhook_id, limit)
     }
 
     fn store_user_activity(&self, activity: &UserActivity) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_user_activity(activity)
     }
 
     fn list_user_activities(&self) -> Result<Vec<UserActivity>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_user_activities()
     }
 
     fn clear_user_activities(&self) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.clear_user_activities()
     }
 }
@@ -4770,12 +4770,12 @@ impl StorageBackend for EncryptedFileStorage {
 // StorageBackend adapter for Arc<Mutex<PostgresStorageWithCache>>
 impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
     fn store_receipt(&self, receipt: &Receipt) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_receipt(receipt)
     }
 
     fn get_receipt(&self, id: &Uuid) -> Result<Option<Receipt>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_receipt(id)
     }
 
@@ -4783,37 +4783,37 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         identifier: &Identifier,
     ) -> Result<Vec<Receipt>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.find_receipts_by_identifier(identifier)
     }
 
     fn list_receipts(&self) -> Result<Vec<Receipt>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_receipts()
     }
 
     fn store_log(&self, log: &LogEntry) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_log(log)
     }
 
     fn get_logs(&self) -> Result<Vec<LogEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_logs()
     }
 
     fn store_data_lake_entry(&self, entry: &DataLakeEntry) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_data_lake_entry(entry)
     }
 
     fn get_data_lake_entry(&self, entry_id: &Uuid) -> Result<Option<DataLakeEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_data_lake_entry(entry_id)
     }
 
     fn update_data_lake_entry(&self, entry: &DataLakeEntry) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_data_lake_entry(entry)
     }
 
@@ -4821,52 +4821,52 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         status: ProcessingStatus,
     ) -> Result<Vec<DataLakeEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_data_lake_entries_by_status(status)
     }
 
     fn list_data_lake_entries(&self) -> Result<Vec<DataLakeEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_data_lake_entries()
     }
 
     fn store_item(&self, item: &Item) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_item(item)
     }
 
     fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_item_by_dfid(dfid)
     }
 
     fn update_item(&self, item: &Item) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_item(item)
     }
 
     fn list_items(&self) -> Result<Vec<Item>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_items()
     }
 
     fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.find_items_by_identifier(identifier)
     }
 
     fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.find_items_by_status(status)
     }
 
     fn delete_item(&self, dfid: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_item(dfid)
     }
 
     fn store_identifier_mapping(&self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_identifier_mapping(mapping)
     }
 
@@ -4874,22 +4874,22 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         identifier: &Identifier,
     ) -> Result<Vec<IdentifierMapping>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_identifier_mappings(identifier)
     }
 
     fn update_identifier_mapping(&self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_identifier_mapping(mapping)
     }
 
     fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_identifier_mappings()
     }
 
     fn store_conflict_resolution(&self, conflict: &ConflictResolution) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_conflict_resolution(conflict)
     }
 
@@ -4897,42 +4897,42 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         conflict_id: &Uuid,
     ) -> Result<Option<ConflictResolution>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_conflict_resolution(conflict_id)
     }
 
     fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_conflicts()
     }
 
     fn store_event(&self, event: &Event) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_event(event)
     }
 
     fn get_event(&self, event_id: &Uuid) -> Result<Option<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_event(event_id)
     }
 
     fn update_event(&self, event: &Event) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_event(event)
     }
 
     fn list_events(&self) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_events()
     }
 
     fn get_events_by_dfid(&self, dfid: &str) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_by_dfid(dfid)
     }
 
     fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_by_type(event_type)
     }
 
@@ -4940,7 +4940,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         visibility: EventVisibility,
     ) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_by_visibility(visibility)
     }
 
@@ -4949,37 +4949,37 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_in_time_range(start, end)
     }
 
     fn store_circuit(&self, circuit: &Circuit) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_circuit(circuit)
     }
 
     fn get_circuit(&self, circuit_id: &Uuid) -> Result<Option<Circuit>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit(circuit_id)
     }
 
     fn update_circuit(&self, circuit: &Circuit) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_circuit(circuit)
     }
 
     fn list_circuits(&self) -> Result<Vec<Circuit>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_circuits()
     }
 
     fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuits_for_member(member_id)
     }
 
     fn store_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_circuit_operation(operation)
     }
 
@@ -4987,12 +4987,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         operation_id: &Uuid,
     ) -> Result<Option<CircuitOperation>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit_operation(operation_id)
     }
 
     fn update_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_circuit_operation(operation)
     }
 
@@ -5000,97 +5000,97 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Vec<CircuitOperation>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit_operations(circuit_id)
     }
 
     fn store_item_share(&self, share: &ItemShare) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_item_share(share)
     }
 
     fn get_item_share(&self, share_id: &str) -> Result<Option<ItemShare>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_item_share(share_id)
     }
 
     fn get_shares_for_user(&self, user_id: &str) -> Result<Vec<ItemShare>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_shares_for_user(user_id)
     }
 
     fn get_shares_for_item(&self, dfid: &str) -> Result<Vec<ItemShare>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_shares_for_item(dfid)
     }
 
     fn is_item_shared_with_user(&self, dfid: &str, user_id: &str) -> Result<bool, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.is_item_shared_with_user(dfid, user_id)
     }
 
     fn delete_item_share(&self, share_id: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_item_share(share_id)
     }
 
     fn store_activity(&self, activity: &Activity) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_activity(activity)
     }
 
     fn get_activities_for_user(&self, user_id: &str) -> Result<Vec<Activity>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_activities_for_user(user_id)
     }
 
     fn get_activities_for_circuit(&self, circuit_id: &Uuid) -> Result<Vec<Activity>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_activities_for_circuit(circuit_id)
     }
 
     fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_all_activities()
     }
 
     fn store_circuit_item(&self, circuit_item: &CircuitItem) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_circuit_item(circuit_item)
     }
 
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit_items(circuit_id)
     }
 
     fn remove_circuit_item(&self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.remove_circuit_item(circuit_id, dfid)
     }
 
     fn store_audit_event(&self, event: &AuditEvent) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_audit_event(event)
     }
 
     fn get_audit_event(&self, event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_event(event_id)
     }
 
     fn query_audit_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.query_audit_events(query)
     }
 
     fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_audit_events()
     }
 
     fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_events_by_user(user_id)
     }
 
@@ -5098,7 +5098,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         event_type: AuditEventType,
     ) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_events_by_type(event_type)
     }
 
@@ -5106,7 +5106,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         severity: AuditSeverity,
     ) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_events_by_severity(severity)
     }
 
@@ -5115,17 +5115,17 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_events_in_time_range(start, end)
     }
 
     fn sync_audit_events(&self, events: Vec<AuditEvent>) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.sync_audit_events(events)
     }
 
     fn store_security_incident(&self, incident: &SecurityIncident) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_security_incident(incident)
     }
 
@@ -5133,17 +5133,17 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         incident_id: &Uuid,
     ) -> Result<Option<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_security_incident(incident_id)
     }
 
     fn update_security_incident(&self, incident: &SecurityIncident) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_security_incident(incident)
     }
 
     fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_security_incidents()
     }
 
@@ -5151,12 +5151,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         severity: AuditSeverity,
     ) -> Result<Vec<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_incidents_by_severity(severity)
     }
 
     fn get_open_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_open_incidents()
     }
 
@@ -5164,12 +5164,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         assignee: &str,
     ) -> Result<Vec<SecurityIncident>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_incidents_by_assignee(assignee)
     }
 
     fn store_compliance_report(&self, report: &ComplianceReport) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_compliance_report(report)
     }
 
@@ -5177,17 +5177,17 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         report_id: &Uuid,
     ) -> Result<Option<ComplianceReport>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_compliance_report(report_id)
     }
 
     fn update_compliance_report(&self, report: &ComplianceReport) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_compliance_report(report)
     }
 
     fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_compliance_reports()
     }
 
@@ -5195,17 +5195,17 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         report_type: &str,
     ) -> Result<Vec<ComplianceReport>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_reports_by_type(report_type)
     }
 
     fn get_pending_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_reports()
     }
 
     fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_audit_dashboard_metrics()
     }
 
@@ -5214,22 +5214,22 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<u64, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_event_count_by_time_range(start, end)
     }
 
     fn store_pending_item(&self, item: &PendingItem) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_pending_item(item)
     }
 
     fn get_pending_item(&self, pending_id: &Uuid) -> Result<Option<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_item(pending_id)
     }
 
     fn list_pending_items(&self) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_pending_items()
     }
 
@@ -5237,12 +5237,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         reason_type: &str,
     ) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_by_reason(reason_type)
     }
 
     fn get_pending_items_by_user(&self, user_id: &str) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_by_user(user_id)
     }
 
@@ -5250,7 +5250,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         workspace_id: &str,
     ) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_by_workspace(workspace_id)
     }
 
@@ -5258,27 +5258,27 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         priority: PendingPriority,
     ) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_by_priority(priority)
     }
 
     fn update_pending_item(&self, item: &PendingItem) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_pending_item(item)
     }
 
     fn delete_pending_item(&self, pending_id: &Uuid) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_pending_item(pending_id)
     }
 
     fn get_pending_items_requiring_manual_review(&self) -> Result<Vec<PendingItem>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_pending_items_requiring_manual_review()
     }
 
     fn store_zk_proof(&self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_zk_proof(proof)
     }
 
@@ -5286,12 +5286,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         proof_id: &Uuid,
     ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proof(proof_id)
     }
 
     fn update_zk_proof(&self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_zk_proof(proof)
     }
 
@@ -5299,12 +5299,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         query: &crate::api::zk_proofs::ZkProofQuery,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.query_zk_proofs(query)
     }
 
     fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_zk_proofs()
     }
 
@@ -5312,7 +5312,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         user_id: &str,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proofs_by_user(user_id)
     }
 
@@ -5320,7 +5320,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         circuit_type: CircuitType,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proofs_by_circuit_type(circuit_type)
     }
 
@@ -5328,34 +5328,34 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         status: crate::zk_proof_engine::ProofStatus,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proofs_by_status(status)
     }
 
     fn get_zk_proof_statistics(
         &self,
     ) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_zk_proof_statistics()
     }
 
     fn delete_zk_proof(&self, proof_id: &Uuid) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_zk_proof(proof_id)
     }
 
     fn store_storage_history(&self, history: &ItemStorageHistory) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_storage_history(history)
     }
 
     fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_storage_history(dfid)
     }
 
     fn add_storage_record(&self, dfid: &str, record: StorageRecord) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.add_storage_record(dfid, record)
     }
 
@@ -5367,12 +5367,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         timestamp: i64,
         network: &str,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.add_cid_to_timeline(dfid, cid, ipcm_tx, timestamp, network)
     }
 
     fn get_item_timeline(&self, dfid: &str) -> Result<Vec<TimelineEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_item_timeline(dfid)
     }
 
@@ -5381,7 +5381,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         dfid: &str,
         sequence: i32,
     ) -> Result<Option<TimelineEntry>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_timeline_by_sequence(dfid, sequence)
     }
 
@@ -5392,7 +5392,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         cid: &str,
         sequence: i32,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.map_event_to_cid(event_id, dfid, cid, sequence)
     }
 
@@ -5400,12 +5400,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         event_id: &Uuid,
     ) -> Result<Option<EventCidMapping>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_event_first_cid(event_id)
     }
 
     fn get_events_in_cid(&self, cid: &str) -> Result<Vec<EventCidMapping>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_events_in_cid(cid)
     }
 
@@ -5415,7 +5415,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         last_ledger: i64,
         confirmed_ledger: i64,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_indexing_progress(network, last_ledger, confirmed_ledger)
     }
 
@@ -5423,12 +5423,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         network: &str,
     ) -> Result<Option<IndexingProgress>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_indexing_progress(network)
     }
 
     fn increment_events_indexed(&self, network: &str, count: i64) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.increment_events_indexed(network, count)
     }
 
@@ -5436,7 +5436,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         config: &CircuitAdapterConfig,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_circuit_adapter_config(config)
     }
 
@@ -5444,7 +5444,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Option<CircuitAdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_circuit_adapter_config(circuit_id)
     }
 
@@ -5452,47 +5452,47 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         config: &CircuitAdapterConfig,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_circuit_adapter_config(config)
     }
 
     fn list_circuit_adapter_configs(&self) -> Result<Vec<CircuitAdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_circuit_adapter_configs()
     }
 
     fn store_user_account(&self, user: &UserAccount) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_user_account(user)
     }
 
     fn get_user_account(&self, user_id: &str) -> Result<Option<UserAccount>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_user_account(user_id)
     }
 
     fn get_user_by_username(&self, username: &str) -> Result<Option<UserAccount>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_user_by_username(username)
     }
 
     fn get_user_by_email(&self, email: &str) -> Result<Option<UserAccount>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_user_by_email(email)
     }
 
     fn update_user_account(&self, user: &UserAccount) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_user_account(user)
     }
 
     fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_user_accounts()
     }
 
     fn delete_user_account(&self, user_id: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_user_account(user_id)
     }
 
@@ -5500,7 +5500,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         transaction: &CreditTransaction,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.record_credit_transaction(transaction)
     }
 
@@ -5508,7 +5508,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         transaction_id: &str,
     ) -> Result<Option<CreditTransaction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_credit_transaction(transaction_id)
     }
 
@@ -5517,7 +5517,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         user_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<CreditTransaction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_credit_transactions(user_id, limit)
     }
 
@@ -5525,12 +5525,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         operation_type: &str,
     ) -> Result<Vec<CreditTransaction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_credit_transactions_by_operation(operation_type)
     }
 
     fn record_admin_action(&self, action: &AdminAction) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.record_admin_action(action)
     }
 
@@ -5539,7 +5539,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         admin_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<AdminAction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_admin_actions(admin_id, limit)
     }
 
@@ -5547,22 +5547,22 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         action_type: &str,
     ) -> Result<Vec<AdminAction>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_admin_actions_by_type(action_type)
     }
 
     fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_system_statistics()
     }
 
     fn update_system_statistics(&self, stats: &SystemStatistics) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_system_statistics(stats)
     }
 
     fn store_notification(&self, notification: &Notification) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_notification(notification)
     }
 
@@ -5570,7 +5570,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         notification_id: &str,
     ) -> Result<Option<Notification>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_notification(notification_id)
     }
 
@@ -5581,57 +5581,57 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         limit: Option<usize>,
         unread_only: bool,
     ) -> Result<Vec<Notification>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_user_notifications(user_id, since, limit, unread_only)
     }
 
     fn update_notification(&self, notification: &Notification) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_notification(notification)
     }
 
     fn delete_notification(&self, notification_id: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_notification(notification_id)
     }
 
     fn mark_all_notifications_read(&self, user_id: &str) -> Result<usize, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.mark_all_notifications_read(user_id)
     }
 
     fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_unread_notification_count(user_id)
     }
 
     fn store_adapter_config(&self, config: &AdapterConfig) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_adapter_config(config)
     }
 
     fn get_adapter_config(&self, config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_adapter_config(config_id)
     }
 
     fn update_adapter_config(&self, config: &AdapterConfig) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.update_adapter_config(config)
     }
 
     fn delete_adapter_config(&self, config_id: &Uuid) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.delete_adapter_config(config_id)
     }
 
     fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_adapter_configs()
     }
 
     fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_active_adapter_configs()
     }
 
@@ -5639,22 +5639,22 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         adapter_type: &AdapterType,
     ) -> Result<Vec<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_adapter_configs_by_type(adapter_type)
     }
 
     fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_default_adapter_config()
     }
 
     fn set_default_adapter(&self, config_id: &Uuid) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.set_default_adapter(config_id)
     }
 
     fn store_adapter_test_result(&self, result: &AdapterTestResult) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_adapter_test_result(result)
     }
 
@@ -5662,17 +5662,17 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         config_id: &Uuid,
     ) -> Result<Option<AdapterTestResult>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_adapter_test_result(config_id)
     }
 
     fn store_lid_dfid_mapping(&self, lid: &Uuid, dfid: &str) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_lid_dfid_mapping(lid, dfid)
     }
 
     fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_dfid_by_lid(lid)
     }
 
@@ -5682,7 +5682,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         registry: &str,
         value: &str,
     ) -> Result<Option<String>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_dfid_by_canonical(namespace, registry, value)
     }
 
@@ -5692,7 +5692,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         dfid: &str,
         circuit_id: &Uuid,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_fingerprint_mapping(fingerprint, dfid, circuit_id)
     }
 
@@ -5701,7 +5701,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         fingerprint: &str,
         circuit_id: &Uuid,
     ) -> Result<Option<String>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_dfid_by_fingerprint(fingerprint, circuit_id)
     }
 
@@ -5710,12 +5710,12 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         identifier: &EnhancedIdentifier,
         dfid: &str,
     ) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_enhanced_identifier_mapping(identifier, dfid)
     }
 
     fn store_webhook_delivery(&self, delivery: &WebhookDelivery) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_webhook_delivery(delivery)
     }
 
@@ -5723,7 +5723,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         &self,
         delivery_id: &Uuid,
     ) -> Result<Option<WebhookDelivery>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_webhook_delivery(delivery_id)
     }
 
@@ -5732,7 +5732,7 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         circuit_id: &Uuid,
         limit: Option<usize>,
     ) -> Result<Vec<WebhookDelivery>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_webhook_deliveries_by_circuit(circuit_id, limit)
     }
 
@@ -5741,22 +5741,22 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
         webhook_id: &Uuid,
         limit: Option<usize>,
     ) -> Result<Vec<WebhookDelivery>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.get_webhook_deliveries_by_webhook(webhook_id, limit)
     }
 
     fn store_user_activity(&self, activity: &UserActivity) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.store_user_activity(activity)
     }
 
     fn list_user_activities(&self) -> Result<Vec<UserActivity>, StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.list_user_activities()
     }
 
     fn clear_user_activities(&self) -> Result<(), StorageError> {
-        let mut guard = self.lock().unwrap();
+        let guard = self.lock().unwrap();
         guard.clear_user_activities()
     }
 }
@@ -5851,7 +5851,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_receipt(&self, id: &Uuid) -> Result<Option<Receipt>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_receipt(id)
     }
 
@@ -5859,12 +5859,12 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         identifier: &Identifier,
     ) -> Result<Vec<Receipt>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.find_receipts_by_identifier(identifier)
     }
 
     fn list_receipts(&self) -> Result<Vec<Receipt>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_receipts()
     }
 
@@ -5874,7 +5874,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_logs(&self) -> Result<Vec<LogEntry>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_logs()
     }
 
@@ -5884,7 +5884,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_data_lake_entry(&self, entry_id: &Uuid) -> Result<Option<DataLakeEntry>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_data_lake_entry(entry_id)
     }
 
@@ -5897,12 +5897,12 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         status: ProcessingStatus,
     ) -> Result<Vec<DataLakeEntry>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_data_lake_entries_by_status(status)
     }
 
     fn list_data_lake_entries(&self) -> Result<Vec<DataLakeEntry>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_data_lake_entries()
     }
 
@@ -5912,7 +5912,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_item_by_dfid(&self, dfid: &str) -> Result<Option<Item>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_item_by_dfid(dfid)
     }
 
@@ -5922,17 +5922,17 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn list_items(&self) -> Result<Vec<Item>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_items()
     }
 
     fn find_items_by_identifier(&self, identifier: &Identifier) -> Result<Vec<Item>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.find_items_by_identifier(identifier)
     }
 
     fn find_items_by_status(&self, status: ItemStatus) -> Result<Vec<Item>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.find_items_by_status(status)
     }
 
@@ -5950,7 +5950,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         identifier: &Identifier,
     ) -> Result<Vec<IdentifierMapping>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_identifier_mappings(identifier)
     }
 
@@ -5960,7 +5960,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn list_identifier_mappings(&self) -> Result<Vec<IdentifierMapping>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_identifier_mappings()
     }
 
@@ -5973,12 +5973,12 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         conflict_id: &Uuid,
     ) -> Result<Option<ConflictResolution>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_conflict_resolution(conflict_id)
     }
 
     fn get_pending_conflicts(&self) -> Result<Vec<ConflictResolution>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_pending_conflicts()
     }
 
@@ -5988,7 +5988,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_event(&self, event_id: &Uuid) -> Result<Option<Event>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_event(event_id)
     }
 
@@ -5998,17 +5998,17 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn list_events(&self) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_events()
     }
 
     fn get_events_by_dfid(&self, dfid: &str) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_events_by_dfid(dfid)
     }
 
     fn get_events_by_type(&self, event_type: EventType) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_events_by_type(event_type)
     }
 
@@ -6016,7 +6016,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         visibility: EventVisibility,
     ) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_events_by_visibility(visibility)
     }
 
@@ -6025,7 +6025,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<Event>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_events_in_time_range(start, end)
     }
 
@@ -6035,7 +6035,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_circuit(&self, circuit_id: &Uuid) -> Result<Option<Circuit>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_circuit(circuit_id)
     }
 
@@ -6045,12 +6045,12 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn list_circuits(&self) -> Result<Vec<Circuit>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_circuits()
     }
 
     fn get_circuits_for_member(&self, member_id: &str) -> Result<Vec<Circuit>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_circuits_for_member(member_id)
     }
 
@@ -6063,7 +6063,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         operation_id: &Uuid,
     ) -> Result<Option<CircuitOperation>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_circuit_operation(operation_id)
     }
 
@@ -6076,7 +6076,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Vec<CircuitOperation>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_circuit_operations(circuit_id)
     }
 
@@ -6126,7 +6126,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_all_activities(&self) -> Result<Vec<Activity>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_all_activities()
     }
 
@@ -6136,7 +6136,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_circuit_items(circuit_id)
     }
 
@@ -6151,22 +6151,22 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_audit_event(&self, event_id: &Uuid) -> Result<Option<AuditEvent>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_audit_event(event_id)
     }
 
     fn query_audit_events(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.query_audit_events(query)
     }
 
     fn list_audit_events(&self) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_audit_events()
     }
 
     fn get_audit_events_by_user(&self, user_id: &str) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_audit_events_by_user(user_id)
     }
 
@@ -6174,7 +6174,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         event_type: AuditEventType,
     ) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_audit_events_by_type(event_type)
     }
 
@@ -6182,7 +6182,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         severity: AuditSeverity,
     ) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_audit_events_by_severity(severity)
     }
 
@@ -6191,7 +6191,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<AuditEvent>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_audit_events_in_time_range(start, end)
     }
 
@@ -6219,7 +6219,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn list_security_incidents(&self) -> Result<Vec<SecurityIncident>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_security_incidents()
     }
 
@@ -6263,7 +6263,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn list_compliance_reports(&self) -> Result<Vec<ComplianceReport>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_compliance_reports()
     }
 
@@ -6281,7 +6281,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_audit_dashboard_metrics(&self) -> Result<AuditDashboardMetrics, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_audit_dashboard_metrics()
     }
 
@@ -6290,7 +6290,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<u64, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_event_count_by_time_range(start, end)
     }
 
@@ -6362,7 +6362,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         proof_id: &Uuid,
     ) -> Result<Option<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_zk_proof(proof_id)
     }
 
@@ -6375,12 +6375,12 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         query: &crate::api::zk_proofs::ZkProofQuery,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.query_zk_proofs(query)
     }
 
     fn list_zk_proofs(&self) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_zk_proofs()
     }
 
@@ -6388,7 +6388,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         user_id: &str,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_zk_proofs_by_user(user_id)
     }
 
@@ -6396,7 +6396,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         circuit_type: CircuitType,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_zk_proofs_by_circuit_type(circuit_type)
     }
 
@@ -6404,14 +6404,14 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         status: crate::zk_proof_engine::ProofStatus,
     ) -> Result<Vec<crate::zk_proof_engine::ZkProof>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_zk_proofs_by_status(status)
     }
 
     fn get_zk_proof_statistics(
         &self,
     ) -> Result<crate::api::zk_proofs::ZkProofStatistics, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_zk_proof_statistics()
     }
 
@@ -6426,7 +6426,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_storage_history(&self, dfid: &str) -> Result<Option<ItemStorageHistory>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_storage_history(dfid)
     }
 
@@ -6476,12 +6476,12 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         event_id: &Uuid,
     ) -> Result<Option<EventCidMapping>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_event_first_cid(event_id)
     }
 
     fn get_events_in_cid(&self, cid: &str) -> Result<Vec<EventCidMapping>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_events_in_cid(cid)
     }
 
@@ -6520,7 +6520,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Option<CircuitAdapterConfig>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_circuit_adapter_config(circuit_id)
     }
 
@@ -6543,7 +6543,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_user_account(&self, user_id: &str) -> Result<Option<UserAccount>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_user_account(user_id)
     }
 
@@ -6563,7 +6563,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_user_accounts()
     }
 
@@ -6593,7 +6593,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         user_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<CreditTransaction>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_credit_transactions(user_id, limit)
     }
 
@@ -6601,7 +6601,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         operation_type: &str,
     ) -> Result<Vec<CreditTransaction>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_credit_transactions_by_operation(operation_type)
     }
 
@@ -6615,7 +6615,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         admin_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<AdminAction>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_admin_actions(admin_id, limit)
     }
 
@@ -6623,12 +6623,12 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         action_type: &str,
     ) -> Result<Vec<AdminAction>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_admin_actions_by_type(action_type)
     }
 
     fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_system_statistics()
     }
 
@@ -6646,7 +6646,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         notification_id: &str,
     ) -> Result<Option<Notification>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_notification(notification_id)
     }
 
@@ -6657,7 +6657,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         limit: Option<usize>,
         unread_only: bool,
     ) -> Result<Vec<Notification>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_user_notifications(user_id, since, limit, unread_only)
     }
 
@@ -6677,7 +6677,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_unread_notification_count(&self, user_id: &str) -> Result<usize, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_unread_notification_count(user_id)
     }
 
@@ -6687,7 +6687,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_adapter_config(&self, config_id: &Uuid) -> Result<Option<AdapterConfig>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_adapter_config(config_id)
     }
 
@@ -6702,12 +6702,12 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn list_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_adapter_configs()
     }
 
     fn list_active_adapter_configs(&self) -> Result<Vec<AdapterConfig>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.list_active_adapter_configs()
     }
 
@@ -6715,12 +6715,12 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         adapter_type: &AdapterType,
     ) -> Result<Vec<AdapterConfig>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_adapter_configs_by_type(adapter_type)
     }
 
     fn get_default_adapter_config(&self) -> Result<Option<AdapterConfig>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_default_adapter_config()
     }
 
@@ -6738,7 +6738,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         config_id: &Uuid,
     ) -> Result<Option<AdapterTestResult>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_adapter_test_result(config_id)
     }
 
@@ -6748,7 +6748,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
     }
 
     fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_dfid_by_lid(lid)
     }
 
@@ -6758,7 +6758,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         registry: &str,
         value: &str,
     ) -> Result<Option<String>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_dfid_by_canonical(namespace, registry, value)
     }
 
@@ -6777,7 +6777,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         fingerprint: &str,
         circuit_id: &Uuid,
     ) -> Result<Option<String>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_dfid_by_fingerprint(fingerprint, circuit_id)
     }
 
@@ -6799,7 +6799,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         &self,
         delivery_id: &Uuid,
     ) -> Result<Option<WebhookDelivery>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_webhook_delivery(delivery_id)
     }
 
@@ -6808,7 +6808,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         circuit_id: &Uuid,
         limit: Option<usize>,
     ) -> Result<Vec<WebhookDelivery>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_webhook_deliveries_by_circuit(circuit_id, limit)
     }
 
@@ -6817,7 +6817,7 @@ impl StorageBackend for Arc<RwLock<PostgresStorageWithCache>> {
         webhook_id: &Uuid,
         limit: Option<usize>,
     ) -> Result<Vec<WebhookDelivery>, StorageError> {
-        let mut guard = self.read().unwrap();
+        let guard = self.read().unwrap();
         guard.get_webhook_deliveries_by_webhook(webhook_id, limit)
     }
 
