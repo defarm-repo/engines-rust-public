@@ -1,0 +1,38 @@
+name: Concurrency Pattern Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  concurrency-check:
+    name: Validate Concurrency Patterns
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for Arc<std::sync::RwLock> in storage layer
+        run: |
+          echo "🔍 Checking for Arc<std::sync::RwLock> violations..."
+          
+          # Should find ZERO occurrences outside backups
+          VIOLATIONS=$(grep -r "Arc<std::sync::RwLock<" src/ --include="*.rs" | grep -v -E "(backup|bak|pre_rwlock)" || true)
+          
+          if [ -n "$VIOLATIONS" ]; then
+            echo "❌ FAIL: Found Arc<std::sync::RwLock> in active code:"
+            echo "$VIOLATIONS"
+            echo ""
+            echo "RULE: Storage layer must use Arc<std::sync::Mutex<T>>"
+            echo "RULE: Async engines use Arc<tokio::sync::RwLock<T>> (in shared_state.rs only)"
+            exit 1
+          fi
+          
+          echo "✅ PASS: No Arc<std::sync::RwLock> violations found"
+      
+      - name: Run concurrency checker script
+        run: |
+          chmod +x ./scripts/check_concurrency.sh
+          ./scripts/check_concurrency.sh

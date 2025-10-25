@@ -173,7 +173,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_item(item)
                 .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to persist item: {}", e)))?;
+                .map_err(|e| StorageError::WriteError(format!("Failed to persist item: {e}")))?;
 
             // Invalidate cache asynchronously
             let cache = self.cache.clone();
@@ -210,7 +210,7 @@ impl StorageBackend for RedisPostgresStorage {
             let items = pg
                 .load_items()
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load items: {}", e)))?;
+                .map_err(|e| StorageError::ReadError(format!("Failed to load items: {e}")))?;
 
             if let Some(item) = items.iter().find(|i| i.dfid == dfid) {
                 // Populate cache for next time (fire and forget)
@@ -240,7 +240,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.load_items()
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to list items: {}", e)))
+                .map_err(|e| StorageError::ReadError(format!("Failed to list items: {e}")))
         })
     }
 
@@ -268,8 +268,7 @@ impl StorageBackend for RedisPostgresStorage {
     fn delete_item(&self, dfid: &str) -> Result<(), StorageError> {
         // PostgreSQL doesn't support delete yet - return error
         Err(StorageError::NotImplemented(format!(
-            "Delete item not implemented for DFID: {}",
-            dfid
+            "Delete item not implemented for DFID: {dfid}"
         )))
     }
 
@@ -332,7 +331,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_event(event)
                 .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to persist event: {}", e)))?;
+                .map_err(|e| StorageError::WriteError(format!("Failed to persist event: {e}")))?;
 
             // Invalidate event cache for this DFID
             let cache = self.cache.clone();
@@ -373,8 +372,7 @@ impl StorageBackend for RedisPostgresStorage {
             // PostgresPersistence doesn't have a direct method for this
             // We'd need to add one, or use the events table query
             Err(StorageError::NotImplemented(format!(
-                "Get events by DFID not implemented yet for: {}",
-                dfid
+                "Get events by DFID not implemented yet for: {dfid}"
             )))
         })
     }
@@ -413,7 +411,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_circuit(circuit).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist circuit: {}", e))
+                StorageError::WriteError(format!("Failed to persist circuit: {e}"))
             })?;
 
             // Invalidate cache
@@ -457,7 +455,7 @@ impl StorageBackend for RedisPostgresStorage {
             let circuits = pg
                 .load_circuits()
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load circuits: {}", e)))?;
+                .map_err(|e| StorageError::ReadError(format!("Failed to load circuits: {e}")))?;
 
             if let Some(circuit) = circuits.iter().find(|c| c.circuit_id == *circuit_id) {
                 // Populate cache
@@ -490,7 +488,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.load_circuits()
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to list circuits: {}", e)))
+                .map_err(|e| StorageError::ReadError(format!("Failed to list circuits: {e}")))
         })
     }
 
@@ -511,7 +509,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_circuit_operation(operation).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist operation: {}", e))
+                StorageError::WriteError(format!("Failed to persist operation: {e}"))
             })
         })
     }
@@ -538,7 +536,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.load_circuit_operations(circuit_id)
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load operations: {}", e)))
+                .map_err(|e| StorageError::ReadError(format!("Failed to load operations: {e}")))
         })
     }
 
@@ -585,7 +583,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_activity(activity)
                 .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to persist activity: {}", e)))
+                .map_err(|e| StorageError::WriteError(format!("Failed to persist activity: {e}")))
         })
     }
 
@@ -601,7 +599,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.load_activities(Some(circuit_id))
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load activities: {}", e)))
+                .map_err(|e| StorageError::ReadError(format!("Failed to load activities: {e}")))
         })
     }
 
@@ -924,7 +922,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             let records = pg.load_storage_records(dfid).await.map_err(|e| {
-                StorageError::ReadError(format!("Failed to load storage history: {}", e))
+                StorageError::ReadError(format!("Failed to load storage history: {e}"))
             })?;
 
             if records.is_empty() {
@@ -946,7 +944,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_storage_record(dfid, &record).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to add storage record: {}", e))
+                StorageError::WriteError(format!("Failed to add storage record: {e}"))
             })
         })
     }
@@ -966,8 +964,7 @@ impl StorageBackend for RedisPostgresStorage {
         // Timeline operations delegated to PostgresStorage
         // RedisPostgresStorage doesn't implement these - they're for blockchain indexing only
         Err(StorageError::NotImplemented(format!(
-            "CID timeline operations handled by PostgresStorage for DFID: {}",
-            dfid
+            "CID timeline operations handled by PostgresStorage for DFID: {dfid}"
         )))
     }
 
@@ -977,7 +974,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.get_item_timeline(dfid)
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to get timeline: {}", e)))
+                .map_err(|e| StorageError::ReadError(format!("Failed to get timeline: {e}")))
         })
     }
 
@@ -992,7 +989,7 @@ impl StorageBackend for RedisPostgresStorage {
             pg.get_timeline_by_sequence(dfid, sequence)
                 .await
                 .map_err(|e| {
-                    StorageError::ReadError(format!("Failed to get timeline entry: {}", e))
+                    StorageError::ReadError(format!("Failed to get timeline entry: {e}"))
                 })
         })
     }
@@ -1018,7 +1015,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.get_event_first_cid(event_id)
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to get event CID: {}", e)))
+                .map_err(|e| StorageError::ReadError(format!("Failed to get event CID: {e}")))
         })
     }
 
@@ -1028,7 +1025,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.get_events_in_cid(cid)
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to get events in CID: {}", e)))
+                .map_err(|e| StorageError::ReadError(format!("Failed to get events in CID: {e}")))
         })
     }
 
@@ -1055,7 +1052,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             pg.get_indexing_progress(network).await.map_err(|e| {
-                StorageError::ReadError(format!("Failed to get indexing progress: {}", e))
+                StorageError::ReadError(format!("Failed to get indexing progress: {e}"))
             })
         })
     }
@@ -1122,7 +1119,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_user(user)
                 .await
-                .map_err(|e| StorageError::WriteError(format!("Failed to persist user: {}", e)))?;
+                .map_err(|e| StorageError::WriteError(format!("Failed to persist user: {e}")))?;
 
             // TODO: Invalidate user cache if we add user caching
             Ok(())
@@ -1136,7 +1133,7 @@ impl StorageBackend for RedisPostgresStorage {
             let users = pg
                 .load_users()
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load users: {}", e)))?;
+                .map_err(|e| StorageError::ReadError(format!("Failed to load users: {e}")))?;
 
             Ok(users.into_iter().find(|u| u.user_id == user_id))
         })
@@ -1149,7 +1146,7 @@ impl StorageBackend for RedisPostgresStorage {
             let users = pg
                 .load_users()
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load users: {}", e)))?;
+                .map_err(|e| StorageError::ReadError(format!("Failed to load users: {e}")))?;
 
             Ok(users.into_iter().find(|u| u.username == username))
         })
@@ -1162,7 +1159,7 @@ impl StorageBackend for RedisPostgresStorage {
             let users = pg
                 .load_users()
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to load users: {}", e)))?;
+                .map_err(|e| StorageError::ReadError(format!("Failed to load users: {e}")))?;
 
             Ok(users.into_iter().find(|u| u.email == email))
         })
@@ -1178,7 +1175,7 @@ impl StorageBackend for RedisPostgresStorage {
         tokio::runtime::Handle::current().block_on(async {
             pg.load_users()
                 .await
-                .map_err(|e| StorageError::ReadError(format!("Failed to list users: {}", e)))
+                .map_err(|e| StorageError::ReadError(format!("Failed to list users: {e}")))
         })
     }
 
@@ -1320,7 +1317,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_adapter_config(config).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist adapter config: {}", e))
+                StorageError::WriteError(format!("Failed to persist adapter config: {e}"))
             })
         })
     }
@@ -1330,7 +1327,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             let configs = pg.load_adapter_configs().await.map_err(|e| {
-                StorageError::ReadError(format!("Failed to load adapter configs: {}", e))
+                StorageError::ReadError(format!("Failed to load adapter configs: {e}"))
             })?;
 
             Ok(configs.into_iter().find(|c| c.config_id == *config_id))
@@ -1352,7 +1349,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             pg.load_adapter_configs().await.map_err(|e| {
-                StorageError::ReadError(format!("Failed to list adapter configs: {}", e))
+                StorageError::ReadError(format!("Failed to list adapter configs: {e}"))
             })
         })
     }
@@ -1382,11 +1379,7 @@ impl StorageBackend for RedisPostgresStorage {
         // Unset all defaults first
         let mut configs = self.list_adapter_configs()?;
         for config in &mut configs {
-            if config.config_id == *config_id {
-                config.is_default = true;
-            } else {
-                config.is_default = false;
-            }
+            config.is_default = config.config_id == *config_id;
             self.update_adapter_config(config)?;
         }
         Ok(())
@@ -1412,7 +1405,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_lid_dfid_mapping(lid, dfid).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist LID mapping: {}", e))
+                StorageError::WriteError(format!("Failed to persist LID mapping: {e}"))
             })
         })
     }
@@ -1422,7 +1415,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             let mappings = pg.load_lid_dfid_mappings().await.map_err(|e| {
-                StorageError::ReadError(format!("Failed to load LID mappings: {}", e))
+                StorageError::ReadError(format!("Failed to load LID mappings: {e}"))
             })?;
 
             Ok(mappings
@@ -1446,7 +1439,7 @@ impl StorageBackend for RedisPostgresStorage {
         let items = self.list_items()?;
 
         // Search in legacy identifiers with format "namespace:registry:value"
-        let canonical_key = format!("{}:{}", namespace, registry);
+        let canonical_key = format!("{namespace}:{registry}");
         for item in items {
             for id in &item.identifiers {
                 if id.key == canonical_key && id.value == value {
@@ -1535,7 +1528,7 @@ impl StorageBackend for RedisPostgresStorage {
 
         tokio::runtime::Handle::current().block_on(async {
             pg.persist_user_activity(activity).await.map_err(|e| {
-                StorageError::WriteError(format!("Failed to persist user activity: {}", e))
+                StorageError::WriteError(format!("Failed to persist user activity: {e}"))
             })
         })
     }

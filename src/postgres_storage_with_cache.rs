@@ -82,7 +82,7 @@ impl StorageBackend for PostgresStorageWithCache {
 
                 // ✅ CRITICAL: Write to PostgreSQL FIRST (source of truth)
                 pg.persist_item(item).await.map_err(|e| {
-                    StorageError::WriteError(format!("PostgreSQL write failed: {}", e))
+                    StorageError::WriteError(format!("PostgreSQL write failed: {e}"))
                 })?;
 
                 // ✅ Invalidate cache (fire-and-forget)
@@ -108,7 +108,7 @@ impl StorageBackend for PostgresStorageWithCache {
                 // 2. Load from PostgreSQL (source of truth)
                 let pg = self.get_postgres().await?;
                 let items = pg.load_items().await.map_err(|e| {
-                    StorageError::ReadError(format!("PostgreSQL read failed: {}", e))
+                    StorageError::ReadError(format!("PostgreSQL read failed: {e}"))
                 })?;
 
                 let item = items.into_iter().find(|i| i.dfid == dfid);
@@ -146,7 +146,7 @@ impl StorageBackend for PostgresStorageWithCache {
 
                 pg.load_items()
                     .await
-                    .map_err(|e| StorageError::ReadError(format!("PostgreSQL read failed: {}", e)))
+                    .map_err(|e| StorageError::ReadError(format!("PostgreSQL read failed: {e}")))
             })
         })
     }
@@ -400,7 +400,7 @@ impl StorageBackend for PostgresStorageWithCache {
         // For now, we store them as part of circuit state
         let circuit = self
             .get_circuit(&circuit_item.circuit_id)?
-            .ok_or_else(|| StorageError::NotFound)?;
+            .ok_or(StorageError::NotFound)?;
 
         // Update circuit to include this item
         // (Implementation depends on Circuit structure)
@@ -738,7 +738,7 @@ impl StorageBackend for PostgresStorageWithCache {
 
                 // Persist notification to PostgreSQL
                 pg.persist_notification(notification).await.map_err(|e| {
-                    StorageError::WriteError(format!("Failed to persist notification: {}", e))
+                    StorageError::WriteError(format!("Failed to persist notification: {e}"))
                 })?;
 
                 tracing::debug!(
@@ -967,7 +967,7 @@ impl StorageBackend for PostgresStorageWithCache {
                 let pg = self.get_postgres().await?;
 
                 pg.persist_zk_proof(proof).await.map_err(|e| {
-                    StorageError::WriteError(format!("Failed to persist ZK proof: {}", e))
+                    StorageError::WriteError(format!("Failed to persist ZK proof: {e}"))
                 })?;
 
                 tracing::debug!(
@@ -1099,7 +1099,7 @@ impl StorageBackend for PostgresStorageWithCache {
                 let pg = self.get_postgres().await?;
 
                 pg.persist_audit_event(event).await.map_err(|e| {
-                    StorageError::WriteError(format!("Failed to persist audit event: {}", e))
+                    StorageError::WriteError(format!("Failed to persist audit event: {e}"))
                 })?;
 
                 tracing::debug!(

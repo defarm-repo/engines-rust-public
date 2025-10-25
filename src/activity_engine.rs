@@ -161,7 +161,7 @@ impl<S: StorageBackend + 'static> ActivityEngine<S> {
         let total = all_activities.len();
         let page = filters.page.unwrap_or(1);
         let per_page = filters.per_page.unwrap_or(50);
-        let total_pages = (total + per_page - 1) / per_page;
+        let total_pages = total.div_ceil(per_page);
 
         // Paginate
         let start = (page - 1) * per_page;

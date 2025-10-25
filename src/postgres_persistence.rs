@@ -263,12 +263,12 @@ impl PostgresPersistence {
                                 tracing::error!("   Hint: {}", hint);
                             }
                         }
-                        return Err(format!("Migration {} failed: {}", name, error_msg));
+                        return Err(format!("Migration {name} failed: {error_msg}"));
                     }
                 }
                 Err(_) => {
                     tracing::error!("❌ Migration {} timed out after 30 seconds", name);
-                    return Err(format!("Migration {} timeout", name));
+                    return Err(format!("Migration {name} timeout"));
                 }
             }
         }
@@ -310,8 +310,7 @@ impl PostgresPersistence {
         }
 
         Err(format!(
-            "Timeout waiting for PostgreSQL connection after {} seconds",
-            timeout_secs
+            "Timeout waiting for PostgreSQL connection after {timeout_secs} seconds"
         ))
     }
 
@@ -628,7 +627,7 @@ impl PostgresPersistence {
             let permissions_str: Vec<String> = member
                 .permissions
                 .iter()
-                .map(|p| format!("{:?}", p))
+                .map(|p| format!("{p:?}"))
                 .collect();
 
             transaction
@@ -661,7 +660,7 @@ impl PostgresPersistence {
             let permissions_str: Vec<String> = role
                 .permissions
                 .iter()
-                .map(|p| format!("{:?}", p))
+                .map(|p| format!("{p:?}"))
                 .collect();
 
             transaction
@@ -1342,7 +1341,7 @@ impl PostgresPersistence {
 
         // Remove any lingering LID-based record before inserting the tokenized item
         if let Some(local_id) = item.local_id {
-            let temp_dfid = format!("LID-{}", local_id);
+            let temp_dfid = format!("LID-{local_id}");
             if temp_dfid != item.dfid {
                 if let Err(e) = client
                     .execute("DELETE FROM items WHERE dfid = $1", &[&temp_dfid])
@@ -2749,7 +2748,7 @@ impl PostgresPersistence {
         let client = self
             .get_client()
             .await
-            .map_err(|e| format!("Failed to get database client: {}", e))?;
+            .map_err(|e| format!("Failed to get database client: {e}"))?;
 
         client
             .execute(
@@ -2770,7 +2769,7 @@ impl PostgresPersistence {
                 ],
             )
             .await
-            .map_err(|e| format!("Failed to persist notification: {}", e))?;
+            .map_err(|e| format!("Failed to persist notification: {e}"))?;
 
         tracing::debug!("✅ Notification persisted: {}", notification.id);
         Ok(())
@@ -2781,7 +2780,7 @@ impl PostgresPersistence {
         let client = self
             .get_client()
             .await
-            .map_err(|e| format!("Failed to get database client: {}", e))?;
+            .map_err(|e| format!("Failed to get database client: {e}"))?;
 
         let rows = client
             .query(
@@ -2791,7 +2790,7 @@ impl PostgresPersistence {
                 &[],
             )
             .await
-            .map_err(|e| format!("Failed to load events: {}", e))?;
+            .map_err(|e| format!("Failed to load events: {e}"))?;
 
         let mut events = Vec::new();
         for row in rows {
@@ -2822,7 +2821,7 @@ impl PostgresPersistence {
         let client = self
             .get_client()
             .await
-            .map_err(|e| format!("Failed to get database client: {}", e))?;
+            .map_err(|e| format!("Failed to get database client: {e}"))?;
 
         client
             .execute(
@@ -2846,7 +2845,7 @@ impl PostgresPersistence {
                 ],
             )
             .await
-            .map_err(|e| format!("Failed to persist audit event: {}", e))?;
+            .map_err(|e| format!("Failed to persist audit event: {e}"))?;
 
         tracing::debug!("✅ Audit event persisted: {}", event.event_id);
         Ok(())
@@ -2857,7 +2856,7 @@ impl PostgresPersistence {
         let client = self
             .get_client()
             .await
-            .map_err(|e| format!("Failed to get database client: {}", e))?;
+            .map_err(|e| format!("Failed to get database client: {e}"))?;
 
         let rows = client
             .query(
@@ -2867,7 +2866,7 @@ impl PostgresPersistence {
                 &[],
             )
             .await
-            .map_err(|e| format!("Failed to load audit events: {}", e))?;
+            .map_err(|e| format!("Failed to load audit events: {e}"))?;
 
         let mut events = Vec::new();
         for row in rows {
@@ -2907,7 +2906,7 @@ impl PostgresPersistence {
         let client = self
             .get_client()
             .await
-            .map_err(|e| format!("Failed to get database client: {}", e))?;
+            .map_err(|e| format!("Failed to get database client: {e}"))?;
 
         client
             .execute(
@@ -2933,7 +2932,7 @@ impl PostgresPersistence {
                 ],
             )
             .await
-            .map_err(|e| format!("Failed to persist ZK proof: {}", e))?;
+            .map_err(|e| format!("Failed to persist ZK proof: {e}"))?;
 
         tracing::debug!("✅ ZK proof persisted: {}", proof.proof_id);
         Ok(())
@@ -2944,7 +2943,7 @@ impl PostgresPersistence {
         let client = self
             .get_client()
             .await
-            .map_err(|e| format!("Failed to get database client: {}", e))?;
+            .map_err(|e| format!("Failed to get database client: {e}"))?;
 
         let rows = client
             .query(
@@ -2954,7 +2953,7 @@ impl PostgresPersistence {
                 &[],
             )
             .await
-            .map_err(|e| format!("Failed to load ZK proofs: {}", e))?;
+            .map_err(|e| format!("Failed to load ZK proofs: {e}"))?;
 
         let mut proofs = Vec::new();
         for row in rows {

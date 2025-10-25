@@ -359,8 +359,7 @@ impl SorobanRpcClient {
         }
 
         Err(format!(
-            "Failed to extract DFID from topic element: {}",
-            dfid_value
+            "Failed to extract DFID from topic element: {dfid_value}"
         ))
     }
 
@@ -395,8 +394,7 @@ impl SorobanRpcClient {
         }
 
         Err(format!(
-            "Failed to extract CID from value element: {}",
-            cid_value
+            "Failed to extract CID from value element: {cid_value}"
         ))
     }
 }

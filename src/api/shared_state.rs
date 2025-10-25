@@ -139,7 +139,7 @@ impl AppState {
         let storage = self.shared_storage.clone();
         tokio::task::spawn_blocking(move || {
             let guard = storage.lock().unwrap();
-            f(&*guard)
+            f(&guard)
         })
         .await
         .expect("Storage read task panicked")
@@ -155,7 +155,7 @@ impl AppState {
         let storage = self.shared_storage.clone();
         tokio::task::spawn_blocking(move || {
             let mut guard = storage.lock().unwrap();
-            f(&mut *guard)
+            f(&mut guard)
         })
         .await
         .expect("Storage write task panicked")

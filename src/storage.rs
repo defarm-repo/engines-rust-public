@@ -1777,7 +1777,7 @@ impl StorageBackend for InMemoryStorage {
             let timeline = s
                 .cid_timeline
                 .entry(dfid.to_string())
-                .or_insert_with(Vec::new);
+                .or_default();
 
             // Auto-increment sequence
             let event_sequence = timeline.len() as i32 + 1;

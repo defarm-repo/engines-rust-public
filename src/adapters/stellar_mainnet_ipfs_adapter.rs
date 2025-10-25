@@ -52,7 +52,7 @@ impl StellarMainnetIpfsAdapter {
                         .as_ref()
                         .and_then(|cc| cc.ipcm_contract.as_ref())
                         .map(|ci| ci.contract_address.clone())
-                        .ok_or_else(|| std::env::VarError::NotPresent)
+                        .ok_or(std::env::VarError::NotPresent)
                 })
                 .unwrap_or_else(|_| MAINNET_IPCM_CONTRACT.to_string());
 

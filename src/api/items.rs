@@ -72,7 +72,7 @@ impl IdentifierRequest {
                     &scope,
                 ))
             }
-            other => Err(format!("Invalid id_type '{}'", other)),
+            other => Err(format!("Invalid id_type '{other}'")),
         }
     }
 
@@ -472,7 +472,7 @@ fn item_to_response(item: Item) -> ItemResponse {
             .into_iter()
             .map(|uuid| uuid.to_string())
             .collect(),
-        status: format!("{:?}", status),
+        status: format!("{status:?}"),
     }
 }
 
@@ -1578,7 +1578,7 @@ async fn create_local_item(
         resource_type: UserResourceType::Item,
         resource_id: local_id.to_string(),
         action: "create_local_item".to_string(),
-        description: format!("Created local item with ID: {}", local_id),
+        description: format!("Created local item with ID: {local_id}"),
         metadata: serde_json::Value::Null,
         success: true,
         ip_address: None, // TODO: Extract from request

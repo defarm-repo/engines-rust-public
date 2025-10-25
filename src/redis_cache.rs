@@ -33,7 +33,7 @@ impl RedisCache {
         let cfg = RedisConfig::from_url(redis_url);
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1))
-            .map_err(|e| format!("Failed to create Redis pool: {}", e))?;
+            .map_err(|e| format!("Failed to create Redis pool: {e}"))?;
 
         tracing::info!("✅ Redis cache initialized (TTL: {:?})", default_ttl);
 
@@ -45,7 +45,7 @@ impl RedisCache {
         self.pool
             .get()
             .await
-            .map_err(|e| format!("Failed to get Redis connection: {}", e))
+            .map_err(|e| format!("Failed to get Redis connection: {e}"))
     }
 
     // ============================================================================
@@ -55,16 +55,16 @@ impl RedisCache {
     /// Get item from cache by DFID
     pub async fn get_item(&self, dfid: &str) -> Result<Option<Item>, String> {
         let mut conn = self.get_conn().await?;
-        let key = format!("item:{}", dfid);
+        let key = format!("item:{dfid}");
 
         let cached: Option<String> = conn
             .get(&key)
             .await
-            .map_err(|e| format!("Redis get failed: {}", e))?;
+            .map_err(|e| format!("Redis get failed: {e}"))?;
 
         if let Some(json) = cached {
             let item: Item = serde_json::from_str(&json)
-                .map_err(|e| format!("Failed to deserialize item: {}", e))?;
+                .map_err(|e| format!("Failed to deserialize item: {e}"))?;
             tracing::debug!("🎯 Cache HIT: item {}", dfid);
             Ok(Some(item))
         } else {
@@ -78,12 +78,12 @@ impl RedisCache {
         let mut conn = self.get_conn().await?;
         let key = format!("item:{}", item.dfid);
         let json =
-            serde_json::to_string(item).map_err(|e| format!("Failed to serialize item: {}", e))?;
+            serde_json::to_string(item).map_err(|e| format!("Failed to serialize item: {e}"))?;
 
         let _: () = conn
             .set_ex(&key, json, self.default_ttl.as_secs())
             .await
-            .map_err(|e| format!("Redis set failed: {}", e))?;
+            .map_err(|e| format!("Redis set failed: {e}"))?;
 
         tracing::debug!("✅ Cached item: {}", item.dfid);
         Ok(())
@@ -92,12 +92,12 @@ impl RedisCache {
     /// Delete item from cache
     pub async fn delete_item(&self, dfid: &str) -> Result<(), String> {
         let mut conn = self.get_conn().await?;
-        let key = format!("item:{}", dfid);
+        let key = format!("item:{dfid}");
 
         let _: () = conn
             .del(&key)
             .await
-            .map_err(|e| format!("Redis delete failed: {}", e))?;
+            .map_err(|e| format!("Redis delete failed: {e}"))?;
 
         tracing::debug!("🗑️  Deleted from cache: item {}", dfid);
         Ok(())
@@ -110,16 +110,16 @@ impl RedisCache {
     /// Get circuit from cache by ID
     pub async fn get_circuit(&self, circuit_id: &str) -> Result<Option<Circuit>, String> {
         let mut conn = self.get_conn().await?;
-        let key = format!("circuit:{}", circuit_id);
+        let key = format!("circuit:{circuit_id}");
 
         let cached: Option<String> = conn
             .get(&key)
             .await
-            .map_err(|e| format!("Redis get failed: {}", e))?;
+            .map_err(|e| format!("Redis get failed: {e}"))?;
 
         if let Some(json) = cached {
             let circuit: Circuit = serde_json::from_str(&json)
-                .map_err(|e| format!("Failed to deserialize circuit: {}", e))?;
+                .map_err(|e| format!("Failed to deserialize circuit: {e}"))?;
             tracing::debug!("🎯 Cache HIT: circuit {}", circuit_id);
             Ok(Some(circuit))
         } else {
@@ -133,12 +133,12 @@ impl RedisCache {
         let mut conn = self.get_conn().await?;
         let key = format!("circuit:{}", circuit.circuit_id);
         let json = serde_json::to_string(circuit)
-            .map_err(|e| format!("Failed to serialize circuit: {}", e))?;
+            .map_err(|e| format!("Failed to serialize circuit: {e}"))?;
 
         let _: () = conn
             .set_ex(&key, json, self.default_ttl.as_secs())
             .await
-            .map_err(|e| format!("Redis set failed: {}", e))?;
+            .map_err(|e| format!("Redis set failed: {e}"))?;
 
         tracing::debug!("✅ Cached circuit: {}", circuit.circuit_id);
         Ok(())
@@ -147,12 +147,12 @@ impl RedisCache {
     /// Delete circuit from cache
     pub async fn delete_circuit(&self, circuit_id: &str) -> Result<(), String> {
         let mut conn = self.get_conn().await?;
-        let key = format!("circuit:{}", circuit_id);
+        let key = format!("circuit:{circuit_id}");
 
         let _: () = conn
             .del(&key)
             .await
-            .map_err(|e| format!("Redis delete failed: {}", e))?;
+            .map_err(|e| format!("Redis delete failed: {e}"))?;
 
         tracing::debug!("🗑️  Deleted from cache: circuit {}", circuit_id);
         Ok(())
@@ -165,16 +165,16 @@ impl RedisCache {
     /// Get event from cache by ID
     pub async fn get_event(&self, event_id: &uuid::Uuid) -> Result<Option<Event>, String> {
         let mut conn = self.get_conn().await?;
-        let key = format!("event:{}", event_id);
+        let key = format!("event:{event_id}");
 
         let cached: Option<String> = conn
             .get(&key)
             .await
-            .map_err(|e| format!("Redis get failed: {}", e))?;
+            .map_err(|e| format!("Redis get failed: {e}"))?;
 
         if let Some(json) = cached {
             let event: Event = serde_json::from_str(&json)
-                .map_err(|e| format!("Failed to deserialize event: {}", e))?;
+                .map_err(|e| format!("Failed to deserialize event: {e}"))?;
             tracing::debug!("🎯 Cache HIT: event {}", event_id);
             Ok(Some(event))
         } else {
@@ -188,12 +188,12 @@ impl RedisCache {
         let mut conn = self.get_conn().await?;
         let key = format!("event:{}", event.event_id);
         let json = serde_json::to_string(event)
-            .map_err(|e| format!("Failed to serialize event: {}", e))?;
+            .map_err(|e| format!("Failed to serialize event: {e}"))?;
 
         let _: () = conn
             .set_ex(&key, json, self.default_ttl.as_secs())
             .await
-            .map_err(|e| format!("Redis set failed: {}", e))?;
+            .map_err(|e| format!("Redis set failed: {e}"))?;
 
         tracing::debug!("✅ Cached event: {}", event.event_id);
         Ok(())
@@ -213,13 +213,13 @@ impl RedisCache {
             .arg(pattern)
             .query_async(&mut *conn)
             .await
-            .map_err(|e| format!("Redis KEYS failed: {}", e))?;
+            .map_err(|e| format!("Redis KEYS failed: {e}"))?;
 
         if !keys.is_empty() {
             let _: () = conn
                 .del(&keys)
                 .await
-                .map_err(|e| format!("Redis bulk delete failed: {}", e))?;
+                .map_err(|e| format!("Redis bulk delete failed: {e}"))?;
 
             tracing::info!("🗑️  Invalidated {} cached items", keys.len());
         }
@@ -236,13 +236,13 @@ impl RedisCache {
             .arg(pattern)
             .query_async(&mut *conn)
             .await
-            .map_err(|e| format!("Redis KEYS failed: {}", e))?;
+            .map_err(|e| format!("Redis KEYS failed: {e}"))?;
 
         if !keys.is_empty() {
             let _: () = conn
                 .del(&keys)
                 .await
-                .map_err(|e| format!("Redis bulk delete failed: {}", e))?;
+                .map_err(|e| format!("Redis bulk delete failed: {e}"))?;
 
             tracing::info!("🗑️  Invalidated {} cached circuits", keys.len());
         }
@@ -287,7 +287,7 @@ impl RedisCache {
         let _: String = redis::cmd("PING")
             .query_async(&mut *conn)
             .await
-            .map_err(|e| format!("Redis PING failed: {}", e))?;
+            .map_err(|e| format!("Redis PING failed: {e}"))?;
 
         Ok(())
     }
