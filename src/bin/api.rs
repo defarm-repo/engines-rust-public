@@ -543,10 +543,10 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>, use_redis: bool) {
             drop(pg_lock);
 
             // Enable event persistence now that PostgreSQL is connected
-            app_state.enable_event_persistence();
+            app_state.enable_event_persistence().await;
             tracing::info!("✅ Event persistence enabled - events will now persist to PostgreSQL");
 
-            app_state.enable_activity_persistence();
+            app_state.enable_activity_persistence().await;
             tracing::info!(
                 "✅ User activity persistence enabled - user actions will now persist to PostgreSQL"
             );
