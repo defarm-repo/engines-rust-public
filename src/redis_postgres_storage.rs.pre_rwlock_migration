@@ -18,7 +18,8 @@ use chrono::{DateTime, Utc};
 /// - Fixed RAM footprint (< 100MB per API)
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::identifier_types::EnhancedIdentifier;
@@ -57,7 +58,7 @@ pub struct CacheMetricsSnapshot {
 /// Redis + PostgreSQL storage backend
 pub struct RedisPostgresStorage {
     /// PostgreSQL persistence (shared with AppState for migrations)
-    pg: Arc<Mutex<Option<PostgresPersistence>>>,
+    pg: Arc<RwLock<Option<PostgresPersistence>>>,
     /// Redis distributed cache
     cache: Arc<RedisCache>,
     /// Cache performance metrics
@@ -66,7 +67,7 @@ pub struct RedisPostgresStorage {
 
 impl RedisPostgresStorage {
     /// Create new Redis + PostgreSQL storage backend
-    pub fn new(pg: Arc<Mutex<Option<PostgresPersistence>>>, cache: Arc<RedisCache>) -> Self {
+    pub fn new(pg: Arc<RwLock<Option<PostgresPersistence>>>, cache: Arc<RedisCache>) -> Self {
         tracing::info!("✅ RedisPostgresStorage initialized (PostgreSQL Primary + Redis Cache)");
         Self {
             pg,
@@ -83,7 +84,7 @@ impl RedisPostgresStorage {
     /// Helper: Get PostgreSQL persistence (blocks if not connected)
     fn get_pg(&self) -> Result<PostgresPersistence, StorageError> {
         tokio::runtime::Handle::current().block_on(async {
-            let pg_guard = self.pg.lock().unwrap();
+            let pg_guard = self.pg.read().await;
             match pg_guard.as_ref() {
                 Some(pg) => Ok(pg.clone()),
                 None => Err(StorageError::ConnectionError(

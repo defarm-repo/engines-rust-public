@@ -19,12 +19,13 @@ use crate::types::*;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 /// Professional storage backend: PostgreSQL as single source of truth + Optional Redis cache
 pub struct PostgresStorageWithCache {
     /// PostgreSQL persistence - SINGLE SOURCE OF TRUTH
-    postgres: Arc<tokio::sync::RwLock<Option<PostgresPersistence>>>,
+    postgres: Arc<RwLock<Option<PostgresPersistence>>>,
 
     /// Redis cache - OPTIONAL read-only cache
     redis: Option<Arc<RedisCache>>,
@@ -33,7 +34,7 @@ pub struct PostgresStorageWithCache {
 impl PostgresStorageWithCache {
     /// Create new storage with PostgreSQL (required) and Redis (optional)
     pub fn new(
-        postgres: Arc<tokio::sync::RwLock<Option<PostgresPersistence>>>,
+        postgres: Arc<RwLock<Option<PostgresPersistence>>>,
         redis: Option<Arc<RedisCache>>,
     ) -> Self {
         tracing::info!("🏗️  PostgresStorageWithCache: Professional mode initialized");

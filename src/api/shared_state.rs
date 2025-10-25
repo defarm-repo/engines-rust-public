@@ -112,8 +112,9 @@ impl AppState {
     /// Enable PostgreSQL persistence for events engine
     pub async fn enable_event_persistence(&self) {
         let mut engine = self.events_engine.write().await;
-        *engine = EventsEngine::new(self.shared_storage.clone())
+        let new_engine = EventsEngine::new(self.shared_storage.clone())
             .with_postgres(Arc::clone(&self.postgres_persistence));
+        *engine = new_engine;
     }
 
     /// Enable PostgreSQL persistence for user activity tracking

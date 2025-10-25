@@ -32,6 +32,18 @@ Production Railway API includes pre-configured demo accounts for all user tiers.
 ## System Documentation Rule
 Every new feature or update must be documented by updating existing principles or appending new ones in the appropriate section. Keep principles simple - one row per principle maximum.
 
+## Concurrency Model Principles
+
+### Uniform Concurrency Standard (2025-01-15)
+1. **Storage backends use `Arc<std::sync::Mutex<T>>`** - All StorageBackend implementations and internal synchronous state
+2. **Async engine wrappers use `Arc<tokio::sync::RwLock<T>>`** - For engines in AppState that need async access (CircuitsEngine, ItemsEngine, EventsEngine, ActivityEngine, NotificationEngine)
+3. **PostgreSQL persistence uses `Arc<tokio::sync::RwLock<Option<PostgresPersistence>>>`** - Shared async-mutable state
+4. **NEVER hold `std::sync::Mutex` guard across `.await`** - Drop guard before await or use `tokio::task::block_in_place` + `Handle::block_on`
+5. **Access pattern**: Storage uses `.lock().unwrap()`, async wrappers use `.read().await` or `.write().await`
+6. **Validation script** - Run `./scripts/check_concurrency.sh` to verify uniformity before commits
+7. **Zero tolerance** - No `Arc<std::sync::RwLock>` in storage layer, no mixing patterns
+8. **Architecture Decision Record** - See `docs/adr/001-concurrency-model.md` for complete rationale
+
 ## Reception Engine Principles
 
 ### Data Reception

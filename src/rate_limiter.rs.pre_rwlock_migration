@@ -1,7 +1,7 @@
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -211,7 +211,7 @@ impl ApiKeyLimits {
 }
 
 pub struct RateLimiter {
-    limits: Arc<Mutex<HashMap<Uuid, ApiKeyLimits>>>,
+    limits: Arc<RwLock<HashMap<Uuid, ApiKeyLimits>>>,
 }
 
 impl Default for RateLimiter {
@@ -223,7 +223,7 @@ impl Default for RateLimiter {
 impl RateLimiter {
     pub fn new() -> Self {
         Self {
-            limits: Arc::new(Mutex::new(HashMap::new())),
+            limits: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -235,7 +235,7 @@ impl RateLimiter {
     ) -> Result<RateLimitResult, RateLimitError> {
         let mut limits = self
             .limits
-            .lock()
+            .write()
             .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         let key_limits = limits
@@ -254,7 +254,7 @@ impl RateLimiter {
     pub fn record_request(&self, api_key_id: Uuid) -> Result<(), RateLimitError> {
         let mut limits = self
             .limits
-            .lock()
+            .write()
             .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         if let Some(key_limits) = limits.get_mut(&api_key_id) {
@@ -272,7 +272,7 @@ impl RateLimiter {
     ) -> Result<RateLimitResult, RateLimitError> {
         let mut limits = self
             .limits
-            .lock()
+            .write()
             .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         let key_limits = limits
@@ -286,7 +286,7 @@ impl RateLimiter {
     pub fn reset_limits(&self, api_key_id: Uuid) -> Result<(), RateLimitError> {
         let mut limits = self
             .limits
-            .lock()
+            .write()
             .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         limits.remove(&api_key_id);
@@ -298,7 +298,7 @@ impl RateLimiter {
     pub fn cleanup(&self) -> Result<(), RateLimitError> {
         let mut limits = self
             .limits
-            .lock()
+            .write()
             .map_err(|e| RateLimitError::LockError(format!("Failed to acquire write lock: {e}")))?;
 
         let cutoff = Utc::now() - Duration::days(1);

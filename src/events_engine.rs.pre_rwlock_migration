@@ -111,8 +111,8 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
             let pg = Arc::clone(pg_ref);
             let event_clone = event.clone();
             tokio::spawn(async move {
-                let pg_guard = pg.read().await;
-                if let Some(pg_persistence) = &*pg_guard {
+                let pg_lock = pg.read().await;
+                if let Some(pg_persistence) = &*pg_lock {
                     if let Err(e) = pg_persistence.persist_event(&event_clone).await {
                         tracing::warn!("Failed to persist event to PostgreSQL: {}", e);
                         // Don't fail the request - in-memory write succeeded

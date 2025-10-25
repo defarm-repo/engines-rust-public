@@ -9,9 +9,9 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::{sleep, timeout};
 
 use chrono::{DateTime, Utc};
@@ -26,9 +26,9 @@ use serde_json::json;
 /// PostgreSQL persistence manager with circuit breaker
 #[derive(Clone)]
 pub struct PostgresPersistence {
-    pool: Arc<Mutex<Option<Pool>>>,
+    pool: Arc<RwLock<Option<Pool>>>,
     database_url: String,
-    connection_state: Arc<Mutex<ConnectionState>>,
+    connection_state: Arc<RwLock<ConnectionState>>,
     queue_tx: mpsc::Sender<PersistJob>,
     metrics: Arc<PersistMetrics>,
 }
@@ -98,9 +98,9 @@ impl PostgresPersistence {
     pub fn new(database_url: String) -> Self {
         let (queue_tx, queue_rx) = mpsc::channel(PERSIST_QUEUE_CAPACITY);
         let persistence = Self {
-            pool: Arc::new(Mutex::new(None)),
+            pool: Arc::new(RwLock::new(None)),
             database_url,
-            connection_state: Arc::new(Mutex::new(ConnectionState::Connecting)),
+            connection_state: Arc::new(RwLock::new(ConnectionState::Connecting)),
             queue_tx: queue_tx.clone(),
             metrics: Arc::new(PersistMetrics::default()),
         };
@@ -132,10 +132,10 @@ impl PostgresPersistence {
             match self.try_connect().await {
                 Ok(pool) => {
                     {
-                        let mut pool_guard = self.pool.lock().unwrap();
+                        let mut pool_guard = self.pool.write().await;
                         *pool_guard = Some(pool.clone());
                     }
-                    *self.connection_state.lock().unwrap() = ConnectionState::Connected;
+                    *self.connection_state.write().await = ConnectionState::Connected;
                     tracing::info!(
                         "✅ PostgreSQL connected successfully on attempt {}",
                         attempt
@@ -165,7 +165,7 @@ impl PostgresPersistence {
             }
         }
 
-        *self.connection_state.lock().unwrap() = ConnectionState::Failed;
+        *self.connection_state.write().await = ConnectionState::Failed;
         Err(format!(
             "Failed to connect to PostgreSQL after {max_retries} attempts"
         ))
@@ -213,7 +213,7 @@ impl PostgresPersistence {
         tracing::info!("🔄 Running database migrations...");
 
         let pool = {
-            let pool_guard = self.pool.lock().unwrap();
+            let pool_guard = self.pool.read().await;
             pool_guard
                 .clone()
                 .ok_or_else(|| "PostgreSQL not connected".to_string())?
@@ -279,12 +279,12 @@ impl PostgresPersistence {
 
     /// Check if PostgreSQL is connected and operational
     pub async fn is_connected(&self) -> bool {
-        let state = *self.connection_state.lock().unwrap();
+        let state = *self.connection_state.read().await;
         if state != ConnectionState::Connected {
             return false;
         }
 
-        let pool_guard = self.pool.lock().unwrap();
+        let pool_guard = self.pool.read().await;
         pool_guard.is_some()
     }
 
@@ -301,7 +301,7 @@ impl PostgresPersistence {
             }
 
             // Check connection state to see if we're still trying to connect
-            let state = *self.connection_state.lock().unwrap();
+            let state = *self.connection_state.read().await;
             if state == ConnectionState::Failed {
                 return Err("PostgreSQL connection failed".to_string());
             }
@@ -317,7 +317,7 @@ impl PostgresPersistence {
 
     /// Get connection status for health checks
     pub async fn get_status(&self) -> (String, String) {
-        let state = *self.connection_state.lock().unwrap();
+        let state = *self.connection_state.read().await;
 
         let status = match state {
             ConnectionState::Connected => "connected",
@@ -339,7 +339,7 @@ impl PostgresPersistence {
     /// Get a database client from the pool with timeout
     async fn get_client(&self) -> Result<deadpool_postgres::Client, String> {
         let pool = {
-            let pool_guard = self.pool.lock().unwrap();
+            let pool_guard = self.pool.read().await;
             pool_guard
                 .clone()
                 .ok_or_else(|| "PostgreSQL not connected".to_string())?

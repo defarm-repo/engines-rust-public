@@ -518,6 +518,7 @@ fn severity_to_string(severity: &AuditSeverity) -> &'static str {
 mod tests {
     use super::*;
     use crate::storage::InMemoryStorage;
+    use std::sync::Arc;
 
     #[test]
     fn test_log_event() {

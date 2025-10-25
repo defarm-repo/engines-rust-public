@@ -2429,14 +2429,13 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
         };
 
         // Trigger webhooks asynchronously
-        let webhook_result = {
-            let mut webhook_guard = self.webhook_engine.write().await;
-            webhook_guard
-                .trigger_webhooks(&circuit.circuit_id, trigger_event, payload)
-                .await
-        };
-
-        match webhook_result {
+        match self
+            .webhook_engine
+            .write()
+            .await
+            .trigger_webhooks(&circuit.circuit_id, trigger_event, payload)
+            .await
+        {
             Ok(delivery_ids) => {
                 if !delivery_ids.is_empty() {
                     self.logger
@@ -2482,24 +2481,26 @@ mod tests {
     fn create_test_item(storage: &Arc<std::sync::Mutex<InMemoryStorage>>, dfid: &str) {
         let identifiers = vec![Identifier::new("test_key", "test_value")];
         let item = crate::types::Item::new(dfid.to_string(), identifiers, uuid::Uuid::new_v4());
-        let mut s = storage.lock().unwrap();
-        let _ = s.store_item(&item);
+        match storage.write() {
+            Ok(mut s) => {
+                let _ = s.store_item(&item);
+            }
+            Err(_) => eprintln!("Failed to acquire storage lock in test"),
+        }
     }
 
-    #[tokio::test]
-    async fn test_create_circuit() {
+    #[test]
+    fn test_create_circuit() {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         let mut circuits_engine = CircuitsEngine::new(storage);
 
-        let result = circuits_engine
-            .create_circuit(
-                "Test Circuit".to_string(),
-                "A test circuit".to_string(),
-                "owner123".to_string(),
-                None,
-                None,
-            )
-            .await;
+        let result = circuits_engine.create_circuit(
+            "Test Circuit".to_string(),
+            "A test circuit".to_string(),
+            "owner123".to_string(),
+            None,
+            None,
+        );
 
         assert!(result.is_ok());
         let circuit = result.unwrap();
@@ -2579,9 +2580,8 @@ mod tests {
             )
             .unwrap();
 
-        let result = circuits_engine
-            .pull_item_from_circuit("DFID-123", &circuit.circuit_id, "owner123")
-            .await;
+        let result =
+            circuits_engine.pull_item_from_circuit("DFID-123", &circuit.circuit_id, "owner123");
         assert!(result.is_ok());
 
         let (item, operation) = result.unwrap();

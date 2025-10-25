@@ -336,7 +336,7 @@ async fn health_check() -> (StatusCode, Json<Value>) {
 async fn health_check_db(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
 ) -> (StatusCode, Json<Value>) {
-    let pg_lock = state.postgres_persistence.read().await;
+    let pg_lock = state.postgres_persistence.write().await;
 
     match &*pg_lock {
         Some(pg) => {
@@ -551,7 +551,7 @@ async fn initialize_postgres_sync(app_state: Arc<AppState>, use_redis: bool) {
                 "✅ User activity persistence enabled - user actions will now persist to PostgreSQL"
             );
 
-            app_state.enable_circuit_activity_persistence();
+            app_state.enable_circuit_activity_persistence().await;
             tracing::info!(
                 "✅ Circuit activity persistence enabled - circuit logs will now persist to PostgreSQL"
             );
@@ -752,17 +752,17 @@ fn initialize_postgres_background(app_state: Arc<AppState>, use_redis: bool) {
                 drop(pg_lock);
 
                 // Enable event persistence now that PostgreSQL is connected
-                app_state.enable_event_persistence();
+                app_state.enable_event_persistence().await;
                 tracing::info!(
                     "✅ Event persistence enabled - events will now persist to PostgreSQL"
                 );
 
-                app_state.enable_activity_persistence();
+                app_state.enable_activity_persistence().await;
                 tracing::info!(
                     "✅ User activity persistence enabled - user actions will now persist to PostgreSQL"
                 );
 
-                app_state.enable_circuit_activity_persistence();
+                app_state.enable_circuit_activity_persistence().await;
                 tracing::info!(
                     "✅ Circuit activity persistence enabled - circuit logs will now persist to PostgreSQL"
                 );
