@@ -30,7 +30,6 @@ pub mod api_key_engine;
 pub mod api_key_middleware;
 pub mod api_key_storage;
 pub mod auth_middleware;
-pub mod blocking;
 pub mod credit_manager;
 pub mod db_init;
 pub mod error_handling;
