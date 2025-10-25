@@ -61,7 +61,7 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
             metadata: std::collections::HashMap::new(),
         };
 
-        let mut storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock().unwrap();
         storage.add_storage_record(dfid, record)?;
         Ok(())
     }
@@ -113,7 +113,7 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
             metadata: HashMap::new(),
         };
 
-        let mut storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock().unwrap();
         storage.add_storage_record(item_dfid, record)?;
         Ok(())
     }
@@ -147,7 +147,7 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
         dfid: &str,
         location: StorageLocation,
     ) -> Result<(), StorageError> {
-        let mut storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock().unwrap();
         if let Some(mut history) = storage.get_storage_history(dfid)? {
             history.current_primary = Some(location);
             history.updated_at = Utc::now();
@@ -215,7 +215,7 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
                 metadata: HashMap::new(),
             };
 
-            let mut storage = self.storage.lock().unwrap();
+            let storage = self.storage.lock().unwrap();
             storage.add_storage_record(dfid, migration_record)?;
         }
 

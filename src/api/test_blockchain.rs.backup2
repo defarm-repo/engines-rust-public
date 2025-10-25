@@ -60,7 +60,7 @@ async fn test_blockchain_push(
 
     // Store in database first
     {
-        let storage = state.shared_storage.lock().unwrap();
+        let mut storage = state.shared_storage.write().unwrap();
         storage.store_item(&test_item).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

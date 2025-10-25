@@ -1,0 +1,2256 @@
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::Json,
+    routing::{delete, get, post, put},
+    Extension, Router,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use crate::identifier_types::{namespaces, IdentifierType};
+use crate::items_engine::ResolutionAction;
+use crate::storage::StorageBackend;
+use crate::types::{UserActivity, UserActivityCategory, UserActivityType, UserResourceType};
+use crate::{
+    Identifier, InMemoryStorage, Item, ItemStatus, ItemsEngine, PendingItem, PendingReason,
+};
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct IdentifierRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    pub key: String,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_type: Option<String>, // "Canonical" or "Contextual"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>, // For contextual identifiers
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>, // For canonical identifiers
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_date: Option<DateTime<Utc>>,
+}
+
+impl IdentifierRequest {
+    pub fn into_identifier(self) -> Result<Identifier, String> {
+        let namespace = self
+            .namespace
+            .unwrap_or_else(|| namespaces::GENERIC.to_string());
+        let id_type = self
+            .id_type
+            .clone()
+            .unwrap_or_else(|| "Contextual".to_string());
+
+        match id_type.to_ascii_lowercase().as_str() {
+            "canonical" => {
+                if self.verified.unwrap_or(false) {
+                    if let Some(date) = self.verification_date {
+                        Ok(Identifier::canonical_verified(
+                            &namespace,
+                            &self.key,
+                            &self.value,
+                            date,
+                        ))
+                    } else {
+                        Ok(Identifier::canonical(&namespace, &self.key, &self.value))
+                    }
+                } else {
+                    Ok(Identifier::canonical(&namespace, &self.key, &self.value))
+                }
+            }
+            "contextual" => {
+                let scope = self.scope.unwrap_or_else(|| "user".to_string());
+                Ok(Identifier::contextual_with_scope(
+                    &namespace,
+                    &self.key,
+                    &self.value,
+                    &scope,
+                ))
+            }
+            other => Err(format!("Invalid id_type '{}'", other)),
+        }
+    }
+
+    pub fn from_identifier(identifier: &Identifier) -> Self {
+        match identifier.id_type.clone() {
+            IdentifierType::Canonical {
+                verified,
+                verification_date,
+                ..
+            } => Self {
+                namespace: Some(identifier.namespace.clone()),
+                key: identifier.key.clone(),
+                value: identifier.value.clone(),
+                id_type: Some("Canonical".to_string()),
+                scope: None,
+                verified: Some(verified),
+                verification_date,
+            },
+            IdentifierType::Contextual { scope } => Self {
+                namespace: Some(identifier.namespace.clone()),
+                key: identifier.key.clone(),
+                value: identifier.value.clone(),
+                id_type: Some("Contextual".to_string()),
+                scope: Some(scope),
+                verified: None,
+                verification_date: None,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct CreateLocalItemRequest {
+    #[serde(default)]
+    pub identifiers: Vec<IdentifierRequest>,
+    pub enriched_data: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateLocalItemResponse {
+    pub success: bool,
+    pub data: LocalItemData,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalItemData {
+    pub local_id: String,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LidDfidMappingResponse {
+    pub success: bool,
+    pub data: LidDfidMappingData,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LidDfidMappingData {
+    pub local_id: String,
+    pub dfid: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MergeLocalItemsRequest {
+    pub master_lid: String,
+    pub merge_lids: Vec<String>,
+    pub merge_strategy: Option<String>, // "append", "keep_first", "overwrite" - defaults to "append"
+}
+
+#[derive(Debug, Serialize)]
+pub struct MergeLocalItemsResponse {
+    pub success: bool,
+    pub data: MergeLocalItemsData,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MergeLocalItemsData {
+    pub master_lid: String,
+    pub merged_count: usize,
+    pub merged_lids: Vec<String>,
+    pub master_item: MergedItemInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MergedItemInfo {
+    pub dfid: String,
+    pub local_id: String,
+    pub enriched_data: HashMap<String, serde_json::Value>,
+    pub last_modified: String,
+}
+
+// Duplicate Detection Structures
+#[derive(Debug, Serialize)]
+pub struct DuplicateDetectionResponse {
+    pub success: bool,
+    pub duplicate_groups: Vec<DuplicateGroup>,
+    pub summary: DuplicateSummary,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DuplicateGroup {
+    pub identifier_key: String,
+    pub identifier_value: String,
+    pub items: Vec<DuplicateItemInfo>,
+    pub suggested_master_lid: String,
+    pub conflicts: Vec<String>, // Fields that have different values
+}
+
+#[derive(Debug, Serialize)]
+pub struct DuplicateItemInfo {
+    pub local_id: String,
+    pub dfid: String,
+    pub created: String,
+    pub enriched_data: HashMap<String, serde_json::Value>,
+    pub identifiers_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DuplicateSummary {
+    pub total_items: usize,
+    pub duplicate_groups: usize,
+    pub items_in_duplicates: usize,
+}
+
+// Batch Organization Structures
+#[derive(Debug, Deserialize)]
+pub struct OrganizeLocalItemsRequest {
+    pub action: String, // "deduplicate", "merge_all"
+    pub dry_run: Option<bool>,
+    pub merge_strategy: Option<String>,
+    pub namespace: Option<String>, // Filter by namespace
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrganizeLocalItemsResponse {
+    pub success: bool,
+    pub operations: Vec<MergeOperation>,
+    pub summary: OrganizeSummary,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MergeOperation {
+    pub master_lid: String,
+    pub merged_lids: Vec<String>,
+    pub status: String, // "success", "skipped", "error"
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrganizeSummary {
+    pub items_before: usize,
+    pub items_after: usize,
+    pub merged_count: usize,
+    pub groups_processed: usize,
+}
+
+// Merge Preview (Dry-run) - Uses same structures with dry_run flag
+
+// Undo Merge Structures
+#[derive(Debug, Deserialize)]
+pub struct UnmergeLocalItemRequest {
+    pub merged_lid: String, // LID that was merged into master
+}
+
+#[derive(Debug, Serialize)]
+pub struct UnmergeLocalItemResponse {
+    pub success: bool,
+    pub restored_lid: String,
+    pub previous_master_lid: String,
+    pub restored_item: MergedItemInfo,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateItemRequest {
+    pub identifiers: Vec<IdentifierRequest>,
+    pub enriched_data: Option<HashMap<String, serde_json::Value>>,
+    pub source_entry: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateItemsBatchRequest {
+    pub items: Vec<CreateItemRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateItemRequest {
+    pub enriched_data: Option<HashMap<String, serde_json::Value>>,
+    pub identifiers: Option<Vec<IdentifierRequest>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SplitItemRequest {
+    pub identifiers_for_new_item: Vec<IdentifierRequest>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SplitItemResponse {
+    pub original_item: ItemResponse,
+    pub new_item: ItemResponse,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ItemQueryParams {
+    pub identifier_key: Option<String>,
+    pub identifier_value: Option<String>,
+    pub status: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ItemResponse {
+    pub dfid: String,
+    pub identifiers: Vec<IdentifierRequest>,
+    pub enriched_data: HashMap<String, serde_json::Value>,
+    pub creation_timestamp: i64,
+    pub last_modified: i64,
+    pub source_entries: Vec<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateItemsBatchResponse {
+    pub success_count: usize,
+    pub failed_count: usize,
+    pub results: Vec<BatchItemResult>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchItemResult {
+    pub success: bool,
+    pub item: Option<ItemResponse>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ItemStatsResponse {
+    pub total_items: usize,
+    pub active_items: usize,
+    pub merged_items: usize,
+    pub split_items: usize,
+    pub archived_items: usize,
+    pub average_confidence: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ShareItemRequest {
+    pub recipient_user_id: String,
+    pub permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingItemResponse {
+    pub id: String,
+    pub identifiers: Vec<IdentifierRequest>,
+    pub enriched_data: Option<HashMap<String, serde_json::Value>>,
+    pub source_entry: String,
+    pub reason: String,
+    pub reason_details: Option<String>,
+    pub priority: u32,
+    pub created_at: i64,
+    pub metadata: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResolvePendingItemRequest {
+    pub action: String, // "approve", "reject", or "modify"
+    pub new_identifiers: Option<Vec<IdentifierRequest>>,
+    pub new_enriched_data: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResolvePendingItemResponse {
+    pub success: bool,
+    pub item: Option<ItemResponse>,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PendingItemQueryParams {
+    pub reason: Option<String>,
+    pub priority_min: Option<u32>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShareItemResponse {
+    pub share_id: String,
+    pub dfid: String,
+    pub recipient_user_id: String,
+    pub shared_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SharedItemListResponse {
+    pub share_id: String,
+    pub item: ItemResponse,
+    pub shared_by: String,
+    pub shared_at: i64,
+    pub permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SharedWithCheckResponse {
+    pub is_shared: bool,
+    pub share_id: Option<String>,
+    pub shared_at: Option<i64>,
+}
+
+pub struct ItemState {
+    pub engine: Arc<Mutex<ItemsEngine<InMemoryStorage>>>,
+}
+
+impl Default for ItemState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ItemState {
+    pub fn new() -> Self {
+        let storage = InMemoryStorage::new();
+        Self {
+            engine: Arc::new(Mutex::new(ItemsEngine::new(storage))),
+        }
+    }
+}
+
+use super::shared_state::AppState;
+
+pub fn item_routes(app_state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/", post(create_item))
+        .route("/local", post(create_local_item))
+        .route("/local/merge", post(merge_local_items))
+        .route("/local/duplicates", get(find_duplicate_local_items))
+        .route("/local/organize", post(organize_local_items))
+        .route("/local/unmerge", post(unmerge_local_item))
+        .route("/mapping/:local_id", get(get_lid_dfid_mapping))
+        .route("/batch", post(create_items_batch))
+        .route("/", get(list_items))
+        .route("/:dfid", get(get_item))
+        .route("/:dfid", put(update_item))
+        .route("/:dfid", delete(delete_item))
+        .route("/:dfid/merge", post(merge_items))
+        .route("/:dfid/split", post(split_item))
+        .route("/:dfid/deprecate", put(deprecate_item))
+        .route("/:dfid/share", post(share_item))
+        .route(
+            "/:dfid/shared-with/:user_id",
+            get(check_item_shared_with_user),
+        )
+        .route("/search", get(search_items))
+        .route("/stats", get(get_item_stats))
+        .route("/identifier/:key/:value", get(get_items_by_identifier))
+        .route("/shared-to/:user_id", get(get_shared_items_for_user))
+        .route("/pending", get(list_pending_items))
+        .route("/pending/:id", get(get_pending_item))
+        .route("/pending/:id/resolve", post(resolve_pending_item))
+        .route("/:dfid/storage-history", get(get_storage_history))
+        .with_state(app_state)
+}
+
+fn parse_item_status(status_str: &str) -> Result<ItemStatus, String> {
+    match status_str.to_lowercase().as_str() {
+        "active" => Ok(ItemStatus::Active),
+        "deprecated" => Ok(ItemStatus::Deprecated),
+        "merged" => Ok(ItemStatus::Merged),
+        "split" => Ok(ItemStatus::Split),
+        _ => Err(format!("Invalid item status: {status_str}")),
+    }
+}
+
+fn item_to_response(item: Item) -> ItemResponse {
+    let Item {
+        dfid,
+        identifiers,
+        enriched_data,
+        creation_timestamp,
+        last_modified,
+        source_entries,
+        status,
+        ..
+    } = item;
+
+    ItemResponse {
+        dfid,
+        identifiers: identifiers
+            .into_iter()
+            .map(|id| IdentifierRequest::from_identifier(&id))
+            .collect(),
+        enriched_data,
+        creation_timestamp: creation_timestamp.timestamp(),
+        last_modified: last_modified.timestamp(),
+        source_entries: source_entries
+            .into_iter()
+            .map(|uuid| uuid.to_string())
+            .collect(),
+        status: format!("{:?}", status),
+    }
+}
+
+pub fn build_identifiers(requests: Vec<IdentifierRequest>) -> Result<Vec<Identifier>, String> {
+    requests
+        .into_iter()
+        .map(|req| req.into_identifier())
+        .collect()
+}
+
+async fn create_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Json(payload): Json<CreateItemRequest>,
+) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let item = {
+        let mut engine = state.items_engine.write().await;
+
+        let source_entry = uuid::Uuid::parse_str(&payload.source_entry).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid source entry UUID"})),
+            )
+        })?;
+
+        let identifiers = build_identifiers(payload.identifiers).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid identifier payload: {e}")})),
+            )
+        })?;
+
+        match engine.create_item_with_generated_dfid(
+            identifiers,
+            source_entry,
+            payload.enriched_data,
+        ) {
+            Ok(item) => item,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to create item: {}", e)})),
+                ))
+            }
+        }
+    };
+
+    let item_clone = item.clone();
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            if let Err(e) = pg.persist_item(&item_clone).await {
+                tracing::warn!(
+                    "Failed to persist item {} to PostgreSQL: {}",
+                    item_clone.dfid,
+                    e
+                );
+            } else {
+                tracing::debug!("✅ Item {} persisted to PostgreSQL", item_clone.dfid);
+            }
+        }
+    });
+
+    Ok(Json(item_to_response(item)))
+}
+
+async fn create_items_batch(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Json(payload): Json<CreateItemsBatchRequest>,
+) -> Result<Json<CreateItemsBatchResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let (results, success_count, failed_count, items_to_persist) = {
+        let mut engine = state.items_engine.write().await;
+
+        let mut results = Vec::new();
+        let mut success_count = 0;
+        let mut failed_count = 0;
+        let mut items_to_persist: Vec<Item> = Vec::new();
+
+        for item_request in payload.items {
+            let CreateItemRequest {
+                identifiers: identifier_requests,
+                enriched_data,
+                source_entry,
+            } = item_request;
+
+            let source_entry = match uuid::Uuid::parse_str(&source_entry) {
+                Ok(source) => source,
+                Err(_) => {
+                    failed_count += 1;
+                    results.push(BatchItemResult {
+                        success: false,
+                        item: None,
+                        error: Some("Invalid source entry UUID".to_string()),
+                    });
+                    continue;
+                }
+            };
+
+            let identifiers = match build_identifiers(identifier_requests) {
+                Ok(ids) => ids,
+                Err(e) => {
+                    failed_count += 1;
+                    results.push(BatchItemResult {
+                        success: false,
+                        item: None,
+                        error: Some(format!("Invalid identifier payload: {e}")),
+                    });
+                    continue;
+                }
+            };
+
+            match engine.create_item_with_generated_dfid(identifiers, source_entry, enriched_data) {
+                Ok(item) => {
+                    success_count += 1;
+                    items_to_persist.push(item.clone());
+                    results.push(BatchItemResult {
+                        success: true,
+                        item: Some(item_to_response(item)),
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    failed_count += 1;
+                    results.push(BatchItemResult {
+                        success: false,
+                        item: None,
+                        error: Some(format!("Failed to create item: {e}")),
+                    });
+                }
+            }
+        }
+
+        (results, success_count, failed_count, items_to_persist)
+    };
+
+    if !items_to_persist.is_empty() {
+        let postgres_persistence = Arc::clone(&state.postgres_persistence);
+        tokio::spawn(async move {
+            let pg_lock = postgres_persistence.read().await;
+            if let Some(pg) = &*pg_lock {
+                for item in items_to_persist {
+                    if let Err(e) = pg.persist_item(&item).await {
+                        tracing::warn!("Failed to persist item {} to PostgreSQL: {}", item.dfid, e);
+                    } else {
+                        tracing::debug!("✅ Item {} persisted to PostgreSQL", item.dfid);
+                    }
+                }
+            }
+        });
+    }
+
+    Ok(Json(CreateItemsBatchResponse {
+        success_count,
+        failed_count,
+        results,
+    }))
+}
+
+async fn get_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(dfid): Path<String>,
+) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let engine = state.items_engine.write().await;
+
+    match engine.get_item(&dfid) {
+        Ok(Some(item)) => Ok(Json(item_to_response(item))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Item not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get item: {}", e)})),
+        )),
+    }
+}
+
+async fn update_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(dfid): Path<String>,
+    Json(payload): Json<UpdateItemRequest>,
+) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let UpdateItemRequest {
+        enriched_data,
+        identifiers,
+    } = payload;
+
+    let updated_item = {
+        let mut engine = state.items_engine.write().await;
+
+        // Update enriched data if provided
+        if let Some(enriched_data) = enriched_data {
+            let source_entry = uuid::Uuid::new_v4(); // Generate a new UUID for the enrichment
+            if let Err(e) = engine.enrich_item(&dfid, enriched_data, source_entry) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to enrich item: {}", e)})),
+                ));
+            }
+        }
+
+        // Add identifiers if provided
+        if let Some(identifier_requests) = identifiers {
+            let identifiers = build_identifiers(identifier_requests).map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+                )
+            })?;
+
+            if let Err(e) = engine.add_identifiers(&dfid, identifiers) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to add identifiers: {}", e)})),
+                ));
+            }
+        }
+
+        match engine.get_item(&dfid) {
+            Ok(Some(item)) => item,
+            Ok(None) => {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Item not found after update"})),
+                ))
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to get updated item: {}", e)})),
+                ))
+            }
+        }
+    };
+
+    let item_clone = updated_item.clone();
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            if let Err(e) = pg.persist_item(&item_clone).await {
+                tracing::warn!(
+                    "Failed to persist item {} to PostgreSQL: {}",
+                    item_clone.dfid,
+                    e
+                );
+            } else {
+                tracing::debug!("✅ Item {} persisted to PostgreSQL", item_clone.dfid);
+            }
+        }
+    });
+
+    Ok(Json(item_to_response(updated_item)))
+}
+
+async fn delete_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(dfid): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let mut engine = state.items_engine.write().await;
+
+    match engine.deprecate_item(&dfid) {
+        Ok(_) => Ok(Json(json!({"message": "Item deprecated successfully"}))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to deprecate item: {}", e)})),
+        )),
+    }
+}
+
+async fn list_items(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Query(params): Query<ItemQueryParams>,
+) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let engine = state.items_engine.write().await;
+
+    match engine.list_items() {
+        Ok(mut items) => {
+            // Apply filters
+            if let Some(status_str) = params.status {
+                if let Ok(status) = parse_item_status(&status_str) {
+                    items.retain(|item| item.status == status);
+                }
+            }
+
+            if let Some(key) = &params.identifier_key {
+                if let Some(value) = &params.identifier_value {
+                    items.retain(|item| {
+                        item.identifiers
+                            .iter()
+                            .any(|id| id.key == *key && id.value == *value)
+                    });
+                } else {
+                    items.retain(|item| item.identifiers.iter().any(|id| id.key == *key));
+                }
+            }
+
+            // Apply limit
+            if let Some(limit) = params.limit {
+                items.truncate(limit);
+            }
+
+            let response: Vec<ItemResponse> = items.into_iter().map(item_to_response).collect();
+            Ok(Json(response))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to list items: {}", e)})),
+        )),
+    }
+}
+
+async fn merge_items(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(primary_dfid): Path<String>,
+    Json(secondary_dfid): Json<String>,
+) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let (response, items_to_persist) = {
+        let mut engine = state.items_engine.write().await;
+
+        match engine.merge_items(&primary_dfid, &secondary_dfid) {
+            Ok(primary_item) => {
+                let mut items_to_persist = vec![primary_item.clone()];
+
+                match engine.get_item(&secondary_dfid) {
+                    Ok(Some(secondary_item)) => items_to_persist.push(secondary_item),
+                    Ok(None) => tracing::warn!(
+                        "Secondary item {} missing after merge; skipping persistence",
+                        secondary_dfid
+                    ),
+                    Err(e) => tracing::warn!(
+                        "Failed to fetch secondary item {} for persistence: {}",
+                        secondary_dfid,
+                        e
+                    ),
+                }
+
+                (item_to_response(primary_item), items_to_persist)
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to merge items: {}", e)})),
+                ))
+            }
+        }
+    };
+
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            for item in items_to_persist {
+                if let Err(e) = pg.persist_item(&item).await {
+                    tracing::warn!("Failed to persist item {} to PostgreSQL: {}", item.dfid, e);
+                } else {
+                    tracing::debug!("✅ Item {} persisted to PostgreSQL", item.dfid);
+                }
+            }
+        }
+    });
+
+    Ok(Json(response))
+}
+
+async fn split_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(dfid): Path<String>,
+    Json(split_request): Json<SplitItemRequest>,
+) -> Result<Json<SplitItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let (response, items_to_persist) = {
+        let mut engine = state.items_engine.write().await;
+
+        let identifiers =
+            build_identifiers(split_request.identifiers_for_new_item).map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+                )
+            })?;
+
+        match engine.split_item_with_generated_dfid(&dfid, identifiers) {
+            Ok((original_item, new_item)) => {
+                let items_to_persist = vec![original_item.clone(), new_item.clone()];
+
+                (
+                    SplitItemResponse {
+                        original_item: item_to_response(original_item),
+                        new_item: item_to_response(new_item),
+                    },
+                    items_to_persist,
+                )
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to split item: {}", e)})),
+                ))
+            }
+        }
+    };
+
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            for item in items_to_persist {
+                if let Err(e) = pg.persist_item(&item).await {
+                    tracing::warn!("Failed to persist item {} to PostgreSQL: {}", item.dfid, e);
+                } else {
+                    tracing::debug!("✅ Item {} persisted to PostgreSQL", item.dfid);
+                }
+            }
+        }
+    });
+
+    Ok(Json(response))
+}
+
+async fn deprecate_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(dfid): Path<String>,
+) -> Result<Json<ItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let item = {
+        let mut engine = state.items_engine.write().await;
+
+        match engine.deprecate_item(&dfid) {
+            Ok(item) => item,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to deprecate item: {}", e)})),
+                ))
+            }
+        }
+    };
+
+    let item_clone = item.clone();
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            if let Err(e) = pg.persist_item(&item_clone).await {
+                tracing::warn!(
+                    "Failed to persist item {} to PostgreSQL: {}",
+                    item_clone.dfid,
+                    e
+                );
+            } else {
+                tracing::debug!("✅ Item {} persisted to PostgreSQL", item_clone.dfid);
+            }
+        }
+    });
+
+    Ok(Json(item_to_response(item)))
+}
+
+async fn search_items(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Query(params): Query<ItemQueryParams>,
+) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
+    // Reuse list_items logic for search (which now includes authentication)
+    list_items(State(state), claims, api_key_ctx, Query(params)).await
+}
+
+async fn get_item_stats(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+) -> Result<Json<ItemStatsResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let engine = state.items_engine.write().await;
+
+    match engine.list_items() {
+        Ok(items) => {
+            let total_items = items.len();
+            let active_items = items
+                .iter()
+                .filter(|i| matches!(i.status, ItemStatus::Active))
+                .count();
+            let merged_items = items
+                .iter()
+                .filter(|i| matches!(i.status, ItemStatus::Merged))
+                .count();
+            let split_items = items
+                .iter()
+                .filter(|i| matches!(i.status, ItemStatus::Split))
+                .count();
+            let deprecated_items = items
+                .iter()
+                .filter(|i| matches!(i.status, ItemStatus::Deprecated))
+                .count();
+
+            let average_confidence = 0.0; // Not available in current Item struct
+
+            Ok(Json(ItemStatsResponse {
+                total_items,
+                active_items,
+                merged_items,
+                split_items,
+                archived_items: deprecated_items,
+                average_confidence,
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get stats: {}", e)})),
+        )),
+    }
+}
+
+async fn get_items_by_identifier(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path((key, value)): Path<(String, String)>,
+) -> Result<Json<Vec<ItemResponse>>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let engine = state.items_engine.write().await;
+    let identifier = Identifier::contextual(namespaces::GENERIC, key, value);
+
+    match engine.find_items_by_identifier(&identifier) {
+        Ok(items) => {
+            let response: Vec<ItemResponse> = items.into_iter().map(item_to_response).collect();
+            Ok(Json(response))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get items by identifier: {}", e)})),
+        )),
+    }
+}
+
+// Sharing endpoints
+async fn share_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(dfid): Path<String>,
+    Json(payload): Json<ShareItemRequest>,
+) -> Result<Json<ShareItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let shared_by = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let mut engine = state.items_engine.write().await;
+
+    match engine.share_item(
+        &dfid,
+        shared_by,
+        payload.recipient_user_id,
+        payload.permissions,
+    ) {
+        Ok(share) => Ok(Json(ShareItemResponse {
+            share_id: share.share_id,
+            dfid: share.dfid,
+            recipient_user_id: share.recipient_user_id,
+            shared_at: share.shared_at.timestamp(),
+        })),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to share item: {}", e)})),
+        )),
+    }
+}
+
+async fn check_item_shared_with_user(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path((dfid, user_id)): Path<(String, String)>,
+) -> Result<Json<SharedWithCheckResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let engine = state.items_engine.write().await;
+
+    match engine.is_item_shared_with_user(&dfid, &user_id) {
+        Ok(is_shared) => {
+            if is_shared {
+                // Get the share details
+                if let Ok(shares) = engine.get_shares_for_item(&dfid) {
+                    if let Some(share) = shares.iter().find(|s| s.recipient_user_id == user_id) {
+                        return Ok(Json(SharedWithCheckResponse {
+                            is_shared: true,
+                            share_id: Some(share.share_id.clone()),
+                            shared_at: Some(share.shared_at.timestamp()),
+                        }));
+                    }
+                }
+            }
+            Ok(Json(SharedWithCheckResponse {
+                is_shared: false,
+                share_id: None,
+                shared_at: None,
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to check share status: {}", e)})),
+        )),
+    }
+}
+
+pub async fn get_shared_items_for_user(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Vec<SharedItemListResponse>>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let engine = state.items_engine.write().await;
+
+    match engine.get_shares_for_user(&user_id) {
+        Ok(shared_items) => {
+            let response: Vec<SharedItemListResponse> = shared_items
+                .into_iter()
+                .map(|shared_item| SharedItemListResponse {
+                    share_id: shared_item.share_id,
+                    item: item_to_response(shared_item.item),
+                    shared_by: shared_item.shared_by,
+                    shared_at: shared_item.shared_at.timestamp(),
+                    permissions: shared_item.permissions,
+                })
+                .collect();
+            Ok(Json(response))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get shared items: {}", e)})),
+        )),
+    }
+}
+
+// Pending Items Handlers
+async fn list_pending_items(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Query(params): Query<PendingItemQueryParams>,
+) -> Result<Json<Vec<PendingItemResponse>>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let engine = state.items_engine.write().await;
+
+    match engine.get_pending_items() {
+        Ok(pending_items) => {
+            let mut filtered_items = pending_items;
+
+            // Apply filters
+            if let Some(reason_filter) = &params.reason {
+                filtered_items.retain(|item| format!("{:?}", item.reason).contains(reason_filter));
+            }
+
+            if let Some(priority_min) = params.priority_min {
+                filtered_items.retain(|item| item.priority >= priority_min);
+            }
+
+            // Sort by priority (descending)
+            filtered_items.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+            // Apply limit
+            if let Some(limit) = params.limit {
+                filtered_items.truncate(limit);
+            }
+
+            let response: Vec<PendingItemResponse> = filtered_items
+                .into_iter()
+                .map(pending_item_to_response)
+                .collect();
+
+            Ok(Json(response))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to list pending items: {}", e)})),
+        )),
+    }
+}
+
+async fn get_pending_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<PendingItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let engine = state.items_engine.write().await;
+
+    let pending_id = match Uuid::parse_str(&id) {
+        Ok(uuid) => uuid,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid pending item ID format"})),
+            ))
+        }
+    };
+
+    match engine.get_pending_item(&pending_id) {
+        Ok(Some(pending_item)) => Ok(Json(pending_item_to_response(pending_item))),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Pending item not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get pending item: {}", e)})),
+        )),
+    }
+}
+
+async fn resolve_pending_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(id): Path<String>,
+    Json(payload): Json<ResolvePendingItemRequest>,
+) -> Result<Json<ResolvePendingItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let mut engine = state.items_engine.write().await;
+
+    let pending_id = match Uuid::parse_str(&id) {
+        Ok(uuid) => uuid,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid pending item ID format"})),
+            ))
+        }
+    };
+
+    let ResolvePendingItemRequest {
+        action,
+        new_identifiers,
+        new_enriched_data,
+    } = payload;
+
+    let resolution_action = match action.as_str() {
+        "approve" => ResolutionAction::Approve,
+        "reject" => ResolutionAction::Reject,
+        "modify" => {
+            let identifiers =
+                build_identifiers(new_identifiers.unwrap_or_default()).map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+                    )
+                })?;
+            ResolutionAction::Modify(identifiers, new_enriched_data)
+        }
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid action. Must be 'approve', 'reject', or 'modify'"})),
+            ))
+        }
+    };
+
+    match engine.resolve_pending_item(&pending_id, resolution_action) {
+        Ok(Some(item)) => Ok(Json(ResolvePendingItemResponse {
+            success: true,
+            item: Some(item_to_response(item)),
+            message: "Pending item resolved and created successfully".to_string(),
+        })),
+        Ok(None) => Ok(Json(ResolvePendingItemResponse {
+            success: true,
+            item: None,
+            message: "Pending item resolved but not created (rejected or still pending)"
+                .to_string(),
+        })),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to resolve pending item: {}", e)})),
+        )),
+    }
+}
+
+// Utility function for converting PendingItem to response format
+fn pending_item_to_response(pending_item: PendingItem) -> PendingItemResponse {
+    PendingItemResponse {
+        id: pending_item.pending_id.to_string(),
+        identifiers: pending_item
+            .identifiers
+            .into_iter()
+            .map(|id| IdentifierRequest::from_identifier(&id))
+            .collect(),
+        enriched_data: pending_item.enriched_data,
+        source_entry: pending_item.source_entry.to_string(),
+        reason: format!("{:?}", pending_item.reason),
+        reason_details: match &pending_item.reason {
+            PendingReason::InvalidIdentifiers(details) => Some(details.clone()),
+            PendingReason::ConflictingDFIDs {
+                identifier,
+                conflicting_dfids,
+                ..
+            } => Some(format!(
+                "Identifier {}:{} maps to DFIDs: {}",
+                identifier.key,
+                identifier.value,
+                conflicting_dfids.join(", ")
+            )),
+            PendingReason::DataQualityIssue { details, .. } => Some(details.clone()),
+            _ => None,
+        },
+        priority: pending_item.priority as u32,
+        created_at: pending_item.created_at.timestamp(),
+        metadata: pending_item
+            .metadata
+            .into_iter()
+            .map(|(k, v)| (k, v.to_string()))
+            .collect(),
+    }
+}
+
+// Local item creation handlers
+async fn create_local_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Json(payload): Json<CreateLocalItemRequest>,
+) -> Result<Json<CreateLocalItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let CreateLocalItemRequest {
+        identifiers: identifier_requests,
+        enriched_data,
+    } = payload;
+
+    // Create item in in-memory storage (must not hold lock across await)
+    let item = {
+        let mut engine = state.items_engine.write().await;
+
+        let identifiers = build_identifiers(identifier_requests).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+            )
+        })?;
+
+        // Generate source entry
+        let source_entry = Uuid::new_v4();
+
+        engine
+            .create_local_item(identifiers, enriched_data.clone(), source_entry)
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("Failed to create local item: {}", e)})),
+                )
+            })?
+    }; // Lock dropped here
+
+    // Write-through cache: Also persist to PostgreSQL if available
+    let pg_lock = state.postgres_persistence.read().await;
+    if let Some(pg) = &*pg_lock {
+        if let Err(e) = pg.persist_item(&item).await {
+            tracing::warn!("Failed to persist item to PostgreSQL: {}", e);
+            // Don't fail the request - in-memory write succeeded
+        }
+    }
+    drop(pg_lock);
+
+    // Extract local_id from item
+    let local_id = item.local_id.unwrap_or_else(|| {
+        // Extract from temporary DFID format "LID-{uuid}"
+        let dfid = &item.dfid;
+        if let Some(stripped) = dfid.strip_prefix("LID-") {
+            Uuid::parse_str(stripped).unwrap_or_else(|_| Uuid::new_v4())
+        } else {
+            Uuid::new_v4()
+        }
+    });
+
+    // Record user activity
+    let user_activity = UserActivity {
+        activity_id: Uuid::new_v4().to_string(),
+        user_id: _user_id.clone(),
+        workspace_id: "default-workspace".to_string(), // TODO: Get from claims
+        timestamp: Utc::now(),
+        activity_type: UserActivityType::Create,
+        category: UserActivityCategory::Items,
+        resource_type: UserResourceType::Item,
+        resource_id: local_id.to_string(),
+        action: "create_local_item".to_string(),
+        description: format!("Created local item with ID: {}", local_id),
+        metadata: serde_json::Value::Null,
+        success: true,
+        ip_address: None, // TODO: Extract from request
+        user_agent: None, // TODO: Extract from request
+    };
+
+    {
+        let engine = state.activity_engine.write().await;
+        if let Err(e) = engine.record_activity(&user_activity) {
+            tracing::warn!(
+                "Failed to record user activity {}: {}",
+                user_activity.activity_id,
+                e
+            );
+        }
+    }
+
+    Ok(Json(CreateLocalItemResponse {
+        success: true,
+        data: LocalItemData {
+            local_id: local_id.to_string(),
+            status: "LocalOnly".to_string(),
+        },
+    }))
+}
+
+async fn merge_local_items(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Json(payload): Json<MergeLocalItemsRequest>,
+) -> Result<Json<MergeLocalItemsResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    // Parse master_lid
+    let master_lid = Uuid::parse_str(&payload.master_lid).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid master_lid format"})),
+        )
+    })?;
+
+    // Parse merge_lids
+    let merge_lids: Result<Vec<Uuid>, _> = payload
+        .merge_lids
+        .iter()
+        .map(|lid_str| Uuid::parse_str(lid_str))
+        .collect();
+
+    let merge_lids = merge_lids.map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid merge_lid format"})),
+        )
+    })?;
+
+    // Validate at least one item to merge
+    if merge_lids.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "At least one merge_lid must be provided"})),
+        ));
+    }
+
+    // Parse merge strategy
+    use crate::types::MergeStrategy;
+    let strategy = match payload.merge_strategy.as_deref() {
+        Some("append") | None => MergeStrategy::Append, // Default
+        Some("keep_first") => MergeStrategy::KeepFirst,
+        Some("overwrite") => MergeStrategy::Overwrite,
+        Some(invalid) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Invalid merge_strategy",
+                    "provided": invalid,
+                    "allowed": ["append", "keep_first", "overwrite"]
+                })),
+            ))
+        }
+    };
+
+    // Perform merge
+    let (master_item, items_to_persist) = {
+        let mut engine = state.items_engine.write().await;
+
+        let master_item = engine
+            .merge_local_items(&master_lid, merge_lids.clone(), strategy)
+            .map_err(|e| {
+                let status_code = match e {
+                    crate::items_engine::ItemsError::ItemNotFound(_) => StatusCode::NOT_FOUND,
+                    crate::items_engine::ItemsError::InvalidOperation(_) => StatusCode::BAD_REQUEST,
+                    crate::items_engine::ItemsError::ValidationError(_) => StatusCode::BAD_REQUEST,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                (status_code, Json(json!({"error": format!("{}", e)})))
+            })?;
+
+        let mut items_to_persist = vec![master_item.clone()];
+        for lid in &merge_lids {
+            match engine.get_item_by_lid(lid) {
+                Ok(Some(item)) => items_to_persist.push(item.clone()),
+                Ok(None) => tracing::warn!(
+                    "Merged local item {} missing after merge; skipping persistence",
+                    lid
+                ),
+                Err(e) => tracing::warn!(
+                    "Failed to fetch merged local item {} for persistence: {}",
+                    lid,
+                    e
+                ),
+            }
+        }
+
+        (master_item, items_to_persist)
+    };
+
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            for item in items_to_persist {
+                if let Err(e) = pg.persist_item(&item).await {
+                    tracing::warn!("Failed to persist item {} to PostgreSQL: {}", item.dfid, e);
+                } else {
+                    tracing::debug!("✅ Item {} persisted to PostgreSQL", item.dfid);
+                }
+            }
+        }
+    });
+
+    // Build response
+    let master_item_info = MergedItemInfo {
+        dfid: master_item.dfid.clone(),
+        local_id: master_item
+            .local_id
+            .map(|lid| lid.to_string())
+            .unwrap_or_else(|| "N/A".to_string()),
+        enriched_data: master_item.enriched_data.clone(),
+        last_modified: master_item.last_modified.to_rfc3339(),
+    };
+
+    Ok(Json(MergeLocalItemsResponse {
+        success: true,
+        data: MergeLocalItemsData {
+            master_lid: master_lid.to_string(),
+            merged_count: merge_lids.len(),
+            merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
+            master_item: master_item_info,
+        },
+    }))
+}
+
+async fn find_duplicate_local_items(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+) -> Result<Json<DuplicateDetectionResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let mut engine = state.items_engine.write().await;
+
+    let duplicate_groups_raw = engine.find_duplicate_local_items().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("{}", e)})),
+        )
+    })?;
+
+    let mut total_items = 0;
+    let mut items_in_duplicates = 0;
+    let mut duplicate_groups = Vec::new();
+
+    for (key, value, items) in duplicate_groups_raw {
+        items_in_duplicates += items.len();
+
+        // Convert items to response format
+        let items_info: Vec<DuplicateItemInfo> = items
+            .iter()
+            .map(|item| {
+                total_items += 1;
+                DuplicateItemInfo {
+                    local_id: item
+                        .local_id
+                        .map(|lid| lid.to_string())
+                        .unwrap_or_else(|| "N/A".to_string()),
+                    dfid: item.dfid.clone(),
+                    created: item.creation_timestamp.to_rfc3339(),
+                    enriched_data: item.enriched_data.clone(),
+                    identifiers_count: item.identifiers.len(),
+                }
+            })
+            .collect();
+
+        // Find conflicts (fields with different values)
+        let mut conflicts = Vec::new();
+        if items.len() > 1 {
+            let first_data = &items[0].enriched_data;
+            for (key, first_value) in first_data {
+                for other_item in &items[1..] {
+                    if let Some(other_value) = other_item.enriched_data.get(key) {
+                        if first_value != other_value {
+                            conflicts.push(key.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Suggest master (oldest item)
+        let suggested_master = items
+            .iter()
+            .min_by_key(|item| item.creation_timestamp)
+            .and_then(|item| item.local_id)
+            .map(|lid| lid.to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
+        duplicate_groups.push(DuplicateGroup {
+            identifier_key: key,
+            identifier_value: value,
+            items: items_info,
+            suggested_master_lid: suggested_master,
+            conflicts,
+        });
+    }
+
+    let groups_count = duplicate_groups.len();
+
+    Ok(Json(DuplicateDetectionResponse {
+        success: true,
+        duplicate_groups,
+        summary: DuplicateSummary {
+            total_items,
+            duplicate_groups: groups_count,
+            items_in_duplicates,
+        },
+    }))
+}
+
+async fn organize_local_items(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Json(payload): Json<OrganizeLocalItemsRequest>,
+) -> Result<Json<OrganizeLocalItemsResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    // Validate action
+    if payload.action != "deduplicate" && payload.action != "merge_all" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Invalid action",
+                "provided": payload.action,
+                "allowed": ["deduplicate", "merge_all"]
+            })),
+        ));
+    }
+
+    let dry_run = payload.dry_run.unwrap_or(false);
+
+    // Parse merge strategy
+    use crate::types::MergeStrategy;
+    let strategy = match payload.merge_strategy.as_deref() {
+        Some("append") | None => MergeStrategy::Append,
+        Some("keep_first") => MergeStrategy::KeepFirst,
+        Some("overwrite") => MergeStrategy::Overwrite,
+        Some(invalid) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Invalid merge_strategy",
+                    "provided": invalid,
+                    "allowed": ["append", "keep_first", "overwrite"]
+                })),
+            ))
+        }
+    };
+
+    // Get duplicate groups
+    let duplicate_groups_raw = {
+        let mut engine = state.items_engine.write().await;
+        engine.find_duplicate_local_items().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("{}", e)})),
+            )
+        })?
+    };
+
+    let items_before = duplicate_groups_raw
+        .iter()
+        .map(|(_, _, items)| items.len())
+        .sum::<usize>();
+
+    let mut operations = Vec::new();
+    let mut merged_count = 0;
+
+    // Process each duplicate group
+    for (_key, _value, items) in duplicate_groups_raw {
+        if items.len() < 2 {
+            continue; // Skip groups with single item
+        }
+
+        // Sort by creation timestamp (oldest first)
+        let mut sorted_items = items.clone();
+        sorted_items.sort_by_key(|item| item.creation_timestamp);
+
+        // First item is master
+        let master_lid = sorted_items[0].local_id.unwrap();
+        let merge_lids: Vec<Uuid> = sorted_items[1..]
+            .iter()
+            .filter_map(|item| item.local_id)
+            .collect();
+
+        if !dry_run {
+            // Perform actual merge
+            let mut engine = state.items_engine.write().await;
+
+            match engine.merge_local_items(&master_lid, merge_lids.clone(), strategy.clone()) {
+                Ok(_) => {
+                    merged_count += merge_lids.len();
+                    operations.push(MergeOperation {
+                        master_lid: master_lid.to_string(),
+                        merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
+                        status: "success".to_string(),
+                        reason: None,
+                    });
+                }
+                Err(e) => {
+                    operations.push(MergeOperation {
+                        master_lid: master_lid.to_string(),
+                        merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
+                        status: "error".to_string(),
+                        reason: Some(format!("{e}")),
+                    });
+                }
+            }
+        } else {
+            // Dry run - just record what would happen
+            operations.push(MergeOperation {
+                master_lid: master_lid.to_string(),
+                merged_lids: merge_lids.iter().map(|lid| lid.to_string()).collect(),
+                status: "would_merge".to_string(),
+                reason: Some("Dry run mode".to_string()),
+            });
+            merged_count += merge_lids.len();
+        }
+    }
+
+    let items_after = if dry_run {
+        items_before
+    } else {
+        items_before - merged_count
+    };
+    let groups_processed = operations.len();
+
+    Ok(Json(OrganizeLocalItemsResponse {
+        success: true,
+        operations,
+        summary: OrganizeSummary {
+            items_before,
+            items_after,
+            merged_count,
+            groups_processed,
+        },
+        dry_run,
+    }))
+}
+
+async fn unmerge_local_item(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Json(payload): Json<UnmergeLocalItemRequest>,
+) -> Result<Json<UnmergeLocalItemResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    // Parse merged_lid
+    let merged_lid = Uuid::parse_str(&payload.merged_lid).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid merged_lid format"})),
+        )
+    })?;
+
+    // Get previous master before unmerge
+    let previous_master = {
+        let engine = state.items_engine.write().await;
+
+        let item = engine
+            .get_item_by_lid(&merged_lid)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("{}", e)})),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Merged item not found"})),
+                )
+            })?;
+
+        match &item.status {
+            crate::types::ItemStatus::MergedInto(master) => master.clone(),
+            _ => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Item is not in merged status"})),
+                ))
+            }
+        }
+    };
+
+    // Perform unmerge
+    let restored_item = {
+        let mut engine = state.items_engine.write().await;
+
+        engine.unmerge_local_item(&merged_lid).map_err(|e| {
+            let status_code = match e {
+                crate::items_engine::ItemsError::ItemNotFound(_) => StatusCode::NOT_FOUND,
+                crate::items_engine::ItemsError::InvalidOperation(_) => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status_code, Json(json!({"error": format!("{}", e)})))
+        })?
+    };
+
+    // Build response
+    let restored_item_info = MergedItemInfo {
+        dfid: restored_item.dfid.clone(),
+        local_id: restored_item
+            .local_id
+            .map(|lid| lid.to_string())
+            .unwrap_or_else(|| "N/A".to_string()),
+        enriched_data: restored_item.enriched_data.clone(),
+        last_modified: restored_item.last_modified.to_rfc3339(),
+    };
+
+    let response = UnmergeLocalItemResponse {
+        success: true,
+        restored_lid: merged_lid.to_string(),
+        previous_master_lid: previous_master,
+        restored_item: restored_item_info,
+    };
+
+    let item_clone = restored_item.clone();
+    let postgres_persistence = Arc::clone(&state.postgres_persistence);
+    tokio::spawn(async move {
+        let pg_lock = postgres_persistence.read().await;
+        if let Some(pg) = &*pg_lock {
+            if let Err(e) = pg.persist_item(&item_clone).await {
+                tracing::warn!(
+                    "Failed to persist item {} to PostgreSQL: {}",
+                    item_clone.dfid,
+                    e
+                );
+            } else {
+                tracing::debug!("✅ Item {} persisted to PostgreSQL", item_clone.dfid);
+            }
+        }
+    });
+
+    Ok(Json(response))
+}
+
+async fn get_lid_dfid_mapping(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(local_id_str): Path<String>,
+) -> Result<Json<LidDfidMappingResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    let engine = state.items_engine.write().await;
+
+    let local_id = match Uuid::parse_str(&local_id_str) {
+        Ok(uuid) => uuid,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid local_id format"})),
+            ))
+        }
+    };
+
+    // Try to get item by LID
+    match engine.get_item_by_lid(&local_id) {
+        Ok(Some(item)) => {
+            // Check if it's a local-only item or tokenized
+            let (dfid, status) = if item.dfid.starts_with("LID-") {
+                (None, "LocalOnly".to_string())
+            } else {
+                (Some(item.dfid), "Tokenized".to_string())
+            };
+
+            Ok(Json(LidDfidMappingResponse {
+                success: true,
+                data: LidDfidMappingData {
+                    local_id: local_id_str,
+                    dfid,
+                    status,
+                },
+            }))
+        }
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Local item not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get mapping: {}", e)})),
+        )),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct StorageHistoryResponse {
+    success: bool,
+    dfid: String,
+    records: Vec<StorageRecordResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct StorageRecordResponse {
+    adapter_type: String,
+    network: Option<String>,
+    nft_mint_tx: Option<String>,
+    ipcm_update_tx: Option<String>,
+    ipfs_cid: Option<String>,
+    ipfs_pinned: Option<bool>,
+    nft_contract: Option<String>,
+    storage_location: String,
+    stored_at: String,
+    triggered_by: String,
+    is_active: bool,
+}
+
+/// GET /api/items/:dfid/storage-history
+/// Retrieve all storage records for a DFID (NFT mint transactions, IPCM updates, IPFS CIDs)
+async fn get_storage_history(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<crate::api::auth::Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
+    Path(dfid): Path<String>,
+) -> Result<Json<StorageHistoryResponse>, (StatusCode, Json<Value>)> {
+    // Auto-populate user_id from authenticated context (JWT or API key)
+    let _user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
+    // Get storage history from shared storage
+    let storage_guard = state.shared_storage.write().unwrap();
+
+    match storage_guard.get_storage_history(&dfid) {
+        Ok(Some(history)) => {
+            let records: Vec<StorageRecordResponse> = history
+                .storage_records
+                .iter()
+                .map(|record| {
+                    // Extract metadata
+                    let network = record
+                        .metadata
+                        .get("network")
+                        .and_then(|v| v.as_str().map(String::from));
+                    let nft_mint_tx = record
+                        .metadata
+                        .get("nft_mint_tx")
+                        .and_then(|v| v.as_str().map(String::from));
+                    let ipcm_update_tx = record
+                        .metadata
+                        .get("ipcm_update_tx")
+                        .and_then(|v| v.as_str().map(String::from));
+                    let ipfs_cid = record
+                        .metadata
+                        .get("ipfs_cid")
+                        .and_then(|v| v.as_str().map(String::from));
+                    let ipfs_pinned = record.metadata.get("ipfs_pinned").and_then(|v| v.as_bool());
+                    let nft_contract = record
+                        .metadata
+                        .get("nft_contract")
+                        .and_then(|v| v.as_str().map(String::from));
+
+                    StorageRecordResponse {
+                        adapter_type: record.adapter_type.to_string(),
+                        network,
+                        nft_mint_tx,
+                        ipcm_update_tx,
+                        ipfs_cid,
+                        ipfs_pinned,
+                        nft_contract,
+                        storage_location: format!("{:?}", record.storage_location),
+                        stored_at: record.stored_at.to_rfc3339(),
+                        triggered_by: record.triggered_by.clone(),
+                        is_active: record.is_active,
+                    }
+                })
+                .collect();
+
+            Ok(Json(StorageHistoryResponse {
+                success: true,
+                dfid: dfid.clone(),
+                records,
+            }))
+        }
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "No storage history found for this DFID"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to retrieve storage history: {}", e)})),
+        )),
+    }
+}

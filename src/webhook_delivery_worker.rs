@@ -248,7 +248,7 @@ pub async fn storage_update_worker<S: crate::storage::StorageBackend + 'static>(
 ) {
     while let Some(update) = rx.recv().await {
         // Update delivery in storage
-        if let Ok(mut storage_guard) = storage.lock() {
+        if let Ok(storage_guard) = storage.lock() {
             if let Ok(Some(mut delivery)) = storage_guard.get_webhook_delivery(&update.delivery_id)
             {
                 delivery.status = update.status;

@@ -9,7 +9,7 @@ use axum::{
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use uuid::Uuid;
 
 use crate::api::auth::Claims;
@@ -23,8 +23,6 @@ use crate::types::{
     UserResourceType,
 };
 use crate::{Circuit, CircuitOperation, CircuitsEngine, InMemoryStorage, ItemsEngine, MemberRole};
-
-type SharedStorage = Arc<Mutex<PostgresStorageWithCache>>;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitAdapterConfigRequest {
@@ -419,7 +417,7 @@ pub struct SetAdapterConfigRequest {
 }
 
 pub struct CircuitState {
-    pub engine: Arc<std::sync::RwLock<CircuitsEngine<Arc<Mutex<InMemoryStorage>>>>>,
+    pub engine: Arc<std::sync::RwLock<CircuitsEngine<InMemoryStorage>>>,
 }
 
 impl Default for CircuitState {
@@ -430,7 +428,7 @@ impl Default for CircuitState {
 
 impl CircuitState {
     pub fn new() -> Self {
-        let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
+        let storage = Arc::new(std::sync::RwLock::new(InMemoryStorage::new()));
         Self {
             engine: Arc::new(std::sync::RwLock::new(CircuitsEngine::new(storage))),
         }
@@ -556,18 +554,17 @@ fn parse_member_role(role_str: &str) -> Result<MemberRole, String> {
 
 async fn lock_circuits_engine<'a>(
     state: &'a Arc<AppState>,
-) -> Result<
-    tokio::sync::RwLockWriteGuard<'a, CircuitsEngine<SharedStorage>>,
-    (StatusCode, Json<Value>),
-> {
+) -> Result<tokio::sync::RwLockWriteGuard<'a, CircuitsEngine<PostgresStorageWithCache>>, (StatusCode, Json<Value>)> {
     Ok(state.circuits_engine.write().await)
 }
 
 #[allow(clippy::type_complexity)]
 async fn lock_items_engine<'a>(
     state: &'a Arc<AppState>,
-) -> Result<tokio::sync::RwLockWriteGuard<'a, ItemsEngine<SharedStorage>>, (StatusCode, Json<Value>)>
-{
+) -> Result<
+    tokio::sync::RwLockWriteGuard<'a, ItemsEngine<Arc<std::sync::RwLock<PostgresStorageWithCache>>>>,
+    (StatusCode, Json<Value>),
+> {
     Ok(state.items_engine.write().await)
 }
 
@@ -741,7 +738,7 @@ async fn create_circuit(
                     adapter_req.requires_approval,
                     adapter_req.sponsor_adapter_access,
                 )
-                .await
+            .await
                 .map_err(|e| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -902,10 +899,7 @@ async fn add_member(
 
     let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine
-        .add_member_to_circuit(&circuit_id, payload.member_id, role, &requester_id)
-        .await
-    {
+    match engine.add_member_to_circuit(&circuit_id, payload.member_id, role, &requester_id).await {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
@@ -935,9 +929,7 @@ async fn push_item(
             .await
             .map_err(|e| {
                 let status_code = match e {
-                    crate::circuits_engine::CircuitsError::PermissionDenied(_) => {
-                        StatusCode::FORBIDDEN
-                    }
+                    crate::circuits_engine::CircuitsError::PermissionDenied(_) => StatusCode::FORBIDDEN,
                     crate::circuits_engine::CircuitsError::AdapterPermissionDenied(_) => {
                         StatusCode::FORBIDDEN
                     }
@@ -1056,9 +1048,7 @@ async fn push_local_item(
             .await
             .map_err(|e| {
                 let status_code = match e {
-                    crate::circuits_engine::CircuitsError::PermissionDenied(_) => {
-                        StatusCode::FORBIDDEN
-                    }
+                    crate::circuits_engine::CircuitsError::PermissionDenied(_) => StatusCode::FORBIDDEN,
                     crate::circuits_engine::CircuitsError::ValidationError(_) => {
                         StatusCode::BAD_REQUEST
                     }
@@ -1071,7 +1061,7 @@ async fn push_local_item(
 
     // Capture the item with its latest DFID for persistence outside of the async lock scope
     let item_to_persist = {
-        let storage_guard = state.shared_storage.lock().unwrap();
+        let storage_guard = state.shared_storage.write().unwrap();
         match storage_guard.get_item_by_dfid(&result.dfid) {
             Ok(Some(item)) => Some(item),
             Ok(None) => None,
@@ -1087,7 +1077,7 @@ async fn push_local_item(
     };
 
     let operation_to_persist = {
-        let storage_guard = state.shared_storage.lock().unwrap();
+        let storage_guard = state.shared_storage.write().unwrap();
         match storage_guard.get_circuit_operation(&result.operation_id) {
             Ok(Some(operation)) => Some(operation),
             Ok(None) => None,
@@ -1141,8 +1131,10 @@ async fn push_local_item(
             // Persist storage records (transaction hashes, CIDs, etc.)
             // Extract records first to avoid holding lock across await
             let records_to_persist = {
-                let storage_guard = state.shared_storage.lock().unwrap();
-                if let Ok(Some(storage_history)) = storage_guard.get_storage_history(&result.dfid) {
+                let storage_guard = state.shared_storage.write().unwrap();
+                if let Ok(Some(storage_history)) =
+                    storage_guard.get_storage_history(&result.dfid)
+                {
                     Some(storage_history.storage_records.clone())
                 } else {
                     None
@@ -1335,10 +1327,7 @@ async fn approve_operation(
 
     let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine
-        .approve_operation(&operation_uuid, &payload.approver_id)
-        .await
-    {
+    match engine.approve_operation(&operation_uuid, &payload.approver_id).await {
         Ok(operation) => {
             let operation_clone = operation.clone();
             drop(engine);
@@ -1483,10 +1472,7 @@ async fn request_to_join_circuit(
 
     let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine
-        .request_to_join_circuit(&circuit_id, &requester_id, payload.message.clone())
-        .await
-    {
+    match engine.request_to_join_circuit(&circuit_id, &requester_id, payload.message.clone()).await {
         Ok(circuit) => {
             // Send notifications to circuit owner and admins
             {
@@ -1597,10 +1583,7 @@ async fn approve_join_request(
 
     let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine
-        .approve_join_request(&circuit_id, &requester_id, &payload.admin_id, role)
-        .await
-    {
+    match engine.approve_join_request(&circuit_id, &requester_id, &payload.admin_id, role).await {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -1669,10 +1652,7 @@ async fn reject_join_request(
 
     let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine
-        .reject_join_request(&circuit_id, &requester_id, &payload.admin_id)
-        .await
-    {
+    match engine.reject_join_request(&circuit_id, &requester_id, &payload.admin_id).await {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -1774,16 +1754,13 @@ async fn update_circuit(
         None
     };
 
-    match engine
-        .update_circuit(
-            &circuit_id,
-            payload.name,
-            payload.description,
-            permissions,
-            &requester_id,
-        )
-        .await
-    {
+    match engine.update_circuit(
+        &circuit_id,
+        payload.name,
+        payload.description,
+        permissions,
+        &requester_id,
+    ).await {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -1841,17 +1818,14 @@ async fn create_custom_role(
 
     let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine
-        .create_custom_role(
-            &circuit_id,
-            payload.role_name,
-            permissions,
-            payload.description,
-            payload.color,
-            &requester_id,
-        )
-        .await
-    {
+    match engine.create_custom_role(
+        &circuit_id,
+        payload.role_name,
+        permissions,
+        payload.description,
+        payload.color,
+        &requester_id,
+    ).await {
         Ok(custom_role) => {
             let role_counts = engine
                 .get_circuit(&circuit_id)
@@ -1957,17 +1931,14 @@ async fn update_custom_role(
 
     let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine
-        .update_custom_role(
-            &circuit_id,
-            &role_name,
-            permissions,
-            payload.description,
-            payload.color,
-            &requester_id,
-        )
-        .await
-    {
+    match engine.update_custom_role(
+        &circuit_id,
+        &role_name,
+        permissions,
+        payload.description,
+        payload.color,
+        &requester_id,
+    ).await {
         Ok(updated_role) => {
             let role_counts = engine
                 .get_circuit(&circuit_id)
@@ -2020,10 +1991,7 @@ async fn delete_custom_role(
 
     let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine
-        .remove_custom_role(&circuit_id, &role_name, &claims.user_id)
-        .await
-    {
+    match engine.remove_custom_role(&circuit_id, &role_name, &claims.user_id).await {
         Ok(_) => Ok(Json(json!({
             "success": true,
             "message": format!("Custom role '{}' deleted successfully", role_name)
@@ -2061,10 +2029,7 @@ async fn assign_member_role(
     // If a custom role is specified, assign it
     let role_name = payload.custom_role_name.unwrap_or(payload.role);
 
-    match engine
-        .assign_member_custom_role(&circuit_id, &user_id, &role_name, &requester_id)
-        .await
-    {
+    match engine.assign_member_custom_role(&circuit_id, &user_id, &role_name, &requester_id).await {
         Ok(circuit) => Ok(Json(circuit_to_response(circuit))),
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
@@ -2232,10 +2197,7 @@ async fn update_public_settings(
     };
 
     let mut engine = lock_circuits_engine(&state).await?;
-    match engine
-        .update_public_settings(&circuit_id, public_settings, &requester_id)
-        .await
-    {
+    match engine.update_public_settings(&circuit_id, public_settings, &requester_id).await {
         Ok(circuit) => {
             // Clone circuit for PostgreSQL persistence
             let circuit_clone = circuit.clone();
@@ -2335,15 +2297,12 @@ async fn join_public_circuit(
     })?;
 
     let mut engine = lock_circuits_engine(&state).await?;
-    match engine
-        .join_public_circuit(
-            &circuit_id,
-            &requester_id,
-            payload.access_password,
-            payload.message,
-        )
-        .await
-    {
+    match engine.join_public_circuit(
+        &circuit_id,
+        &requester_id,
+        payload.access_password,
+        payload.message,
+    ).await {
         Ok((requires_approval, message)) => Ok(Json(PublicJoinResponse {
             success: true,
             message,
@@ -2481,8 +2440,7 @@ async fn batch_push_items(
                         Json(json!({"error": format!("Push failed: {}", e)})),
                     )
                 })
-        }
-        .await;
+        }.await;
 
         match result {
             Ok(_) => {
@@ -2652,7 +2610,7 @@ async fn reject_pending_item(
     drop(circuits_engine);
 
     let operation_to_persist = {
-        let storage_guard = state.shared_storage.lock().unwrap();
+        let storage_guard = state.shared_storage.write().unwrap();
         match storage_guard.get_circuit_operation(&operation_id) {
             Ok(Some(operation)) => Some(operation),
             Ok(None) => {
@@ -2770,17 +2728,14 @@ async fn set_circuit_adapter_config(
 
     let mut engine = lock_circuits_engine(&state).await?;
 
-    match engine
-        .set_circuit_adapter_config(
-            &circuit_id,
-            &claims.user_id,
-            adapter_type,
-            payload.auto_migrate_existing,
-            payload.requires_approval,
-            payload.sponsor_adapter_access,
-        )
-        .await
-    {
+    match engine.set_circuit_adapter_config(
+        &circuit_id,
+        &claims.user_id,
+        adapter_type,
+        payload.auto_migrate_existing,
+        payload.requires_approval,
+        payload.sponsor_adapter_access,
+    ).await {
         Ok(adapter_config) => {
             if let Ok(Some(circuit)) = engine.get_circuit(&circuit_id) {
                 spawn_persist_circuit(&state, circuit.clone());
@@ -2830,7 +2785,7 @@ async fn get_post_action_settings(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
+    let storage = state.shared_storage.write().unwrap();
     let circuit = storage
         .get_circuit(&circuit_id)
         .map_err(|e| {
@@ -2871,7 +2826,7 @@ async fn update_post_action_settings(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
+    let mut storage = state.shared_storage.write().unwrap();
     let mut circuit = storage
         .get_circuit(&circuit_id)
         .map_err(|e| {
@@ -2951,7 +2906,7 @@ async fn create_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
+    let mut storage = state.shared_storage.write().unwrap();
     let mut circuit = storage
         .get_circuit(&circuit_id)
         .map_err(|e| {
@@ -3044,7 +2999,7 @@ async fn get_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
+    let storage = state.shared_storage.write().unwrap();
     let circuit = storage
         .get_circuit(&circuit_uuid)
         .map_err(|e| {
@@ -3105,7 +3060,7 @@ async fn update_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
+    let mut storage = state.shared_storage.write().unwrap();
     let mut circuit = storage
         .get_circuit(&circuit_uuid)
         .map_err(|e| {
@@ -3198,7 +3153,7 @@ async fn delete_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
+    let mut storage = state.shared_storage.write().unwrap();
     let mut circuit = storage
         .get_circuit(&circuit_uuid)
         .map_err(|e| {
@@ -3263,7 +3218,7 @@ async fn test_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
+    let storage = state.shared_storage.write().unwrap();
     let circuit = storage
         .get_circuit(&circuit_uuid)
         .map_err(|e| {
@@ -3333,7 +3288,7 @@ async fn get_webhook_deliveries(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
+    let storage = state.shared_storage.write().unwrap();
     let circuit = storage
         .get_circuit(&circuit_id)
         .map_err(|e| {

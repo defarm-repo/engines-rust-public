@@ -345,7 +345,7 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
     }
 
     pub fn upgrade_user_tier(&self, user_id: &str, new_tier: UserTier) -> Result<(), StorageError> {
-        let mut storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock().unwrap();
         let mut user = storage
             .get_user_account(user_id)?
             .ok_or(StorageError::NotFound)?;

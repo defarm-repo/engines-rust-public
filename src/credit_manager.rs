@@ -23,7 +23,7 @@ impl<S: StorageBackend> CreditEngine<S> {
     ) -> Result<bool, StorageError> {
         let cost = self.get_operation_cost(operation_type);
 
-        let mut storage = self
+        let storage = self
             .storage
             .lock()
             .map_err(|_| StorageError::IoError("Credit manager Mutex poisoned".to_string()))?;
@@ -74,7 +74,7 @@ impl<S: StorageBackend> CreditEngine<S> {
         amount: i64,
         description: &str,
     ) -> Result<(), StorageError> {
-        let mut storage = self
+        let storage = self
             .storage
             .lock()
             .map_err(|_| StorageError::IoError("Credit manager Mutex poisoned".to_string()))?;

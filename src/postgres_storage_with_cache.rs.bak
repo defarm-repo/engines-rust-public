@@ -329,7 +329,10 @@ impl StorageBackend for PostgresStorageWithCache {
     // CIRCUIT OPERATIONS - Push/Pull operation tracking
     // ============================================================================
 
-    fn store_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), StorageError> {
+    fn store_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 let pg = self.get_postgres().await?;
@@ -373,7 +376,10 @@ impl StorageBackend for PostgresStorageWithCache {
         })
     }
 
-    fn update_circuit_operation(&self, operation: &CircuitOperation) -> Result<(), StorageError> {
+    fn update_circuit_operation(
+        &mut self,
+        operation: &CircuitOperation,
+    ) -> Result<(), StorageError> {
         self.store_circuit_operation(operation)
     }
 
@@ -399,7 +405,7 @@ impl StorageBackend for PostgresStorageWithCache {
     fn store_circuit_item(&self, circuit_item: &CircuitItem) -> Result<(), StorageError> {
         // Circuit items are tracked through circuit operations
         // For now, we store them as part of circuit state
-        let circuit = self
+        let mut circuit = self
             .get_circuit(&circuit_item.circuit_id)?
             .ok_or_else(|| StorageError::NotFound)?;
 
@@ -439,7 +445,7 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_circuit_adapter_config(
-        &self,
+        &mut self,
         config: &CircuitAdapterConfig,
     ) -> Result<(), StorageError> {
         // TODO: PostgresPersistence needs persist_circuit_adapter_config method
@@ -461,7 +467,7 @@ impl StorageBackend for PostgresStorageWithCache {
     }
 
     fn update_circuit_adapter_config(
-        &self,
+        &mut self,
         config: &CircuitAdapterConfig,
     ) -> Result<(), StorageError> {
         self.store_circuit_adapter_config(config)
@@ -723,7 +729,7 @@ impl StorageBackend for PostgresStorageWithCache {
         Ok(Vec::new())
     }
 
-    fn clear_user_activities(&self) -> Result<(), StorageError> {
+    fn clear_user_activities(&mut self) -> Result<(), StorageError> {
         // Clearing is a no-op for PostgreSQL-backed activities
         Ok(())
     }
@@ -796,7 +802,11 @@ impl StorageBackend for PostgresStorageWithCache {
     // STORAGE RECORDS & HISTORY - Item storage tracking
     // ============================================================================
 
-    fn add_storage_record(&self, dfid: &str, record: StorageRecord) -> Result<(), StorageError> {
+    fn add_storage_record(
+        &mut self,
+        dfid: &str,
+        record: StorageRecord,
+    ) -> Result<(), StorageError> {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 let pg = self.get_postgres().await?;
@@ -945,7 +955,10 @@ impl StorageBackend for PostgresStorageWithCache {
     // ADAPTER TEST RESULTS - Adapter health check results
     // ============================================================================
 
-    fn store_adapter_test_result(&self, result: &AdapterTestResult) -> Result<(), StorageError> {
+    fn store_adapter_test_result(
+        &mut self,
+        result: &AdapterTestResult,
+    ) -> Result<(), StorageError> {
         // PostgreSQL doesn't have adapter test results schema yet
         Ok(())
     }
@@ -962,7 +975,10 @@ impl StorageBackend for PostgresStorageWithCache {
     // ZK PROOFS - Zero-knowledge proof storage and management
     // ============================================================================
 
-    fn store_zk_proof(&self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+    fn store_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 let pg = self.get_postgres().await?;
@@ -998,7 +1014,10 @@ impl StorageBackend for PostgresStorageWithCache {
         })
     }
 
-    fn update_zk_proof(&self, proof: &crate::zk_proof_engine::ZkProof) -> Result<(), StorageError> {
+    fn update_zk_proof(
+        &mut self,
+        proof: &crate::zk_proof_engine::ZkProof,
+    ) -> Result<(), StorageError> {
         self.store_zk_proof(proof)
     }
 
@@ -1328,7 +1347,10 @@ impl StorageBackend for PostgresStorageWithCache {
         Ok(Vec::new())
     }
 
-    fn update_security_incident(&self, incident: &SecurityIncident) -> Result<(), StorageError> {
+    fn update_security_incident(
+        &mut self,
+        incident: &SecurityIncident,
+    ) -> Result<(), StorageError> {
         self.store_security_incident(incident)
     }
 
@@ -1463,7 +1485,10 @@ impl StorageBackend for PostgresStorageWithCache {
     // IDENTIFIER MAPPINGS - Identifier deduplication tracking
     // ============================================================================
 
-    fn store_identifier_mapping(&self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
+    fn store_identifier_mapping(
+        &mut self,
+        mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
         // Identifier mappings can be stored in items
         Ok(())
     }
@@ -1475,7 +1500,10 @@ impl StorageBackend for PostgresStorageWithCache {
         Ok(Vec::new())
     }
 
-    fn update_identifier_mapping(&self, mapping: &IdentifierMapping) -> Result<(), StorageError> {
+    fn update_identifier_mapping(
+        &mut self,
+        mapping: &IdentifierMapping,
+    ) -> Result<(), StorageError> {
         self.store_identifier_mapping(mapping)
     }
 
@@ -1488,7 +1516,7 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_fingerprint_mapping(
-        &self,
+        &mut self,
         fingerprint: &str,
         dfid: &str,
         circuit_id: &Uuid,
@@ -1498,7 +1526,7 @@ impl StorageBackend for PostgresStorageWithCache {
     }
 
     fn store_enhanced_identifier_mapping(
-        &self,
+        &mut self,
         identifier: &crate::identifier_types::EnhancedIdentifier,
         dfid: &str,
     ) -> Result<(), StorageError> {
@@ -1510,7 +1538,10 @@ impl StorageBackend for PostgresStorageWithCache {
     // CONFLICT RESOLUTION - Deduplication conflict tracking
     // ============================================================================
 
-    fn store_conflict_resolution(&self, conflict: &ConflictResolution) -> Result<(), StorageError> {
+    fn store_conflict_resolution(
+        &mut self,
+        conflict: &ConflictResolution,
+    ) -> Result<(), StorageError> {
         Ok(())
     }
 
@@ -1642,7 +1673,7 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn add_cid_to_timeline(
-        &self,
+        &mut self,
         dfid: &str,
         cid: &str,
         ipcm_tx: &str,
@@ -1693,7 +1724,7 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn map_event_to_cid(
-        &self,
+        &mut self,
         event_id: &Uuid,
         dfid: &str,
         cid: &str,
@@ -1742,7 +1773,7 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn update_indexing_progress(
-        &self,
+        &mut self,
         network: &str,
         last_ledger: i64,
         confirmed_ledger: i64,
@@ -1790,7 +1821,7 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn record_credit_transaction(
-        &self,
+        &mut self,
         transaction: &CreditTransaction,
     ) -> Result<(), StorageError> {
         // Credit transactions not yet implemented
