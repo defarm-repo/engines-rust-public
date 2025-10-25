@@ -18,6 +18,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
+use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 /// Validates password complexity requirements
@@ -172,26 +173,38 @@ pub fn auth_routes(app_state: Arc<AppState>) -> Router {
         .with_state((auth_state, app_state))
 }
 
+#[instrument(skip(auth, app_state, payload), fields(username = %payload.username))]
 async fn login(
     State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
     // Get user by username from shared storage
     let user = {
+        let lock_start = std::time::Instant::now();
         let storage = app_state.shared_storage.lock().unwrap();
-        storage
+        let lock_duration = lock_start.elapsed();
+
+        let result = storage
             .get_user_by_username(&payload.username)
             .map_err(|_| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({"error": "Database error"})),
                 )
-            })?
+            })?;
+
+        info!("Lock held for user lookup: {:?}", lock_duration);
+        result
     }; // MutexGuard dropped here!
 
     if let Some(user) = user {
         // Verify password (bcrypt is CPU intensive - must be done WITHOUT holding the lock!)
-        if verify(&payload.password, &user.password_hash).unwrap_or(false) {
+        let bcrypt_start = std::time::Instant::now();
+        let password_valid = verify(&payload.password, &user.password_hash).unwrap_or(false);
+        let bcrypt_duration = bcrypt_start.elapsed();
+        info!("Bcrypt verification took: {:?}", bcrypt_duration);
+
+        if password_valid {
             // Check account status
             match user.status {
                 AccountStatus::Suspended => {
@@ -246,13 +259,21 @@ async fn login(
                 .expect("valid timestamp")
                 .timestamp();
 
+            info!("Login successful for user: {}", user.user_id);
             return Ok(Json(AuthResponse {
                 token,
                 user_id: user.user_id,
                 workspace_id: user.workspace_id,
                 expires_at,
             }));
+        } else {
+            warn!(
+                "Login failed: invalid password for user {}",
+                payload.username
+            );
         }
+    } else {
+        warn!("Login failed: user not found: {}", payload.username);
     }
 
     Err((
@@ -261,6 +282,7 @@ async fn login(
     ))
 }
 
+#[instrument(skip(auth, app_state, payload), fields(username = %payload.username, email = %payload.email))]
 async fn register(
     State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
     Json(payload): Json<RegisterRequest>,
@@ -272,7 +294,13 @@ async fn register(
 
     // Check for existing username/email (release lock immediately after)
     {
+        let lock_start = std::time::Instant::now();
         let storage = app_state.shared_storage.lock().unwrap();
+        let lock_duration = lock_start.elapsed();
+        info!(
+            "Lock acquired for username/email check: {:?}",
+            lock_duration
+        );
 
         // Check if username already exists
         if storage
@@ -310,12 +338,15 @@ async fn register(
     } // MutexGuard dropped here!
 
     // Hash password (CPU intensive - must be done WITHOUT holding the lock!)
+    let bcrypt_start = std::time::Instant::now();
     let password_hash = hash(&payload.password, DEFAULT_COST).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to hash password"})),
         )
     })?;
+    let bcrypt_duration = bcrypt_start.elapsed();
+    info!("Bcrypt hash generation took: {:?}", bcrypt_duration);
 
     // Create new user account
     let user_id = format!("user-{}", Uuid::new_v4());
@@ -345,7 +376,10 @@ async fn register(
 
     // Store user account and initial credit (acquire lock only for storage operations)
     {
+        let lock_start = std::time::Instant::now();
         let storage = app_state.shared_storage.lock().unwrap();
+        let lock_duration = lock_start.elapsed();
+        info!("Lock acquired for user storage: {:?}", lock_duration);
 
         storage.store_user_account(&new_user).map_err(|e| {
             (
@@ -406,6 +440,10 @@ async fn register(
         .expect("valid timestamp")
         .timestamp();
 
+    info!(
+        "Registration successful for user: {} ({})",
+        user_id, payload.username
+    );
     Ok(Json(AuthResponse {
         token,
         user_id,
