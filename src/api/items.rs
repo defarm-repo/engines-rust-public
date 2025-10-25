@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use crate::identifier_types::{namespaces, IdentifierType};
 use crate::items_engine::ResolutionAction;
 use crate::storage::StorageBackend;
+use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::types::{UserActivity, UserActivityCategory, UserActivityType, UserResourceType};
 use crate::{
     Identifier, InMemoryStorage, Item, ItemStatus, ItemsEngine, PendingItem, PendingReason,
@@ -2191,10 +2192,28 @@ async fn get_storage_history(
     };
 
     // Get storage history from shared storage
-    let storage_guard = state.shared_storage.lock().unwrap();
+    let history_result = with_storage(
+        &state.shared_storage,
+        "items.rs::get_storage_history::read_history",
+        |storage| {
+            storage
+                .get_storage_history(&dfid)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to retrieve storage history: {}", msg)})),
+        ),
+    })?;
 
-    match storage_guard.get_storage_history(&dfid) {
-        Ok(Some(history)) => {
+    match history_result {
+        Some(history) => {
             let records: Vec<StorageRecordResponse> = history
                 .storage_records
                 .iter()
@@ -2244,13 +2263,9 @@ async fn get_storage_history(
                 records,
             }))
         }
-        Ok(None) => Err((
+        None => Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "No storage history found for this DFID"})),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to retrieve storage history: {}", e)})),
         )),
     }
 }

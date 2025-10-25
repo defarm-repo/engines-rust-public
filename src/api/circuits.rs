@@ -17,6 +17,7 @@ use crate::api::items::{build_identifiers, IdentifierRequest};
 use crate::identifier_types::CircuitAliasConfig;
 use crate::postgres_storage_with_cache::PostgresStorageWithCache;
 use crate::storage::StorageBackend;
+use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::types::{
     Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitItem, CircuitPermissions,
     CustomRole, Permission, PublicSettings, UserActivity, UserActivityCategory, UserActivityType,
@@ -1071,29 +1072,55 @@ async fn push_local_item(
 
     // Capture the item with its latest DFID for persistence outside of the async lock scope
     let item_to_persist = {
-        let storage_guard = state.shared_storage.lock().unwrap();
-        match storage_guard.get_item_by_dfid(&result.dfid) {
+        let dfid_clone = result.dfid.clone();
+        match with_storage(
+            &state.shared_storage,
+            "circuits::push_local::get_item_by_dfid",
+            |storage| {
+                storage
+                    .get_item_by_dfid(&dfid_clone)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            },
+        ) {
             Ok(Some(item)) => Some(item),
             Ok(None) => None,
-            Err(e) => {
+            Err(StorageLockError::Timeout) => {
                 tracing::warn!(
-                    "Failed to fetch item {} from shared storage for persistence: {}",
-                    result.dfid,
-                    e
+                    "Storage lock timeout fetching item {} for persistence",
+                    result.dfid
                 );
+                None
+            }
+            Err(StorageLockError::Other(e)) => {
+                tracing::warn!("Storage error fetching item {}: {}", result.dfid, e);
                 None
             }
         }
     };
 
     let operation_to_persist = {
-        let storage_guard = state.shared_storage.lock().unwrap();
-        match storage_guard.get_circuit_operation(&result.operation_id) {
+        let operation_id_clone = result.operation_id.clone();
+        match with_storage(
+            &state.shared_storage,
+            "circuits::push_local::get_circuit_operation",
+            |storage| {
+                storage
+                    .get_circuit_operation(&operation_id_clone)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            },
+        ) {
             Ok(Some(operation)) => Some(operation),
             Ok(None) => None,
-            Err(e) => {
+            Err(StorageLockError::Timeout) => {
                 tracing::warn!(
-                    "Failed to fetch circuit operation {} for persistence: {}",
+                    "Storage lock timeout fetching circuit operation {}",
+                    result.operation_id
+                );
+                None
+            }
+            Err(StorageLockError::Other(e)) => {
+                tracing::warn!(
+                    "Storage error fetching circuit operation {}: {}",
                     result.operation_id,
                     e
                 );
@@ -1141,11 +1168,33 @@ async fn push_local_item(
             // Persist storage records (transaction hashes, CIDs, etc.)
             // Extract records first to avoid holding lock across await
             let records_to_persist = {
-                let storage_guard = state.shared_storage.lock().unwrap();
-                if let Ok(Some(storage_history)) = storage_guard.get_storage_history(&result.dfid) {
-                    Some(storage_history.storage_records.clone())
-                } else {
-                    None
+                let dfid_clone = result.dfid.clone();
+                match with_storage(
+                    &state.shared_storage,
+                    "circuits::push_local::get_storage_history",
+                    |storage| {
+                        storage
+                            .get_storage_history(&dfid_clone)
+                            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+                    },
+                ) {
+                    Ok(Some(storage_history)) => Some(storage_history.storage_records.clone()),
+                    Ok(None) => None,
+                    Err(StorageLockError::Timeout) => {
+                        tracing::warn!(
+                            "Storage lock timeout fetching storage history for {}",
+                            result.dfid
+                        );
+                        None
+                    }
+                    Err(StorageLockError::Other(e)) => {
+                        tracing::warn!(
+                            "Storage error fetching storage history for {}: {}",
+                            result.dfid,
+                            e
+                        );
+                        None
+                    }
                 }
             };
 
@@ -2652,8 +2701,16 @@ async fn reject_pending_item(
     drop(circuits_engine);
 
     let operation_to_persist = {
-        let storage_guard = state.shared_storage.lock().unwrap();
-        match storage_guard.get_circuit_operation(&operation_id) {
+        let operation_id_clone = operation_id.clone();
+        match with_storage(
+            &state.shared_storage,
+            "circuits::reject_pending_item::get_circuit_operation",
+            |storage| {
+                storage
+                    .get_circuit_operation(&operation_id_clone)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            },
+        ) {
             Ok(Some(operation)) => Some(operation),
             Ok(None) => {
                 tracing::warn!(
@@ -2662,9 +2719,16 @@ async fn reject_pending_item(
                 );
                 None
             }
-            Err(e) => {
+            Err(StorageLockError::Timeout) => {
                 tracing::warn!(
-                    "Failed to fetch circuit operation {} for persistence: {}",
+                    "Storage lock timeout fetching circuit operation {}",
+                    operation_id
+                );
+                None
+            }
+            Err(StorageLockError::Other(e)) => {
+                tracing::warn!(
+                    "Storage error fetching circuit operation {}: {}",
                     operation_id,
                     e
                 );
@@ -2830,19 +2894,29 @@ async fn get_post_action_settings(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
-    let circuit = storage
-        .get_circuit(&circuit_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Circuit not found"})),
-        ))?;
+    let circuit = with_storage(
+        &state.shared_storage,
+        "circuits::get_post_action_settings::get_circuit",
+        |storage| {
+            storage
+                .get_circuit(&circuit_id)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?
+    .ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Circuit not found"})),
+    ))?;
 
     // Only owner and admins can view post-action settings
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
@@ -2871,19 +2945,29 @@ async fn update_post_action_settings(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
-    let mut circuit = storage
-        .get_circuit(&circuit_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Circuit not found"})),
-        ))?;
+    let mut circuit = with_storage(
+        &state.shared_storage,
+        "circuits::update_post_action_settings::get_circuit",
+        |storage| {
+            storage
+                .get_circuit(&circuit_id)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?
+    .ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Circuit not found"})),
+    ))?;
 
     // Only owner and admins can modify settings
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
@@ -2914,11 +2998,25 @@ async fn update_post_action_settings(
     settings.include_item_metadata = request.include_item_metadata;
 
     circuit.post_action_settings = Some(settings.clone());
-    storage.store_circuit(&circuit).map_err(|e| {
-        (
+
+    with_storage(
+        &state.shared_storage,
+        "circuits::update_post_action_settings::store_circuit",
+        |storage| {
+            storage
+                .store_circuit(&circuit)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )
+            Json(json!({"error": msg})),
+        ),
     })?;
 
     Ok(Json(json!({
@@ -2951,19 +3049,29 @@ async fn create_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
-    let mut circuit = storage
-        .get_circuit(&circuit_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Circuit not found"})),
-        ))?;
+    let mut circuit = with_storage(
+        &state.shared_storage,
+        "circuits::create_webhook::get_circuit",
+        |storage| {
+            storage
+                .get_circuit(&circuit_id)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?
+    .ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Circuit not found"})),
+    ))?;
 
     // Only owner and admins can create webhooks
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
@@ -3007,15 +3115,27 @@ async fn create_webhook(
     settings.webhooks.push(webhook.clone());
     circuit.post_action_settings = Some(settings);
 
-    storage.store_circuit(&circuit).map_err(|e| {
-        (
+    with_storage(
+        &state.shared_storage,
+        "circuits::create_webhook::store_circuit",
+        |storage| {
+            storage
+                .store_circuit(&circuit)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )
+            Json(json!({"error": msg})),
+        ),
     })?;
 
     let persisted_circuit = circuit.clone();
-    drop(storage);
     spawn_persist_circuit(&state, persisted_circuit);
 
     Ok(Json(json!({
@@ -3044,19 +3164,29 @@ async fn get_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
-    let circuit = storage
-        .get_circuit(&circuit_uuid)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Circuit not found"})),
-        ))?;
+    let circuit = with_storage(
+        &state.shared_storage,
+        "circuits::get_webhook::get_circuit",
+        |storage| {
+            storage
+                .get_circuit(&circuit_uuid)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?
+    .ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Circuit not found"})),
+    ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
         return Err((
@@ -3105,19 +3235,29 @@ async fn update_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
-    let mut circuit = storage
-        .get_circuit(&circuit_uuid)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Circuit not found"})),
-        ))?;
+    let mut circuit = with_storage(
+        &state.shared_storage,
+        "circuits::update_webhook::get_circuit",
+        |storage| {
+            storage
+                .get_circuit(&circuit_uuid)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?
+    .ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Circuit not found"})),
+    ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
         return Err((
@@ -3162,15 +3302,27 @@ async fn update_webhook(
     webhook.updated_at = Utc::now();
     circuit.post_action_settings = Some(settings);
 
-    storage.store_circuit(&circuit).map_err(|e| {
-        (
+    with_storage(
+        &state.shared_storage,
+        "circuits::update_webhook::store_circuit",
+        |storage| {
+            storage
+                .store_circuit(&circuit)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )
+            Json(json!({"error": msg})),
+        ),
     })?;
 
     let persisted_circuit = circuit.clone();
-    drop(storage);
     spawn_persist_circuit(&state, persisted_circuit);
 
     Ok(Json(json!({
@@ -3198,19 +3350,29 @@ async fn delete_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
-    let mut circuit = storage
-        .get_circuit(&circuit_uuid)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Circuit not found"})),
-        ))?;
+    let mut circuit = with_storage(
+        &state.shared_storage,
+        "circuits::delete_webhook::get_circuit",
+        |storage| {
+            storage
+                .get_circuit(&circuit_uuid)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?
+    .ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Circuit not found"})),
+    ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
         return Err((
@@ -3227,15 +3389,27 @@ async fn delete_webhook(
     settings.webhooks.retain(|w| w.id != webhook_uuid);
     circuit.post_action_settings = Some(settings);
 
-    storage.store_circuit(&circuit).map_err(|e| {
-        (
+    with_storage(
+        &state.shared_storage,
+        "circuits::delete_webhook::store_circuit",
+        |storage| {
+            storage
+                .store_circuit(&circuit)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )
+            Json(json!({"error": msg})),
+        ),
     })?;
 
     let persisted_circuit = circuit.clone();
-    drop(storage);
     spawn_persist_circuit(&state, persisted_circuit);
 
     Ok(Json(json!({
@@ -3263,19 +3437,29 @@ async fn test_webhook(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
-    let circuit = storage
-        .get_circuit(&circuit_uuid)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Circuit not found"})),
-        ))?;
+    let circuit = with_storage(
+        &state.shared_storage,
+        "circuits::test_webhook::get_circuit",
+        |storage| {
+            storage
+                .get_circuit(&circuit_uuid)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?
+    .ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Circuit not found"})),
+    ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
         return Err((
@@ -3333,19 +3517,29 @@ async fn get_webhook_deliveries(
         )
     })?;
 
-    let storage = state.shared_storage.lock().unwrap();
-    let circuit = storage
-        .get_circuit(&circuit_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Circuit not found"})),
-        ))?;
+    let circuit = with_storage(
+        &state.shared_storage,
+        "circuits::get_webhook_deliveries::get_circuit",
+        |storage| {
+            storage
+                .get_circuit(&circuit_id)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?
+    .ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "Circuit not found"})),
+    ))?;
 
     if !circuit.has_permission(&claims.user_id, &Permission::ManagePermissions) {
         return Err((
@@ -3356,14 +3550,25 @@ async fn get_webhook_deliveries(
 
     let limit = params.get("limit").and_then(|s| s.parse::<usize>().ok());
 
-    let deliveries = storage
-        .get_webhook_deliveries_by_circuit(&circuit_id, limit)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?;
+    let deliveries = with_storage(
+        &state.shared_storage,
+        "circuits::get_webhook_deliveries::get_deliveries",
+        |storage| {
+            storage
+                .get_webhook_deliveries_by_circuit(&circuit_id, limit)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Storage temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     Ok(Json(json!({
         "success": true,

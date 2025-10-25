@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::adapters::base::StorageLocation;
 use crate::api::shared_state::AppState;
 use crate::storage::StorageBackend;
+use crate::storage_helpers::with_storage;
 use crate::types::{AdapterType, ItemStorageHistory};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -167,18 +168,19 @@ async fn set_primary_storage(
 async fn get_storage_statistics(
     State(app_state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, StatusCode> {
-    let storage = app_state.shared_storage.lock().unwrap();
-
-    // Get all items to iterate through their storage histories
-    let items = match storage.list_items() {
-        Ok(items) => items,
-        Err(e) => {
-            return Ok(Json(json!({
-                "success": false,
-                "error": format!("Failed to list items: {}", e)
-            })));
-        }
-    };
+    let items = with_storage(
+        &app_state.shared_storage,
+        "storage_history.rs::get_storage_statistics::list_items",
+        |storage| {
+            storage
+                .list_items()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| {
+        tracing::error!("Failed to list items: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let mut total_items_tracked = 0;
     let mut total_storage_locations = 0;
@@ -187,8 +189,19 @@ async fn get_storage_statistics(
     let mut migration_count = 0;
 
     // Iterate through each item and get its storage history
-    for item in items {
-        if let Ok(Some(history)) = storage.get_storage_history(&item.dfid) {
+    for item in &items {
+        let history_opt = with_storage(
+            &app_state.shared_storage,
+            "storage_history.rs::get_storage_statistics::read_history",
+            |storage| {
+                storage
+                    .get_storage_history(&item.dfid)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            },
+        )
+        .unwrap_or(None);
+
+        if let Some(history) = history_opt {
             total_items_tracked += 1;
             total_storage_locations += history.storage_records.len();
 

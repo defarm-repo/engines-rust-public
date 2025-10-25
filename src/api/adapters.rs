@@ -17,6 +17,7 @@ use crate::adapters::{
 use crate::api::auth::Claims;
 use crate::api::shared_state::AppState;
 use crate::storage::{StorageBackend, StorageError};
+use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::types::{AdapterType, StorageBackendType, UserTier};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,21 +68,32 @@ async fn list_available_adapters(
     };
 
     // Get user account to check adapter permissions
-    let storage = app_state.shared_storage.lock().unwrap();
-    let user = storage
-        .get_user_account(&user_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Failed to get user: {}", e)})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
-            )
-        })?;
+    let user = with_storage(
+        &app_state.shared_storage,
+        "adapters.rs::list_available_adapters::read_user",
+        |storage| {
+            storage.get_user_account(&user_id)?.ok_or_else(|| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "User not found",
+                )) as Box<dyn std::error::Error>
+            })
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) if msg.contains("not found") => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get user: {}", msg)})),
+        ),
+    })?;
 
     // Get available adapters based on user's custom config or tier defaults
     let available_adapters =
@@ -132,21 +144,32 @@ async fn select_adapter(
     };
 
     // Get user account to check adapter permissions
-    let storage = app_state.shared_storage.lock().unwrap();
-    let user = storage
-        .get_user_account(&user_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Failed to get user: {}", e)})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
-            )
-        })?;
+    let user = with_storage(
+        &app_state.shared_storage,
+        "adapters.rs::select_adapter::read_user",
+        |storage| {
+            storage.get_user_account(&user_id)?.ok_or_else(|| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "User not found",
+                )) as Box<dyn std::error::Error>
+            })
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) if msg.contains("not found") => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to get user: {}", msg)})),
+        ),
+    })?;
 
     // Validate that the user has access to this adapter
     let available_adapters =

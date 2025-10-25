@@ -13,6 +13,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::api::shared_state::AppState;
+use crate::storage_helpers::{with_lock_mut, StorageLockError};
 use crate::zk_proof_engine::{CircuitType, ProofStatus, ZkProof, ZkProofEngine};
 
 // API Request/Response types
@@ -120,11 +121,21 @@ async fn submit_proof(
             "message": "Proof submitted successfully"
         }))),
         Err(e) => {
-            app_state.logging.lock().unwrap().error(
-                "api_zk_proofs",
-                "submit_proof_error",
-                format!("Error submitting proof: {e:?}"),
+            let log_result = with_lock_mut(
+                &app_state.logging,
+                "zk_proofs.rs::submit_proof::log_error",
+                |logger| {
+                    logger.error(
+                        "api_zk_proofs",
+                        "submit_proof_error",
+                        format!("Error submitting proof: {e:?}"),
+                    );
+                    Ok(())
+                },
             );
+            if let Err(StorageLockError::Timeout) = log_result {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -144,11 +155,21 @@ async fn verify_proof(
             "verification_result": verification_result
         }))),
         Err(e) => {
-            app_state.logging.lock().unwrap().error(
-                "api_zk_proofs",
-                "verify_proof_error",
-                format!("Error verifying proof: {e:?}"),
+            let log_result = with_lock_mut(
+                &app_state.logging,
+                "zk_proofs.rs::verify_proof::log_error",
+                |logger| {
+                    logger.error(
+                        "api_zk_proofs",
+                        "verify_proof_error",
+                        format!("Error verifying proof: {e:?}"),
+                    );
+                    Ok(())
+                },
             );
+            if let Err(StorageLockError::Timeout) = log_result {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -170,11 +191,21 @@ async fn get_proof(
         }
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
-            app_state.logging.lock().unwrap().error(
-                "api_zk_proofs",
-                "get_proof_error",
-                format!("Error getting proof: {e:?}"),
+            let log_result = with_lock_mut(
+                &app_state.logging,
+                "zk_proofs.rs::get_proof::log_error",
+                |logger| {
+                    logger.error(
+                        "api_zk_proofs",
+                        "get_proof_error",
+                        format!("Error getting proof: {e:?}"),
+                    );
+                    Ok(())
+                },
             );
+            if let Err(StorageLockError::Timeout) = log_result {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -233,11 +264,21 @@ async fn list_proofs(
             })))
         }
         Err(e) => {
-            app_state.logging.lock().unwrap().error(
-                "api_zk_proofs",
-                "list_proofs_error",
-                format!("Error querying proofs: {e:?}"),
+            let log_result = with_lock_mut(
+                &app_state.logging,
+                "zk_proofs.rs::list_proofs::log_error",
+                |logger| {
+                    logger.error(
+                        "api_zk_proofs",
+                        "list_proofs_error",
+                        format!("Error querying proofs: {e:?}"),
+                    );
+                    Ok(())
+                },
             );
+            if let Err(StorageLockError::Timeout) = log_result {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -254,11 +295,21 @@ async fn get_proof_statistics(
             "statistics": stats
         }))),
         Err(e) => {
-            app_state.logging.lock().unwrap().error(
-                "api_zk_proofs",
-                "get_stats_error",
-                format!("Error getting proof statistics: {e:?}"),
+            let log_result = with_lock_mut(
+                &app_state.logging,
+                "zk_proofs.rs::get_proof_statistics::log_error",
+                |logger| {
+                    logger.error(
+                        "api_zk_proofs",
+                        "get_stats_error",
+                        format!("Error getting proof statistics: {e:?}"),
+                    );
+                    Ok(())
+                },
             );
+            if let Err(StorageLockError::Timeout) = log_result {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -276,11 +327,21 @@ async fn delete_proof(
             "message": "Proof deleted successfully"
         }))),
         Err(e) => {
-            app_state.logging.lock().unwrap().error(
-                "api_zk_proofs",
-                "delete_proof_error",
-                format!("Error deleting proof: {e:?}"),
+            let log_result = with_lock_mut(
+                &app_state.logging,
+                "zk_proofs.rs::delete_proof::log_error",
+                |logger| {
+                    logger.error(
+                        "api_zk_proofs",
+                        "delete_proof_error",
+                        format!("Error deleting proof: {e:?}"),
+                    );
+                    Ok(())
+                },
             );
+            if let Err(StorageLockError::Timeout) = log_result {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }

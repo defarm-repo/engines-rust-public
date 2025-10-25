@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+use crate::storage_helpers::{with_lock, with_lock_mut, StorageLockError};
+
 #[derive(Debug, Deserialize)]
 pub struct CreateWorkspaceRequest {
     pub name: String,
@@ -262,8 +264,25 @@ async fn create_workspace(
         members: vec![owner_member],
     };
 
-    let mut workspaces = state.workspaces.lock().unwrap();
-    workspaces.insert(workspace_id, workspace.clone());
+    let workspace_clone = workspace.clone();
+    with_lock_mut(
+        &state.workspaces,
+        "workspaces::create_workspace::insert",
+        |workspaces| {
+            workspaces.insert(workspace_id, workspace_clone);
+            Ok(())
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     Ok(Json(workspace_to_response(workspace)))
 }
@@ -279,10 +298,24 @@ async fn get_workspace(
         )
     })?;
 
-    let workspaces = state.workspaces.lock().unwrap();
+    let workspace_opt = with_lock(
+        &state.workspaces,
+        "workspaces::get_workspace::read",
+        |workspaces| Ok(workspaces.get(&workspace_uuid).cloned()),
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
-    match workspaces.get(&workspace_uuid) {
-        Some(workspace) => Ok(Json(workspace_to_response(workspace.clone()))),
+    match workspace_opt {
+        Some(workspace) => Ok(Json(workspace_to_response(workspace))),
         None => Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Workspace not found"})),
@@ -302,40 +335,58 @@ async fn update_workspace(
         )
     })?;
 
-    let mut workspaces = state.workspaces.lock().unwrap();
+    let workspace_opt = with_lock_mut(
+        &state.workspaces,
+        "workspaces::update_workspace::modify",
+        |workspaces| {
+            if let Some(workspace) = workspaces.get_mut(&workspace_uuid) {
+                if let Some(name) = payload.name {
+                    workspace.name = name;
+                }
+                if let Some(description) = payload.description {
+                    workspace.description = description;
+                }
+                if let Some(settings_req) = payload.settings {
+                    if let Some(permissions) = settings_req.default_circuit_permissions {
+                        workspace.settings.default_circuit_permissions = permissions;
+                    }
+                    if let Some(visibility) = settings_req.default_event_visibility {
+                        workspace.settings.default_event_visibility = visibility;
+                    }
+                    if let Some(encryption) = settings_req.encryption_enabled {
+                        workspace.settings.encryption_enabled = encryption;
+                    }
+                    if let Some(retention) = settings_req.retention_policy_days {
+                        workspace.settings.retention_policy_days = retention;
+                    }
+                    if let Some(max_members) = settings_req.max_members {
+                        workspace.settings.max_members = max_members;
+                    }
+                    if let Some(allow_public) = settings_req.allow_public_circuits {
+                        workspace.settings.allow_public_circuits = allow_public;
+                    }
+                }
+                workspace.updated_at = Utc::now();
 
-    match workspaces.get_mut(&workspace_uuid) {
-        Some(workspace) => {
-            if let Some(name) = payload.name {
-                workspace.name = name;
+                Ok(Some(workspace.clone()))
+            } else {
+                Ok(None)
             }
-            if let Some(description) = payload.description {
-                workspace.description = description;
-            }
-            if let Some(settings_req) = payload.settings {
-                if let Some(permissions) = settings_req.default_circuit_permissions {
-                    workspace.settings.default_circuit_permissions = permissions;
-                }
-                if let Some(visibility) = settings_req.default_event_visibility {
-                    workspace.settings.default_event_visibility = visibility;
-                }
-                if let Some(encryption) = settings_req.encryption_enabled {
-                    workspace.settings.encryption_enabled = encryption;
-                }
-                if let Some(retention) = settings_req.retention_policy_days {
-                    workspace.settings.retention_policy_days = retention;
-                }
-                if let Some(max_members) = settings_req.max_members {
-                    workspace.settings.max_members = max_members;
-                }
-                if let Some(allow_public) = settings_req.allow_public_circuits {
-                    workspace.settings.allow_public_circuits = allow_public;
-                }
-            }
-            workspace.updated_at = Utc::now();
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
-            Ok(Json(workspace_to_response(workspace.clone())))
-        }
+    match workspace_opt {
+        Some(workspace) => Ok(Json(workspace_to_response(workspace))),
         None => Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Workspace not found"})),
@@ -354,26 +405,56 @@ async fn delete_workspace(
         )
     })?;
 
-    let mut workspaces = state.workspaces.lock().unwrap();
+    let removed = with_lock_mut(
+        &state.workspaces,
+        "workspaces::delete_workspace::remove",
+        |workspaces| Ok(workspaces.remove(&workspace_uuid).is_some()),
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
-    match workspaces.remove(&workspace_uuid) {
-        Some(_) => Ok(Json(json!({"message": "Workspace deleted successfully"}))),
-        None => Err((
+    if removed {
+        Ok(Json(json!({"message": "Workspace deleted successfully"})))
+    } else {
+        Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Workspace not found"})),
-        )),
+        ))
     }
 }
 
 async fn list_workspaces(
     State(state): State<Arc<WorkspaceState>>,
 ) -> Result<Json<Vec<WorkspaceResponse>>, (StatusCode, Json<Value>)> {
-    let workspaces = state.workspaces.lock().unwrap();
-
-    let response: Vec<WorkspaceResponse> = workspaces
-        .values()
-        .map(|workspace| workspace_to_response(workspace.clone()))
-        .collect();
+    let response = with_lock(
+        &state.workspaces,
+        "workspaces::list_workspaces::read",
+        |workspaces| {
+            let res: Vec<WorkspaceResponse> = workspaces
+                .values()
+                .map(|workspace| workspace_to_response(workspace.clone()))
+                .collect();
+            Ok(res)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     Ok(Json(response))
 }
@@ -390,55 +471,94 @@ async fn add_member(
         )
     })?;
 
-    let mut workspaces = state.workspaces.lock().unwrap();
-
-    match workspaces.get_mut(&workspace_uuid) {
-        Some(workspace) => {
-            // Check if user is already a member
-            if workspace
-                .members
-                .iter()
-                .any(|m| m.user_id == payload.user_id)
-            {
-                return Err((
-                    StatusCode::CONFLICT,
-                    Json(json!({"error": "User is already a member"})),
-                ));
-            }
-
-            // Check max members limit
-            if workspace.members.len() >= workspace.settings.max_members as usize {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Workspace has reached maximum member limit"})),
-                ));
-            }
-
-            // Validate role
-            if !["Owner", "Admin", "Member", "Viewer"].contains(&payload.role.as_str()) {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid role"})),
-                ));
-            }
-
-            let new_member = WorkspaceMember {
-                user_id: payload.user_id,
-                role: payload.role,
-                joined_at: Utc::now(),
-                last_active: None,
-            };
-
-            workspace.members.push(new_member);
-            workspace.updated_at = Utc::now();
-
-            Ok(Json(workspace_to_response(workspace.clone())))
-        }
-        None => Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Workspace not found"})),
-        )),
+    // Validate role before acquiring lock
+    if !["Owner", "Admin", "Member", "Viewer"].contains(&payload.role.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid role"})),
+        ));
     }
+
+    #[derive(Debug)]
+    enum AddMemberError {
+        NotFound,
+        AlreadyMember,
+        MaxMembersReached,
+    }
+    impl std::fmt::Display for AddMemberError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                AddMemberError::NotFound => write!(f, "Workspace not found"),
+                AddMemberError::AlreadyMember => write!(f, "User is already a member"),
+                AddMemberError::MaxMembersReached => {
+                    write!(f, "Workspace has reached maximum member limit")
+                }
+            }
+        }
+    }
+    impl std::error::Error for AddMemberError {}
+
+    let result = with_lock_mut(
+        &state.workspaces,
+        "workspaces::add_member::modify",
+        |workspaces| {
+            match workspaces.get_mut(&workspace_uuid) {
+                Some(workspace) => {
+                    // Check if user is already a member
+                    if workspace
+                        .members
+                        .iter()
+                        .any(|m| m.user_id == payload.user_id)
+                    {
+                        return Err(
+                            Box::new(AddMemberError::AlreadyMember) as Box<dyn std::error::Error>
+                        );
+                    }
+
+                    // Check max members limit
+                    if workspace.members.len() >= workspace.settings.max_members as usize {
+                        return Err(Box::new(AddMemberError::MaxMembersReached)
+                            as Box<dyn std::error::Error>);
+                    }
+
+                    let new_member = WorkspaceMember {
+                        user_id: payload.user_id,
+                        role: payload.role,
+                        joined_at: Utc::now(),
+                        last_active: None,
+                    };
+
+                    workspace.members.push(new_member);
+                    workspace.updated_at = Utc::now();
+
+                    Ok(workspace.clone())
+                }
+                None => Err(Box::new(AddMemberError::NotFound) as Box<dyn std::error::Error>),
+            }
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => {
+            if msg.contains("already a member") {
+                (StatusCode::CONFLICT, Json(json!({"error": msg})))
+            } else if msg.contains("maximum member limit") {
+                (StatusCode::BAD_REQUEST, Json(json!({"error": msg})))
+            } else if msg.contains("not found") {
+                (StatusCode::NOT_FOUND, Json(json!({"error": msg})))
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": msg})),
+                )
+            }
+        }
+    })?;
+
+    Ok(Json(workspace_to_response(result)))
 }
 
 async fn list_members(
@@ -452,23 +572,39 @@ async fn list_members(
         )
     })?;
 
-    let workspaces = state.workspaces.lock().unwrap();
+    let members_opt = with_lock(
+        &state.workspaces,
+        "workspaces::list_members::read",
+        |workspaces| match workspaces.get(&workspace_uuid) {
+            Some(workspace) => {
+                let response: Vec<WorkspaceMemberResponse> = workspace
+                    .members
+                    .iter()
+                    .map(|member| WorkspaceMemberResponse {
+                        user_id: member.user_id.clone(),
+                        role: member.role.clone(),
+                        joined_at: member.joined_at.timestamp(),
+                        last_active: member.last_active.map(|t| t.timestamp()),
+                    })
+                    .collect();
+                Ok(Some(response))
+            }
+            None => Ok(None),
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
-    match workspaces.get(&workspace_uuid) {
-        Some(workspace) => {
-            let response: Vec<WorkspaceMemberResponse> = workspace
-                .members
-                .iter()
-                .map(|member| WorkspaceMemberResponse {
-                    user_id: member.user_id.clone(),
-                    role: member.role.clone(),
-                    joined_at: member.joined_at.timestamp(),
-                    last_active: member.last_active.map(|t| t.timestamp()),
-                })
-                .collect();
-
-            Ok(Json(response))
-        }
+    match members_opt {
+        Some(members) => Ok(Json(members)),
         None => Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Workspace not found"})),
@@ -488,38 +624,52 @@ async fn update_member(
         )
     })?;
 
-    let mut workspaces = state.workspaces.lock().unwrap();
+    // Validate role before acquiring lock
+    if !["Owner", "Admin", "Member", "Viewer"].contains(&payload.role.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid role"})),
+        ));
+    }
 
-    match workspaces.get_mut(&workspace_uuid) {
-        Some(workspace) => {
-            // Validate role
-            if !["Owner", "Admin", "Member", "Viewer"].contains(&payload.role.as_str()) {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Invalid role"})),
-                ));
+    let member_opt = with_lock_mut(
+        &state.workspaces,
+        "workspaces::update_member::modify",
+        |workspaces| match workspaces.get_mut(&workspace_uuid) {
+            Some(workspace) => {
+                if let Some(member) = workspace.members.iter_mut().find(|m| m.user_id == user_id) {
+                    member.role = payload.role;
+                    workspace.updated_at = Utc::now();
+
+                    Ok(Some(WorkspaceMemberResponse {
+                        user_id: member.user_id.clone(),
+                        role: member.role.clone(),
+                        joined_at: member.joined_at.timestamp(),
+                        last_active: member.last_active.map(|t| t.timestamp()),
+                    }))
+                } else {
+                    Ok(None)
+                }
             }
+            None => Ok(None),
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
-            if let Some(member) = workspace.members.iter_mut().find(|m| m.user_id == user_id) {
-                member.role = payload.role;
-                workspace.updated_at = Utc::now();
-
-                Ok(Json(WorkspaceMemberResponse {
-                    user_id: member.user_id.clone(),
-                    role: member.role.clone(),
-                    joined_at: member.joined_at.timestamp(),
-                    last_active: member.last_active.map(|t| t.timestamp()),
-                }))
-            } else {
-                Err((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({"error": "Member not found"})),
-                ))
-            }
-        }
+    match member_opt {
+        Some(member) => Ok(Json(member)),
         None => Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Workspace not found"})),
+            Json(json!({"error": "Member not found"})),
         )),
     }
 }
@@ -535,23 +685,41 @@ async fn remove_member(
         )
     })?;
 
-    let mut workspaces = state.workspaces.lock().unwrap();
+    let removed = with_lock_mut(
+        &state.workspaces,
+        "workspaces::remove_member::modify",
+        |workspaces| match workspaces.get_mut(&workspace_uuid) {
+            Some(workspace) => {
+                let initial_len = workspace.members.len();
+                workspace.members.retain(|m| m.user_id != user_id);
 
-    match workspaces.get_mut(&workspace_uuid) {
-        Some(workspace) => {
-            let initial_len = workspace.members.len();
-            workspace.members.retain(|m| m.user_id != user_id);
-
-            if workspace.members.len() < initial_len {
-                workspace.updated_at = Utc::now();
-                Ok(Json(json!({"message": "Member removed successfully"})))
-            } else {
-                Err((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({"error": "Member not found"})),
-                ))
+                if workspace.members.len() < initial_len {
+                    workspace.updated_at = Utc::now();
+                    Ok(Some(true))
+                } else {
+                    Ok(Some(false))
+                }
             }
-        }
+            None => Ok(None),
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
+
+    match removed {
+        Some(true) => Ok(Json(json!({"message": "Member removed successfully"}))),
+        Some(false) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Member not found"})),
+        )),
         None => Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Workspace not found"})),
@@ -570,18 +738,37 @@ async fn get_workspace_stats(
         )
     })?;
 
-    let workspaces = state.workspaces.lock().unwrap();
+    let stats_opt = with_lock(
+        &state.workspaces,
+        "workspaces::get_workspace_stats::read",
+        |workspaces| {
+            match workspaces.get(&workspace_uuid) {
+                Some(workspace) => {
+                    Ok(Some(WorkspaceStatsResponse {
+                        total_members: workspace.members.len() as u32,
+                        total_circuits: 0,    // Would integrate with CircuitsEngine
+                        total_items: 0,       // Would integrate with ItemsEngine
+                        total_events: 0,      // Would integrate with EventsEngine
+                        storage_used_mb: 0.0, // Would calculate from storage
+                    }))
+                }
+                None => Ok(None),
+            }
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
-    match workspaces.get(&workspace_uuid) {
-        Some(workspace) => {
-            Ok(Json(WorkspaceStatsResponse {
-                total_members: workspace.members.len() as u32,
-                total_circuits: 0,    // Would integrate with CircuitsEngine
-                total_items: 0,       // Would integrate with ItemsEngine
-                total_events: 0,      // Would integrate with EventsEngine
-                storage_used_mb: 0.0, // Would calculate from storage
-            }))
-        }
+    match stats_opt {
+        Some(stats) => Ok(Json(stats)),
         None => Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Workspace not found"})),
@@ -593,13 +780,28 @@ async fn get_workspaces_for_user(
     State(state): State<Arc<WorkspaceState>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<WorkspaceResponse>>, (StatusCode, Json<Value>)> {
-    let workspaces = state.workspaces.lock().unwrap();
-
-    let response: Vec<WorkspaceResponse> = workspaces
-        .values()
-        .filter(|workspace| workspace.members.iter().any(|m| m.user_id == user_id))
-        .map(|workspace| workspace_to_response(workspace.clone()))
-        .collect();
+    let response = with_lock(
+        &state.workspaces,
+        "workspaces::get_workspaces_for_user::read",
+        |workspaces| {
+            let res: Vec<WorkspaceResponse> = workspaces
+                .values()
+                .filter(|workspace| workspace.members.iter().any(|m| m.user_id == user_id))
+                .map(|workspace| workspace_to_response(workspace.clone()))
+                .collect();
+            Ok(res)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     Ok(Json(response))
 }

@@ -66,3 +66,82 @@ where
     warn!(%label, waited_ms, "storage lock timeout - returning 503");
     Err(StorageLockError::Timeout)
 }
+
+/// Generic version for any mutex-protected data (not just StorageBackend)
+/// Used for internal state like workspaces, circuits cache, etc.
+pub fn with_lock<T, R, F>(mutex: &Arc<Mutex<T>>, label: &str, f: F) -> Result<R, StorageLockError>
+where
+    F: FnOnce(&T) -> Result<R, Box<dyn std::error::Error>>,
+{
+    let start = Instant::now();
+    info!(%label, "attempting to acquire lock");
+
+    // Try quick lock first, then spin with small sleeps to avoid blocking Tokio worker
+    for attempt in 0..(STORAGE_LOCK_TRY_MS / STORAGE_LOCK_SPIN_MS) {
+        match mutex.try_lock() {
+            Ok(guard) => {
+                let acquire_ms = start.elapsed().as_millis();
+                info!(%label, acquire_ms, "lock acquired");
+
+                let op_start = Instant::now();
+                let res = f(&*guard);
+                let op_ms = op_start.elapsed().as_millis();
+
+                info!(%label, op_ms, total_ms = %(start.elapsed().as_millis()), "operation complete");
+
+                return res.map_err(|e| StorageLockError::Other(e.to_string()));
+            }
+            Err(_) => {
+                if attempt % 5 == 0 {
+                    info!(%label, attempt, "lock contention, retrying...");
+                }
+                std::thread::sleep(Duration::from_millis(STORAGE_LOCK_SPIN_MS));
+            }
+        }
+    }
+
+    let waited_ms = start.elapsed().as_millis();
+    warn!(%label, waited_ms, "lock timeout - returning 503");
+    Err(StorageLockError::Timeout)
+}
+
+/// Generic version for mutable operations on any mutex-protected data
+pub fn with_lock_mut<T, R, F>(
+    mutex: &Arc<Mutex<T>>,
+    label: &str,
+    f: F,
+) -> Result<R, StorageLockError>
+where
+    F: FnOnce(&mut T) -> Result<R, Box<dyn std::error::Error>>,
+{
+    let start = Instant::now();
+    info!(%label, "attempting to acquire lock (mut)");
+
+    // Try quick lock first, then spin with small sleeps to avoid blocking Tokio worker
+    for attempt in 0..(STORAGE_LOCK_TRY_MS / STORAGE_LOCK_SPIN_MS) {
+        match mutex.try_lock() {
+            Ok(mut guard) => {
+                let acquire_ms = start.elapsed().as_millis();
+                info!(%label, acquire_ms, "lock acquired (mut)");
+
+                let op_start = Instant::now();
+                let res = f(&mut *guard);
+                let op_ms = op_start.elapsed().as_millis();
+
+                info!(%label, op_ms, total_ms = %(start.elapsed().as_millis()), "operation complete (mut)");
+
+                return res.map_err(|e| StorageLockError::Other(e.to_string()));
+            }
+            Err(_) => {
+                if attempt % 5 == 0 {
+                    info!(%label, attempt, "lock contention (mut), retrying...");
+                }
+                std::thread::sleep(Duration::from_millis(STORAGE_LOCK_SPIN_MS));
+            }
+        }
+    }
+
+    let waited_ms = start.elapsed().as_millis();
+    warn!(%label, waited_ms, "lock timeout (mut) - returning 503");
+    Err(StorageLockError::Timeout)
+}

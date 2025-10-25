@@ -5,6 +5,7 @@ use crate::postgres_persistence::PostgresPersistence;
 use crate::postgres_storage_with_cache::PostgresStorageWithCache;
 use crate::rate_limiter::RateLimiter;
 use crate::redis_cache::RedisCache;
+use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::storage_history_reader::StorageHistoryReader;
 use crate::{
     ActivityEngine, AuditEngine, CircuitsEngine, EventsEngine, ItemsEngine, NotificationEngine,
@@ -131,15 +132,16 @@ impl AppState {
 
     /// Helper to safely access storage with read lock from async context
     /// Uses spawn_blocking to avoid holding sync lock across await points
-    pub async fn with_storage_read<F, R>(&self, f: F) -> R
+    pub async fn with_storage_read<F, R>(&self, f: F) -> Result<R, StorageLockError>
     where
-        F: FnOnce(&PostgresStorageWithCache) -> R + Send + 'static,
+        F: FnOnce(&PostgresStorageWithCache) -> Result<R, Box<dyn std::error::Error>>
+            + Send
+            + 'static,
         R: Send + 'static,
     {
         let storage = self.shared_storage.clone();
         tokio::task::spawn_blocking(move || {
-            let guard = storage.lock().unwrap();
-            f(&guard)
+            with_storage(&storage, "shared_state.rs::with_storage_read::read", f)
         })
         .await
         .expect("Storage read task panicked")
@@ -147,15 +149,20 @@ impl AppState {
 
     /// Helper to safely access storage with write lock from async context
     /// Uses spawn_blocking to avoid holding sync lock across await points
-    pub async fn with_storage_write<F, R>(&self, f: F) -> R
+    pub async fn with_storage_write<F, R>(&self, f: F) -> Result<R, StorageLockError>
     where
-        F: FnOnce(&mut PostgresStorageWithCache) -> R + Send + 'static,
+        F: FnOnce(&mut PostgresStorageWithCache) -> Result<R, Box<dyn std::error::Error>>
+            + Send
+            + 'static,
         R: Send + 'static,
     {
         let storage = self.shared_storage.clone();
         tokio::task::spawn_blocking(move || {
-            let mut guard = storage.lock().unwrap();
-            f(&mut guard)
+            crate::storage_helpers::with_lock_mut(
+                &storage,
+                "shared_state.rs::with_storage_write::write",
+                f,
+            )
         })
         .await
         .expect("Storage write task panicked")

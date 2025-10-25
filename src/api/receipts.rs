@@ -12,7 +12,8 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::api::items::{build_identifiers, IdentifierRequest};
-use crate::{InMemoryStorage, ReceiptEngine, ReceiptError};
+use crate::storage_helpers::{with_lock_mut, StorageLockError};
+use crate::{InMemoryStorage, ReceiptEngine};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateReceiptRequest {
@@ -99,32 +100,47 @@ async fn create_receipt(
         ));
     }
 
-    let mut engine = state.engine.lock().unwrap();
-
-    match engine.process_data(&data, identifiers.clone()) {
-        Ok(receipt) => {
-            let response = ReceiptResponse {
-                id: receipt.id.to_string(),
-                hash: receipt.hash,
-                timestamp: receipt.timestamp.timestamp(),
-                data_size: receipt.data_size,
-                identifiers: receipt
-                    .identifiers
-                    .into_iter()
-                    .map(|id| IdentifierRequest::from_identifier(&id))
-                    .collect(),
-            };
-            Ok(Json(response))
+    let receipt = with_lock_mut(
+        &state.engine,
+        "receipts::create_receipt::process_data",
+        |engine| {
+            engine
+                .process_data(&data, identifiers.clone())
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => {
+            if msg.contains("At least one identifier is required") {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "At least one identifier is required"})),
+                )
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Storage error: {}", msg)})),
+                )
+            }
         }
-        Err(ReceiptError::NoIdentifiers) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "At least one identifier is required"})),
-        )),
-        Err(ReceiptError::StorageError(e)) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Storage error: {}", e)})),
-        )),
-    }
+    })?;
+
+    let response = ReceiptResponse {
+        id: receipt.id.to_string(),
+        hash: receipt.hash,
+        timestamp: receipt.timestamp.timestamp(),
+        data_size: receipt.data_size,
+        identifiers: receipt
+            .identifiers
+            .into_iter()
+            .map(|id| IdentifierRequest::from_identifier(&id))
+            .collect(),
+    };
+    Ok(Json(response))
 }
 
 async fn get_receipt(
@@ -138,10 +154,28 @@ async fn get_receipt(
         )
     })?;
 
-    let engine = state.engine.lock().unwrap();
+    let receipt_opt = with_lock_mut(
+        &state.engine,
+        "receipts::get_receipt::get_receipt",
+        |engine| {
+            engine
+                .get_receipt(&receipt_id)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Storage error: {}", msg)})),
+        ),
+    })?;
 
-    match engine.get_receipt(&receipt_id) {
-        Ok(Some(receipt)) => {
+    match receipt_opt {
+        Some(receipt) => {
             let response = ReceiptResponse {
                 id: receipt.id.to_string(),
                 hash: receipt.hash,
@@ -155,13 +189,9 @@ async fn get_receipt(
             };
             Ok(Json(response))
         }
-        Ok(None) => Err((
+        None => Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Receipt not found"})),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Storage error: {}", e)})),
         )),
     }
 }
@@ -195,31 +225,46 @@ async fn verify_receipt(
         )
     })?;
 
-    let engine = state.engine.lock().unwrap();
-
-    match engine.verify_data(&receipt_id, &data) {
-        Ok(is_valid) => {
-            if let Ok(Some(receipt)) = engine.get_receipt(&receipt_id) {
-                // Calculate hash of provided data for comparison
-                let provided_hash = blake3::hash(&data).to_hex().to_string();
-
-                Ok(Json(VerificationResponse {
-                    is_valid,
-                    receipt_id: receipt_id.to_string(),
-                    original_hash: receipt.hash,
-                    provided_hash,
-                    timestamp: receipt.timestamp.timestamp(),
-                }))
-            } else {
-                Err((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({"error": "Receipt not found"})),
-                ))
-            }
-        }
-        Err(e) => Err((
+    let (is_valid, receipt_opt) = with_lock_mut(
+        &state.engine,
+        "receipts::verify_receipt::verify_and_get",
+        |engine| {
+            let is_valid = engine
+                .verify_data(&receipt_id, &data)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            let receipt_opt = engine
+                .get_receipt(&receipt_id)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            Ok((is_valid, receipt_opt))
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Verification error: {}", e)})),
+            Json(json!({"error": format!("Verification error: {}", msg)})),
+        ),
+    })?;
+
+    match receipt_opt {
+        Some(receipt) => {
+            // Calculate hash of provided data for comparison
+            let provided_hash = blake3::hash(&data).to_hex().to_string();
+
+            Ok(Json(VerificationResponse {
+                is_valid,
+                receipt_id: receipt_id.to_string(),
+                original_hash: receipt.hash,
+                provided_hash,
+                timestamp: receipt.timestamp.timestamp(),
+            }))
+        }
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Receipt not found"})),
         )),
     }
 }
@@ -234,121 +279,150 @@ async fn search_by_identifier(
             Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
         )
     })?;
-    let engine = state.engine.lock().unwrap();
 
-    match engine.find_receipts_by_identifier(&identifier) {
-        Ok(receipts) => {
-            let response: Vec<ReceiptResponse> = receipts
-                .into_iter()
-                .map(|receipt| ReceiptResponse {
-                    id: receipt.id.to_string(),
-                    hash: receipt.hash,
-                    timestamp: receipt.timestamp.timestamp(),
-                    data_size: receipt.data_size,
-                    identifiers: receipt
-                        .identifiers
-                        .into_iter()
-                        .map(|id| IdentifierRequest::from_identifier(&id))
-                        .collect(),
-                })
-                .collect();
-            Ok(Json(response))
-        }
-        Err(e) => Err((
+    let receipts = with_lock_mut(
+        &state.engine,
+        "receipts::search_by_identifier::find",
+        |engine| {
+            engine
+                .find_receipts_by_identifier(&identifier)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Search error: {}", e)})),
-        )),
-    }
+            Json(json!({"error": format!("Search error: {}", msg)})),
+        ),
+    })?;
+
+    let response: Vec<ReceiptResponse> = receipts
+        .into_iter()
+        .map(|receipt| ReceiptResponse {
+            id: receipt.id.to_string(),
+            hash: receipt.hash,
+            timestamp: receipt.timestamp.timestamp(),
+            data_size: receipt.data_size,
+            identifiers: receipt
+                .identifiers
+                .into_iter()
+                .map(|id| IdentifierRequest::from_identifier(&id))
+                .collect(),
+        })
+        .collect();
+    Ok(Json(response))
 }
 
 async fn search_by_key(
     State(state): State<Arc<ReceiptState>>,
     Path(key): Path<String>,
 ) -> Result<Json<Vec<ReceiptResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
-
-    match engine.find_receipts_by_key(&key) {
-        Ok(receipts) => {
-            let response: Vec<ReceiptResponse> = receipts
-                .into_iter()
-                .map(|receipt| ReceiptResponse {
-                    id: receipt.id.to_string(),
-                    hash: receipt.hash,
-                    timestamp: receipt.timestamp.timestamp(),
-                    data_size: receipt.data_size,
-                    identifiers: receipt
-                        .identifiers
-                        .into_iter()
-                        .map(|id| IdentifierRequest::from_identifier(&id))
-                        .collect(),
-                })
-                .collect();
-            Ok(Json(response))
-        }
-        Err(e) => Err((
+    let receipts = with_lock_mut(&state.engine, "receipts::search_by_key::find", |engine| {
+        engine
+            .find_receipts_by_key(&key)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+    })
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Search error: {}", e)})),
-        )),
-    }
+            Json(json!({"error": format!("Search error: {}", msg)})),
+        ),
+    })?;
+
+    let response: Vec<ReceiptResponse> = receipts
+        .into_iter()
+        .map(|receipt| ReceiptResponse {
+            id: receipt.id.to_string(),
+            hash: receipt.hash,
+            timestamp: receipt.timestamp.timestamp(),
+            data_size: receipt.data_size,
+            identifiers: receipt
+                .identifiers
+                .into_iter()
+                .map(|id| IdentifierRequest::from_identifier(&id))
+                .collect(),
+        })
+        .collect();
+    Ok(Json(response))
 }
 
 async fn search_by_value(
     State(state): State<Arc<ReceiptState>>,
     Path(value): Path<String>,
 ) -> Result<Json<Vec<ReceiptResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
-
-    match engine.find_receipts_by_value(&value) {
-        Ok(receipts) => {
-            let response: Vec<ReceiptResponse> = receipts
-                .into_iter()
-                .map(|receipt| ReceiptResponse {
-                    id: receipt.id.to_string(),
-                    hash: receipt.hash,
-                    timestamp: receipt.timestamp.timestamp(),
-                    data_size: receipt.data_size,
-                    identifiers: receipt
-                        .identifiers
-                        .into_iter()
-                        .map(|id| IdentifierRequest::from_identifier(&id))
-                        .collect(),
-                })
-                .collect();
-            Ok(Json(response))
-        }
-        Err(e) => Err((
+    let receipts = with_lock_mut(&state.engine, "receipts::search_by_value::find", |engine| {
+        engine
+            .find_receipts_by_value(&value)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+    })
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Search error: {}", e)})),
-        )),
-    }
+            Json(json!({"error": format!("Search error: {}", msg)})),
+        ),
+    })?;
+
+    let response: Vec<ReceiptResponse> = receipts
+        .into_iter()
+        .map(|receipt| ReceiptResponse {
+            id: receipt.id.to_string(),
+            hash: receipt.hash,
+            timestamp: receipt.timestamp.timestamp(),
+            data_size: receipt.data_size,
+            identifiers: receipt
+                .identifiers
+                .into_iter()
+                .map(|id| IdentifierRequest::from_identifier(&id))
+                .collect(),
+        })
+        .collect();
+    Ok(Json(response))
 }
 
 async fn list_receipts(
     State(state): State<Arc<ReceiptState>>,
 ) -> Result<Json<Vec<ReceiptResponse>>, (StatusCode, Json<Value>)> {
-    let engine = state.engine.lock().unwrap();
-
-    match engine.list_receipts() {
-        Ok(receipts) => {
-            let response: Vec<ReceiptResponse> = receipts
-                .into_iter()
-                .map(|receipt| ReceiptResponse {
-                    id: receipt.id.to_string(),
-                    hash: receipt.hash,
-                    timestamp: receipt.timestamp.timestamp(),
-                    data_size: receipt.data_size,
-                    identifiers: receipt
-                        .identifiers
-                        .into_iter()
-                        .map(|id| IdentifierRequest::from_identifier(&id))
-                        .collect(),
-                })
-                .collect();
-            Ok(Json(response))
-        }
-        Err(e) => Err((
+    let receipts = with_lock_mut(&state.engine, "receipts::list_receipts::list", |engine| {
+        engine
+            .list_receipts()
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+    })
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Storage error: {}", e)})),
-        )),
-    }
+            Json(json!({"error": format!("Storage error: {}", msg)})),
+        ),
+    })?;
+
+    let response: Vec<ReceiptResponse> = receipts
+        .into_iter()
+        .map(|receipt| ReceiptResponse {
+            id: receipt.id.to_string(),
+            hash: receipt.hash,
+            timestamp: receipt.timestamp.timestamp(),
+            data_size: receipt.data_size,
+            identifiers: receipt
+                .identifiers
+                .into_iter()
+                .map(|id| IdentifierRequest::from_identifier(&id))
+                .collect(),
+        })
+        .collect();
+    Ok(Json(response))
 }

@@ -11,6 +11,7 @@ use crate::adapters::{
 };
 use crate::api::shared_state::AppState;
 use crate::storage::StorageBackend;
+use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::types::{Item, ItemStatus};
 use std::collections::HashMap;
 
@@ -59,15 +60,25 @@ async fn test_blockchain_push(
     };
 
     // Store in database first
-    {
-        let storage = state.shared_storage.lock().unwrap();
-        storage.store_item(&test_item).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Failed to store item: {}", e)})),
-            )
-        })?;
-    }
+    with_storage(
+        &state.shared_storage,
+        "test_blockchain.rs::test_blockchain_push::store_item",
+        |storage| {
+            storage
+                .store_item(&test_item)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to store item: {}", msg)})),
+        ),
+    })?;
 
     // Test the adapter based on type
     let result = match payload.adapter_type.as_str() {

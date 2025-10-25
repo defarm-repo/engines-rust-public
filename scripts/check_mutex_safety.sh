@@ -1,94 +1,38 @@
 #!/bin/bash
-# Detects dangerous patterns: MutexGuard held during CPU/IO intensive operations
+# CI Guardrail: Fail if any src/api/*.rs contains .lock().unwrap()
+# Only allow lock usage inside with_storage/with_lock helpers
 
 set -e
 
-echo "🔍 Checking for unsafe mutex usage patterns..."
-echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔒 Checking Mutex Safety in API Handlers"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Exclude backup files
+FILES=$(find src/api -name "*.rs" -type f | grep -v backup | grep -v "\.bak")
 
 VIOLATIONS=0
 
-# Pattern 1: .lock() followed by bcrypt operations
-echo "Checking for: .lock() → bcrypt operations..."
-BCRYPT_VIOLATIONS=$(grep -rn "\.lock()" src/ --include="*.rs" -A 20 | \
-  grep -B 5 "bcrypt::\|verify(\|hash(" | \
-  grep "\.lock()" | \
-  grep -v "backup\|\.bak" || true)
-
-if [ -n "$BCRYPT_VIOLATIONS" ]; then
-  echo "❌ FAIL: Found .lock() before bcrypt operations:"
-  echo "$BCRYPT_VIOLATIONS"
-  echo ""
-  VIOLATIONS=$((VIOLATIONS + 1))
-fi
-
-# Pattern 2: .lock() followed by JWT operations  
-echo "Checking for: .lock() → JWT/token generation..."
-JWT_VIOLATIONS=$(grep -rn "\.lock()" src/ --include="*.rs" -A 20 | \
-  grep -B 5 "generate_token\|encode(\|jwt::" | \
-  grep "\.lock()" | \
-  grep -v "backup\|\.bak" || true)
-
-if [ -n "$JWT_VIOLATIONS" ]; then
-  echo "⚠️  WARNING: Found .lock() before JWT operations:"
-  echo "$JWT_VIOLATIONS"
-  echo ""
-fi
-
-# Pattern 3: .lock() followed by HTTP requests
-echo "Checking for: .lock() → HTTP/network calls..."
-HTTP_VIOLATIONS=$(grep -rn "\.lock()" src/ --include="*.rs" -A 20 | \
-  grep -B 5 "reqwest::\|curl\|http_client" | \
-  grep "\.lock()" | \
-  grep -v "backup\|\.bak" || true)
-
-if [ -n "$HTTP_VIOLATIONS" ]; then
-  echo "⚠️  WARNING: Found .lock() before HTTP calls:"
-  echo "$HTTP_VIOLATIONS"
-  echo ""
-fi
-
-# Pattern 4: .lock() followed by tokio::spawn
-echo "Checking for: .lock() → tokio::spawn..."
-SPAWN_VIOLATIONS=$(grep -rn "\.lock()" src/ --include="*.rs" -A 10 | \
-  grep -B 3 "tokio::spawn" | \
-  grep "\.lock()" | \
-  grep -v "backup\|\.bak" || true)
-
-if [ -n "$SPAWN_VIOLATIONS" ]; then
-  echo "⚠️  WARNING: Found .lock() before tokio::spawn:"
-  echo "$SPAWN_VIOLATIONS"
-  echo ""
-fi
-
-# Pattern 5: MutexGuard not dropped before .await
-echo "Checking for: MutexGuard held across .await..."
-AWAIT_VIOLATIONS=$(grep -rn "let.*=.*\.lock()" src/ --include="*.rs" -A 10 | \
-  grep -B 3 "\.await" | \
-  grep "let.*=.*\.lock()" | \
-  grep -v "backup\|\.bak\|drop(" || true)
-
-if [ -n "$AWAIT_VIOLATIONS" ]; then
-  echo "⚠️  WARNING: Potential MutexGuard held across .await:"
-  echo "$AWAIT_VIOLATIONS"
-  echo ""
-fi
+for file in $FILES; do
+    # Check for .lock().unwrap()
+    if grep -n "\.lock()\.unwrap()" "$file" > /dev/null 2>&1; then
+        echo "❌ FAIL: $file contains .lock().unwrap()"
+        grep -n "\.lock()\.unwrap()" "$file"
+        VIOLATIONS=$((VIOLATIONS + 1))
+    fi
+done
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-if [ $VIOLATIONS -gt 0 ]; then
-  echo "❌ FAIL: Found $VIOLATIONS critical mutex safety violations"
-  echo ""
-  echo "Fix by using scoped blocks:"
-  echo "  let data = {"
-  echo "    let guard = storage.lock().unwrap();"
-  echo "    guard.get_data()"
-  echo "  }; // guard dropped here"
-  echo "  expensive_operation(data); // no lock held"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  exit 1
+if [ $VIOLATIONS -eq 0 ]; then
+    echo "✅ PASS: No unsafe .lock().unwrap() found in API handlers"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    exit 0
 else
-  echo "✅ PASS: No critical mutex safety violations found"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  exit 0
+    echo "❌ FAIL: Found $VIOLATIONS file(s) with unsafe .lock().unwrap()"
+    echo ""
+    echo "Use with_storage() or with_lock() helpers instead:"
+    echo "  with_storage(&state.shared_storage, \"label\", |storage| {...})"
+    echo "  with_lock(&state.mutex, \"label\", |data| {...})"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    exit 1
 fi

@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::api::auth::Claims;
 use crate::api::shared_state::AppState;
 use crate::storage::StorageBackend;
+use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::types::CreditCosts;
 
 // ============================================================================
@@ -117,32 +118,37 @@ pub async fn get_my_credit_history(
     let user_id = get_authenticated_user_id(&request)?;
     let limit = query.limit.unwrap_or(50);
 
-    // Get user account
-    let storage = state.shared_storage.lock().unwrap();
-    let user = storage
-        .get_user_account(&user_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
-            )
-        })?;
+    // Get user account and credit transactions
+    let (user, transactions) = with_storage(
+        &state.shared_storage,
+        "user_credits.rs::get_my_credit_history::read_data",
+        |storage| {
+            let user = storage.get_user_account(&user_id)?.ok_or_else(|| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "User not found",
+                )) as Box<dyn std::error::Error>
+            })?;
 
-    // Get credit transactions
-    let transactions = storage
-        .get_credit_transactions(&user_id, Some(limit))
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?;
+            let transactions = storage.get_credit_transactions(&user_id, Some(limit))?;
+
+            Ok((user, transactions))
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) if msg.contains("not found") => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     let transaction_responses: Vec<CreditTransactionResponse> = transactions
         .into_iter()
@@ -171,21 +177,32 @@ pub async fn get_my_operation_costs(
     let user_id = get_authenticated_user_id(&request)?;
 
     // Get user account
-    let storage = state.shared_storage.lock().unwrap();
-    let user = storage
-        .get_user_account(&user_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
-            )
-        })?;
+    let user = with_storage(
+        &state.shared_storage,
+        "user_credits.rs::get_my_operation_costs::read_user",
+        |storage| {
+            storage.get_user_account(&user_id)?.ok_or_else(|| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "User not found",
+                )) as Box<dyn std::error::Error>
+            })
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) if msg.contains("not found") => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     // Get credit costs for user's tier
     let credit_costs = CreditCosts::for_tier(&user.tier);
@@ -210,21 +227,32 @@ pub async fn get_my_profile(
     let user_id = get_authenticated_user_id(&request)?;
 
     // Get user account
-    let storage = state.shared_storage.lock().unwrap();
-    let user = storage
-        .get_user_account(&user_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
-            )
-        })?;
+    let user = with_storage(
+        &state.shared_storage,
+        "user_credits.rs::get_my_profile::read_user",
+        |storage| {
+            storage.get_user_account(&user_id)?.ok_or_else(|| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "User not found",
+                )) as Box<dyn std::error::Error>
+            })
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) if msg.contains("not found") => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     let subscription = user.subscription.as_ref().map(|sub| SubscriptionResponse {
         plan_id: sub.plan_id.clone(),
@@ -268,21 +296,32 @@ pub async fn get_my_credit_balance(
     let user_id = get_authenticated_user_id(&request)?;
 
     // Get user account
-    let storage = state.shared_storage.lock().unwrap();
-    let user = storage
-        .get_user_account(&user_id)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
-            )
-        })?;
+    let user = with_storage(
+        &state.shared_storage,
+        "user_credits.rs::get_my_credit_balance::read_user",
+        |storage| {
+            storage.get_user_account(&user_id)?.ok_or_else(|| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "User not found",
+                )) as Box<dyn std::error::Error>
+            })
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily unavailable"})),
+        ),
+        StorageLockError::Other(msg) if msg.contains("not found") => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     Ok(Json(json!({
         "credits": user.credits,

@@ -14,6 +14,7 @@ use crate::api_key_engine::{
 };
 use crate::api_key_middleware::ApiKeyContext;
 use crate::api_key_storage::ApiKeyStorage;
+use crate::storage_helpers::{with_lock_mut, StorageLockError};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateApiKeyPayload {
@@ -108,16 +109,26 @@ pub async fn create_api_key(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    {
-        let mut logger = state.logging.lock().unwrap();
-        logger.info(
-            "api_keys",
-            "key_created",
-            format!(
-                "New API key created: {} by user {}",
-                stored_key.id, context.user_id
-            ),
-        );
+    let log_result = with_lock_mut(
+        &state.logging,
+        "api_keys.rs::create_api_key::log_create",
+        |logger| {
+            logger.info(
+                "api_keys",
+                "key_created",
+                format!(
+                    "New API key created: {} by user {}",
+                    stored_key.id, context.user_id
+                ),
+            );
+            Ok(())
+        },
+    );
+    if let Err(StorageLockError::Timeout) = log_result {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Service temporarily unavailable".to_string(),
+        ));
     }
 
     Ok(Json(CreateApiKeyResponse {
@@ -219,13 +230,23 @@ pub async fn update_api_key(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    {
-        let mut logger = state.logging.lock().unwrap();
-        logger.info(
-            "api_keys",
-            "key_updated",
-            format!("API key updated: {} by user {}", key_id, context.user_id),
-        );
+    let log_result = with_lock_mut(
+        &state.logging,
+        "api_keys.rs::update_api_key::log_update",
+        |logger| {
+            logger.info(
+                "api_keys",
+                "key_updated",
+                format!("API key updated: {} by user {}", key_id, context.user_id),
+            );
+            Ok(())
+        },
+    );
+    if let Err(StorageLockError::Timeout) = log_result {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Service temporarily unavailable".to_string(),
+        ));
     }
 
     Ok(Json(updated_key.into()))
@@ -257,13 +278,23 @@ pub async fn delete_api_key(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    {
-        let mut logger = state.logging.lock().unwrap();
-        logger.info(
-            "api_keys",
-            "key_deleted",
-            format!("API key deleted: {} by user {}", key_id, context.user_id),
-        );
+    let log_result = with_lock_mut(
+        &state.logging,
+        "api_keys.rs::delete_api_key::log_delete",
+        |logger| {
+            logger.info(
+                "api_keys",
+                "key_deleted",
+                format!("API key deleted: {} by user {}", key_id, context.user_id),
+            );
+            Ok(())
+        },
+    );
+    if let Err(StorageLockError::Timeout) = log_result {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Service temporarily unavailable".to_string(),
+        ));
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -297,13 +328,23 @@ pub async fn revoke_api_key(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    {
-        let mut logger = state.logging.lock().unwrap();
-        logger.info(
-            "api_keys",
-            "key_revoked",
-            format!("API key revoked: {} by user {}", key_id, context.user_id),
-        );
+    let log_result = with_lock_mut(
+        &state.logging,
+        "api_keys.rs::revoke_api_key::log_revoke",
+        |logger| {
+            logger.info(
+                "api_keys",
+                "key_revoked",
+                format!("API key revoked: {} by user {}", key_id, context.user_id),
+            );
+            Ok(())
+        },
+    );
+    if let Err(StorageLockError::Timeout) = log_result {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Service temporarily unavailable".to_string(),
+        ));
     }
 
     Ok(Json(updated_key.into()))
