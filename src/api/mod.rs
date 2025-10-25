@@ -21,7 +21,7 @@ pub mod zk_proofs;
 pub use activities::activity_routes;
 pub use adapters::adapter_routes;
 pub use admin::admin_routes;
-pub use api_keys::*;
+pub use api_keys::api_key_routes;
 pub use audit::audit_routes;
 pub use auth::auth_routes;
 pub use circuits::circuit_routes;

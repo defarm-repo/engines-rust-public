@@ -1,6 +1,7 @@
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    async_trait,
+    extract::{FromRequestParts, Path, Query, State},
+    http::{request::Parts, StatusCode},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -8,13 +9,46 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::api::auth::Claims;
 use crate::api::shared_state::AppState;
 use crate::api_key_engine::{
     ApiKeyMetadata, ApiKeyPermissions, CreateApiKeyRequest, OrganizationType,
 };
-use crate::api_key_middleware::ApiKeyContext;
 use crate::api_key_storage::ApiKeyStorage;
 use crate::storage_helpers::{with_lock_mut, StorageLockError};
+
+/// Helper to extract authenticated user from JWT
+#[derive(Debug, Clone)]
+pub struct AuthUser {
+    pub user_id: String,
+    pub workspace_id: Option<String>,
+}
+
+#[async_trait]
+impl FromRequestParts<Arc<AppState>> for AuthUser {
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        let claims = parts
+            .extensions
+            .get::<Claims>()
+            .ok_or_else(|| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    "Authentication required".to_string(),
+                )
+            })?
+            .clone();
+
+        Ok(AuthUser {
+            user_id: claims.user_id,
+            workspace_id: claims.workspace_id,
+        })
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateApiKeyPayload {
@@ -80,15 +114,23 @@ pub struct DailyUsageItem {
 /// Create a new API key
 pub async fn create_api_key(
     State(state): State<Arc<AppState>>,
-    context: ApiKeyContext,
+    auth: AuthUser,
     Json(payload): Json<CreateApiKeyPayload>,
 ) -> Result<Json<CreateApiKeyResponse>, (StatusCode, String)> {
+    // Parse user_id as UUID
+    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Invalid user ID format".to_string(),
+        )
+    })?;
+
     // Generate the API key
     let (full_key, _, _) = state.api_key_engine.generate_key();
 
     let request = CreateApiKeyRequest {
         name: payload.name,
-        created_by: context.user_id,
+        created_by: user_uuid,
         organization_type: payload.organization_type,
         organization_id: payload.organization_id,
         permissions: payload.permissions,
@@ -118,7 +160,7 @@ pub async fn create_api_key(
                 "key_created",
                 format!(
                     "New API key created: {} by user {}",
-                    stored_key.id, context.user_id
+                    stored_key.id, auth.user_id
                 ),
             );
             Ok(())
@@ -141,12 +183,20 @@ pub async fn create_api_key(
 /// List all API keys for the authenticated user
 pub async fn list_api_keys(
     State(state): State<Arc<AppState>>,
-    context: ApiKeyContext,
+    auth: AuthUser,
     Query(query): Query<ListApiKeysQuery>,
 ) -> Result<Json<Vec<ApiKeyListItem>>, (StatusCode, String)> {
+    // Parse user_id as UUID
+    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Invalid user ID format".to_string(),
+        )
+    })?;
+
     let api_keys = state
         .api_key_storage
-        .get_user_api_keys(context.user_id)
+        .get_user_api_keys(user_uuid)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -166,9 +216,17 @@ pub async fn list_api_keys(
 /// Get a specific API key by ID
 pub async fn get_api_key(
     State(state): State<Arc<AppState>>,
-    context: ApiKeyContext,
+    auth: AuthUser,
     Path(key_id): Path<Uuid>,
 ) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)> {
+    // Parse user_id as UUID
+    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Invalid user ID format".to_string(),
+        )
+    })?;
+
     let api_key = state
         .api_key_storage
         .get_api_key(key_id)
@@ -176,7 +234,7 @@ pub async fn get_api_key(
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     // Verify ownership
-    if api_key.created_by != context.user_id && !context.permissions.admin {
+    if api_key.created_by != user_uuid {
         return Err((
             StatusCode::FORBIDDEN,
             "You don't have permission to access this API key".to_string(),
@@ -189,10 +247,18 @@ pub async fn get_api_key(
 /// Update an API key
 pub async fn update_api_key(
     State(state): State<Arc<AppState>>,
-    context: ApiKeyContext,
+    auth: AuthUser,
     Path(key_id): Path<Uuid>,
     Json(payload): Json<UpdateApiKeyPayload>,
 ) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)> {
+    // Parse user_id as UUID
+    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Invalid user ID format".to_string(),
+        )
+    })?;
+
     let mut api_key = state
         .api_key_storage
         .get_api_key(key_id)
@@ -200,7 +266,7 @@ pub async fn update_api_key(
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     // Verify ownership
-    if api_key.created_by != context.user_id && !context.permissions.admin {
+    if api_key.created_by != user_uuid {
         return Err((
             StatusCode::FORBIDDEN,
             "You don't have permission to update this API key".to_string(),
@@ -237,7 +303,7 @@ pub async fn update_api_key(
             logger.info(
                 "api_keys",
                 "key_updated",
-                format!("API key updated: {} by user {}", key_id, context.user_id),
+                format!("API key updated: {} by user {}", key_id, auth.user_id),
             );
             Ok(())
         },
@@ -255,9 +321,17 @@ pub async fn update_api_key(
 /// Delete an API key
 pub async fn delete_api_key(
     State(state): State<Arc<AppState>>,
-    context: ApiKeyContext,
+    auth: AuthUser,
     Path(key_id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    // Parse user_id as UUID
+    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Invalid user ID format".to_string(),
+        )
+    })?;
+
     let api_key = state
         .api_key_storage
         .get_api_key(key_id)
@@ -265,7 +339,7 @@ pub async fn delete_api_key(
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     // Verify ownership
-    if api_key.created_by != context.user_id && !context.permissions.admin {
+    if api_key.created_by != user_uuid {
         return Err((
             StatusCode::FORBIDDEN,
             "You don't have permission to delete this API key".to_string(),
@@ -285,7 +359,7 @@ pub async fn delete_api_key(
             logger.info(
                 "api_keys",
                 "key_deleted",
-                format!("API key deleted: {} by user {}", key_id, context.user_id),
+                format!("API key deleted: {} by user {}", key_id, auth.user_id),
             );
             Ok(())
         },
@@ -303,9 +377,17 @@ pub async fn delete_api_key(
 /// Revoke an API key (set as inactive)
 pub async fn revoke_api_key(
     State(state): State<Arc<AppState>>,
-    context: ApiKeyContext,
+    auth: AuthUser,
     Path(key_id): Path<Uuid>,
 ) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)> {
+    // Parse user_id as UUID
+    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Invalid user ID format".to_string(),
+        )
+    })?;
+
     let mut api_key = state
         .api_key_storage
         .get_api_key(key_id)
@@ -313,7 +395,7 @@ pub async fn revoke_api_key(
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     // Verify ownership
-    if api_key.created_by != context.user_id && !context.permissions.admin {
+    if api_key.created_by != user_uuid {
         return Err((
             StatusCode::FORBIDDEN,
             "You don't have permission to revoke this API key".to_string(),
@@ -335,7 +417,7 @@ pub async fn revoke_api_key(
             logger.info(
                 "api_keys",
                 "key_revoked",
-                format!("API key revoked: {} by user {}", key_id, context.user_id),
+                format!("API key revoked: {} by user {}", key_id, auth.user_id),
             );
             Ok(())
         },
@@ -353,10 +435,18 @@ pub async fn revoke_api_key(
 /// Get usage statistics for an API key
 pub async fn get_usage_stats(
     State(state): State<Arc<AppState>>,
-    context: ApiKeyContext,
+    auth: AuthUser,
     Path(key_id): Path<Uuid>,
     Query(query): Query<UsageStatsQuery>,
 ) -> Result<Json<UsageStatsResponse>, (StatusCode, String)> {
+    // Parse user_id as UUID
+    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Invalid user ID format".to_string(),
+        )
+    })?;
+
     let api_key = state
         .api_key_storage
         .get_api_key(key_id)
@@ -364,7 +454,7 @@ pub async fn get_usage_stats(
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     // Verify ownership
-    if api_key.created_by != context.user_id && !context.permissions.admin {
+    if api_key.created_by != user_uuid {
         return Err((
             StatusCode::FORBIDDEN,
             "You don't have permission to view usage stats for this API key".to_string(),
@@ -399,4 +489,20 @@ pub async fn get_usage_stats(
 #[derive(Debug, Deserialize)]
 pub struct UsageStatsQuery {
     pub days: Option<u32>,
+}
+
+/// Create API key routes
+pub fn api_key_routes() -> axum::Router<Arc<AppState>> {
+    use axum::routing::{delete, get, patch, post};
+
+    axum::Router::new()
+        .route("/", get(list_api_keys).post(create_api_key))
+        .route(
+            "/:key_id",
+            get(get_api_key)
+                .patch(update_api_key)
+                .delete(delete_api_key),
+        )
+        .route("/:key_id/revoke", post(revoke_api_key))
+        .route("/:key_id/usage", get(get_usage_stats))
 }
