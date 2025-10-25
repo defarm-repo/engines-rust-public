@@ -13,6 +13,7 @@ pub mod logging;
 pub mod receipt_engine;
 pub mod stellar_client;
 pub mod storage;
+pub mod storage_helpers;
 pub mod types;
 pub mod verification_engine;
 pub mod zk_proof_engine;

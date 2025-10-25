@@ -1,6 +1,7 @@
 use crate::api::shared_state::AppState;
 use crate::auth_middleware::jwt_auth_middleware;
 use crate::storage::StorageBackend;
+use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::types::{
     AccountStatus, CreditTransaction, CreditTransactionType, TierLimits, UserAccount, UserTier,
 };
@@ -178,24 +179,22 @@ async fn login(
     State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
-    // Get user by username from shared storage
-    let user = {
-        let lock_start = std::time::Instant::now();
-        let storage = app_state.shared_storage.lock().unwrap();
-        let lock_duration = lock_start.elapsed();
-
-        let result = storage
-            .get_user_by_username(&payload.username)
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error"})),
-                )
-            })?;
-
-        info!("Lock held for user lookup: {:?}", lock_duration);
-        result
-    }; // MutexGuard dropped here!
+    // Get user by username using non-blocking storage helper
+    let user = with_storage(
+        &app_state.shared_storage,
+        "auth_login_get_user",
+        |storage| Ok(storage.get_user_by_username(&payload.username)?),
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily busy, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     if let Some(user) = user {
         // Verify password (bcrypt is CPU intensive - must be done WITHOUT holding the lock!)
@@ -292,50 +291,41 @@ async fn register(
         return Err((StatusCode::BAD_REQUEST, Json(json!({"error": e}))));
     }
 
-    // Check for existing username/email (release lock immediately after)
-    {
-        let lock_start = std::time::Instant::now();
-        let storage = app_state.shared_storage.lock().unwrap();
-        let lock_duration = lock_start.elapsed();
-        info!(
-            "Lock acquired for username/email check: {:?}",
-            lock_duration
-        );
+    // Check for existing username/email using non-blocking storage helper
+    with_storage(
+        &app_state.shared_storage,
+        "auth_register_check_existing",
+        |storage| {
+            // Check if username already exists
+            if storage.get_user_by_username(&payload.username)?.is_some() {
+                return Err("Username already exists".into());
+            }
 
-        // Check if username already exists
-        if storage
-            .get_user_by_username(&payload.username)
-            .map_err(|_| {
+            // Check if email already exists
+            if storage.get_user_by_email(&payload.email)?.is_some() {
+                return Err("Email already exists".into());
+            }
+
+            Ok(())
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily busy, please retry"})),
+        ),
+        StorageLockError::Other(msg) => {
+            // Check if it's a conflict error
+            if msg.contains("already exists") {
+                (StatusCode::CONFLICT, Json(json!({"error": msg})))
+            } else {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error"})),
+                    Json(json!({"error": msg})),
                 )
-            })?
-            .is_some()
-        {
-            return Err((
-                StatusCode::CONFLICT,
-                Json(json!({"error": "Username already exists"})),
-            ));
+            }
         }
-
-        // Check if email already exists
-        if storage
-            .get_user_by_email(&payload.email)
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error"})),
-                )
-            })?
-            .is_some()
-        {
-            return Err((
-                StatusCode::CONFLICT,
-                Json(json!({"error": "Email already exists"})),
-            ));
-        }
-    } // MutexGuard dropped here!
+    })?;
 
     // Hash password (CPU intensive - must be done WITHOUT holding the lock!)
     let bcrypt_start = std::time::Instant::now();
@@ -374,42 +364,40 @@ async fn register(
         available_adapters: None, // Use tier defaults
     };
 
-    // Store user account and initial credit (acquire lock only for storage operations)
-    {
-        let lock_start = std::time::Instant::now();
-        let storage = app_state.shared_storage.lock().unwrap();
-        let lock_duration = lock_start.elapsed();
-        info!("Lock acquired for user storage: {:?}", lock_duration);
+    // Store user account and initial credit using non-blocking storage helper
+    let initial_credit_transaction = CreditTransaction {
+        transaction_id: Uuid::new_v4().to_string(),
+        user_id: user_id.clone(),
+        amount: 100,
+        transaction_type: CreditTransactionType::Grant,
+        description: "New user registration bonus".to_string(),
+        operation_type: Some("registration".to_string()),
+        operation_id: Some(user_id.clone()),
+        timestamp: Utc::now(),
+        balance_after: 100,
+    };
 
-        storage.store_user_account(&new_user).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?;
-
-        // Record initial credit grant
-        let initial_credit_transaction = CreditTransaction {
-            transaction_id: Uuid::new_v4().to_string(),
-            user_id: user_id.clone(),
-            amount: 100,
-            transaction_type: CreditTransactionType::Grant,
-            description: "New user registration bonus".to_string(),
-            operation_type: Some("registration".to_string()),
-            operation_id: Some(user_id.clone()),
-            timestamp: Utc::now(),
-            balance_after: 100,
-        };
-
-        storage
-            .record_credit_transaction(&initial_credit_transaction)
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": e.to_string()})),
-                )
-            })?;
-    } // MutexGuard dropped here!
+    let new_user_clone = new_user.clone();
+    let credit_tx_clone = initial_credit_transaction.clone();
+    with_storage(
+        &app_state.shared_storage,
+        "auth_register_store_user",
+        move |storage| {
+            storage.store_user_account(&new_user_clone)?;
+            storage.record_credit_transaction(&credit_tx_clone)?;
+            Ok(())
+        },
+    )
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily busy, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": msg})),
+        ),
+    })?;
 
     // PostgreSQL persistence happens asynchronously in background
     // to avoid Send/Sync issues with the handler
@@ -457,16 +445,23 @@ async fn get_profile(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<UserProfile>, (StatusCode, Json<Value>)> {
     // Extract user_id from JWT Claims injected by jwt_auth_middleware
-    let user_id = &claims.user_id;
+    let user_id = claims.user_id.clone();
 
-    let storage = app_state.shared_storage.lock().unwrap();
-
-    if let Some(user) = storage.get_user_account(user_id).map_err(|_| {
-        (
+    let user_opt = with_storage(&app_state.shared_storage, "auth_get_profile", |storage| {
+        Ok(storage.get_user_account(&user_id)?)
+    })
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily busy, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })? {
+            Json(json!({"error": msg})),
+        ),
+    })?;
+
+    if let Some(user) = user_opt {
         return Ok(Json(UserProfile {
             user_id: user.user_id,
             username: user.username,
@@ -487,16 +482,23 @@ async fn refresh_token(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
     // Extract user_id from JWT Claims injected by jwt_auth_middleware
-    let user_id = &claims.user_id;
+    let user_id = claims.user_id.clone();
 
-    let storage = app_state.shared_storage.lock().unwrap();
-
-    if let Some(user) = storage.get_user_account(user_id).map_err(|_| {
-        (
+    let user_opt = with_storage(&app_state.shared_storage, "auth_refresh_token", |storage| {
+        Ok(storage.get_user_account(&user_id)?)
+    })
+    .map_err(|e| match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "Service temporarily busy, please retry"})),
+        ),
+        StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })? {
+            Json(json!({"error": msg})),
+        ),
+    })?;
+
+    if let Some(user) = user_opt {
         let token = auth
             .generate_token(&user.user_id, user.workspace_id.clone())
             .map_err(|_| {
