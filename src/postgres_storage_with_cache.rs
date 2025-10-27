@@ -200,7 +200,7 @@ impl StorageBackend for PostgresStorageWithCache {
         Ok(())
     }
 
-    fn get_dfid_by_lid(&self, lid: &Uuid) -> Result<Option<String>, StorageError> {
+    fn get_dfid_by_lid(&self, _lid: &Uuid) -> Result<Option<String>, StorageError> {
         // TODO: PostgresPersistence needs get_dfid_by_lid method
         // For now, return None (mapping not found)
         Ok(None)
@@ -208,7 +208,7 @@ impl StorageBackend for PostgresStorageWithCache {
 
     fn get_dfid_by_canonical(
         &self,
-        namespace: &str,
+        _namespace: &str,
         registry: &str,
         value: &str,
     ) -> Result<Option<String>, StorageError> {
@@ -228,8 +228,8 @@ impl StorageBackend for PostgresStorageWithCache {
 
     fn get_dfid_by_fingerprint(
         &self,
-        fingerprint: &str,
-        circuit_id: &Uuid,
+        _fingerprint: &str,
+        _circuit_id: &Uuid,
     ) -> Result<Option<String>, StorageError> {
         // Fingerprint lookups not yet implemented
         Ok(None)

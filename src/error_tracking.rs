@@ -145,6 +145,23 @@ impl ErrorContext {
 pub fn classify_error(message: &str, status_code: u16) -> ErrorKind {
     let msg_lower = message.to_lowercase();
 
+    // Check status code first to prioritize HTTP semantics
+
+    // Auth errors (401, 403)
+    if status_code == 401 || status_code == 403 {
+        return ErrorKind::AuthError;
+    }
+
+    // Not found (404)
+    if status_code == 404 {
+        return ErrorKind::NotFound;
+    }
+
+    // Rate limit (429)
+    if status_code == 429 {
+        return ErrorKind::RateLimitExceeded;
+    }
+
     // Storage lock timeout (from with_storage helper)
     if msg_lower.contains("storage lock timeout") || msg_lower.contains("storage temporarily busy")
     {
@@ -167,19 +184,8 @@ pub fn classify_error(message: &str, status_code: u16) -> ErrorKind {
         return ErrorKind::DatabaseError;
     }
 
-    // Validation errors
-    if status_code == 400
-        || msg_lower.contains("invalid")
-        || msg_lower.contains("validation")
-        || msg_lower.contains("malformed")
-    {
-        return ErrorKind::ValidationError;
-    }
-
-    // Auth errors
-    if status_code == 401
-        || status_code == 403
-        || msg_lower.contains("unauthorized")
+    // Auth errors (by message content)
+    if msg_lower.contains("unauthorized")
         || msg_lower.contains("forbidden")
         || msg_lower.contains("authentication")
         || msg_lower.contains("credentials")
@@ -187,14 +193,13 @@ pub fn classify_error(message: &str, status_code: u16) -> ErrorKind {
         return ErrorKind::AuthError;
     }
 
-    // Not found
-    if status_code == 404 {
-        return ErrorKind::NotFound;
-    }
-
-    // Rate limit
-    if status_code == 429 {
-        return ErrorKind::RateLimitExceeded;
+    // Validation errors (after auth check to avoid "invalid credentials" mismatch)
+    if status_code == 400
+        || msg_lower.contains("invalid")
+        || msg_lower.contains("validation")
+        || msg_lower.contains("malformed")
+    {
+        return ErrorKind::ValidationError;
     }
 
     // External service errors

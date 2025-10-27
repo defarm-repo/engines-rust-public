@@ -493,7 +493,7 @@ pub struct UsageStatsQuery {
 
 /// Create API key routes
 pub fn api_key_routes() -> axum::Router<Arc<AppState>> {
-    use axum::routing::{delete, get, patch, post};
+    use axum::routing::{get, post};
 
     axum::Router::new()
         .route("/", get(list_api_keys).post(create_api_key))
