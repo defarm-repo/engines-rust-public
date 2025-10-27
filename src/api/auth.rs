@@ -303,10 +303,12 @@ async fn register(
         return Err((StatusCode::BAD_REQUEST, Json(json!({"error": e}))));
     }
 
-    // Check for existing username/email using non-blocking storage helper
-    with_storage(
+    // Check for existing username/email using traced storage helper for structured error logging
+    with_storage_traced(
         &app_state.shared_storage,
         "auth_register_check_existing",
+        "/api/auth/register",
+        "POST",
         |storage| {
             // Check if username already exists
             if storage.get_user_by_username(&payload.username)?.is_some() {
@@ -391,9 +393,11 @@ async fn register(
 
     let new_user_clone = new_user.clone();
     let credit_tx_clone = initial_credit_transaction.clone();
-    with_storage(
+    with_storage_traced(
         &app_state.shared_storage,
         "auth_register_store_user",
+        "/api/auth/register",
+        "POST",
         move |storage| {
             storage.store_user_account(&new_user_clone)?;
             storage.record_credit_transaction(&credit_tx_clone)?;
