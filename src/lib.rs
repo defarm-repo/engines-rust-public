@@ -35,6 +35,7 @@ pub mod auth_middleware;
 pub mod credit_manager;
 pub mod db_init;
 pub mod error_handling;
+pub mod http_utils;
 pub mod notification_engine;
 pub mod postgres_persistence;
 pub mod rate_limiter;

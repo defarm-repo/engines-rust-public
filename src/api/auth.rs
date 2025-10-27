@@ -1,5 +1,6 @@
 use crate::api::shared_state::AppState;
 use crate::auth_middleware::jwt_auth_middleware;
+use crate::http_utils::svc_unavailable_retry;
 use crate::storage::StorageBackend;
 use crate::storage_helpers::{with_storage, with_storage_traced, StorageLockError};
 use crate::types::{
@@ -9,7 +10,7 @@ use axum::{
     extract::{Extension, State},
     http::StatusCode,
     middleware,
-    response::Json,
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
     Router,
 };
@@ -178,7 +179,7 @@ pub fn auth_routes(app_state: Arc<AppState>) -> Router {
 async fn login(
     State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
     Json(payload): Json<LoginRequest>,
-) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
+) -> Result<Json<AuthResponse>, Response> {
     let request_start = std::time::Instant::now();
 
     // Get user by username using traced storage helper for structured error logging
@@ -190,14 +191,14 @@ async fn login(
         |storage| Ok(storage.get_user_by_username(&payload.username)?),
     )
     .map_err(|e| match e {
-        StorageLockError::Timeout => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Service temporarily busy, please retry"})),
-        ),
+        StorageLockError::Timeout => {
+            svc_unavailable_retry("Service temporarily busy, please retry")
+        }
         StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": msg})),
-        ),
+        )
+            .into_response(),
     })?;
 
     if let Some(user) = user {
@@ -216,7 +217,7 @@ async fn login(
                         Json(
                             json!({"error": "Your account has been suspended. Please contact an administrator."}),
                         ),
-                    ));
+                    ).into_response());
                 }
                 AccountStatus::Banned => {
                     return Err((
@@ -224,7 +225,7 @@ async fn login(
                         Json(
                             json!({"error": "Your account has been banned. Please contact an administrator."}),
                         ),
-                    ));
+                    ).into_response());
                 }
                 AccountStatus::PendingVerification => {
                     return Err((
@@ -232,7 +233,7 @@ async fn login(
                         Json(
                             json!({"error": "Your account is pending verification. Please check your email."}),
                         ),
-                    ));
+                    ).into_response());
                 }
                 AccountStatus::TrialExpired => {
                     return Err((
@@ -240,7 +241,7 @@ async fn login(
                         Json(
                             json!({"error": "Your trial has expired. Please upgrade your account."}),
                         ),
-                    ));
+                    ).into_response());
                 }
                 AccountStatus::Active => {
                     // Account is active, proceed with login
@@ -255,6 +256,7 @@ async fn login(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(json!({"error": "Failed to generate token"})),
                     )
+                        .into_response()
                 })?;
 
             let expires_at = Utc::now()
@@ -290,17 +292,18 @@ async fn login(
     Err((
         StatusCode::UNAUTHORIZED,
         Json(json!({"error": "Invalid credentials"})),
-    ))
+    )
+        .into_response())
 }
 
 #[instrument(skip(auth, app_state, payload), fields(username = %payload.username, email = %payload.email))]
 async fn register(
     State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
     Json(payload): Json<RegisterRequest>,
-) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
+) -> Result<Json<AuthResponse>, Response> {
     // Validate password complexity
     if let Err(e) = validate_password_complexity(&payload.password) {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": e}))));
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": e}))).into_response());
     }
 
     // Check for existing username/email using traced storage helper for structured error logging
@@ -324,19 +327,19 @@ async fn register(
         },
     )
     .map_err(|e| match e {
-        StorageLockError::Timeout => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Service temporarily busy, please retry"})),
-        ),
+        StorageLockError::Timeout => {
+            svc_unavailable_retry("Service temporarily busy, please retry")
+        }
         StorageLockError::Other(msg) => {
             // Check if it's a conflict error
             if msg.contains("already exists") {
-                (StatusCode::CONFLICT, Json(json!({"error": msg})))
+                (StatusCode::CONFLICT, Json(json!({"error": msg}))).into_response()
             } else {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({"error": msg})),
                 )
+                    .into_response()
             }
         }
     })?;
@@ -348,6 +351,7 @@ async fn register(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Failed to hash password"})),
         )
+            .into_response()
     })?;
     let bcrypt_duration = bcrypt_start.elapsed();
     info!("Bcrypt hash generation took: {:?}", bcrypt_duration);
@@ -405,14 +409,14 @@ async fn register(
         },
     )
     .map_err(|e| match e {
-        StorageLockError::Timeout => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Service temporarily busy, please retry"})),
-        ),
+        StorageLockError::Timeout => {
+            svc_unavailable_retry("Service temporarily busy, please retry")
+        }
         StorageLockError::Other(msg) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": msg})),
-        ),
+        )
+            .into_response(),
     })?;
 
     // PostgreSQL persistence happens asynchronously in background
@@ -437,6 +441,7 @@ async fn register(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Failed to generate token"})),
             )
+                .into_response()
         })?;
 
     let expires_at = Utc::now()
