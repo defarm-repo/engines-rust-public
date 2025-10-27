@@ -10,7 +10,7 @@ echo ""
 
 # Fetch recent logs from Railway
 echo "Fetching logs from Railway (last 10,000 lines)..."
-railway logs --tail 10000 > /tmp/railway_logs.txt 2>&1 || {
+railway logs 2>&1 | tail -10000 > /tmp/railway_logs.txt || {
     echo "⚠️  Warning: Could not fetch Railway logs. Using local log file if available."
     if [ ! -f /tmp/railway_logs.txt ]; then
         echo "❌ No log file available. Exiting."
