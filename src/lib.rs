@@ -5,6 +5,7 @@ pub mod blockchain_event_listener;
 pub mod circuits_engine;
 pub mod conflict_detection;
 pub mod dfid_engine;
+pub mod error_tracking;
 pub mod events_engine;
 pub mod identifier_types;
 pub mod ipfs_client;

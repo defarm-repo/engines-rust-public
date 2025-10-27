@@ -1,7 +1,7 @@
 use crate::api::shared_state::AppState;
 use crate::auth_middleware::jwt_auth_middleware;
 use crate::storage::StorageBackend;
-use crate::storage_helpers::{with_storage, StorageLockError};
+use crate::storage_helpers::{with_storage, with_storage_traced, StorageLockError};
 use crate::types::{
     AccountStatus, CreditTransaction, CreditTransactionType, TierLimits, UserAccount, UserTier,
 };
@@ -179,10 +179,14 @@ async fn login(
     State((auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<Value>)> {
-    // Get user by username using non-blocking storage helper
-    let user = with_storage(
+    let request_start = std::time::Instant::now();
+
+    // Get user by username using traced storage helper for structured error logging
+    let user = with_storage_traced(
         &app_state.shared_storage,
         "auth_login_get_user",
+        "/api/auth/login",
+        "POST",
         |storage| Ok(storage.get_user_by_username(&payload.username)?),
     )
     .map_err(|e| match e {
@@ -258,7 +262,15 @@ async fn login(
                 .expect("valid timestamp")
                 .timestamp();
 
-            info!("Login successful for user: {}", user.user_id);
+            let total_duration = request_start.elapsed();
+            info!(
+                endpoint = "/api/auth/login",
+                method = "POST",
+                user_id = %user.user_id,
+                duration_ms = total_duration.as_millis(),
+                "Login successful"
+            );
+
             return Ok(Json(AuthResponse {
                 token,
                 user_id: user.user_id,

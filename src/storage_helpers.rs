@@ -1,4 +1,5 @@
 /// Storage lock helpers to prevent worker thread blocking
+use crate::error_tracking::{classify_error, ErrorContext, ErrorKind};
 use crate::storage::StorageBackend;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -143,5 +144,84 @@ where
 
     let waited_ms = start.elapsed().as_millis();
     warn!(%label, waited_ms, "lock timeout (mut) - returning 503");
+    Err(StorageLockError::Timeout)
+}
+
+/// Traced version of with_storage that logs structured error context
+/// Use this in API handlers for detailed error tracking
+pub fn with_storage_traced<S, T, F>(
+    storage: &Arc<Mutex<S>>,
+    label: &str,
+    endpoint: &str,
+    method: &str,
+    f: F,
+) -> Result<T, StorageLockError>
+where
+    S: StorageBackend,
+    F: FnOnce(&S) -> Result<T, Box<dyn std::error::Error>>,
+{
+    let start = Instant::now();
+    info!(%label, endpoint, method, "attempting to acquire storage lock");
+
+    // Try quick lock first, then spin with small sleeps to avoid blocking Tokio worker
+    for attempt in 0..(STORAGE_LOCK_TRY_MS / STORAGE_LOCK_SPIN_MS) {
+        match storage.try_lock() {
+            Ok(guard) => {
+                let acquire_ms = start.elapsed().as_millis();
+                info!(%label, acquire_ms, "storage lock acquired");
+
+                let op_start = Instant::now();
+                let res = f(&*guard);
+                let op_ms = op_start.elapsed().as_millis();
+                let total_ms = start.elapsed().as_millis();
+
+                info!(%label, op_ms, total_ms, "storage operation complete");
+
+                return res.map_err(|e| {
+                    let err_msg = e.to_string();
+                    let status_code = if err_msg.to_lowercase().contains("not found") {
+                        404
+                    } else {
+                        500
+                    };
+
+                    let error_kind = classify_error(&err_msg, status_code);
+
+                    let ctx = ErrorContext::new(
+                        endpoint.to_string(),
+                        method.to_string(),
+                        status_code,
+                        error_kind,
+                        err_msg,
+                    )
+                    .with_duration_ms(total_ms);
+
+                    ctx.log();
+                    StorageLockError::Other(ctx.message.clone())
+                });
+            }
+            Err(_) => {
+                if attempt % 5 == 0 {
+                    info!(%label, attempt, "storage lock contention, retrying...");
+                }
+                std::thread::sleep(Duration::from_millis(STORAGE_LOCK_SPIN_MS));
+            }
+        }
+    }
+
+    let waited_ms = start.elapsed().as_millis();
+
+    let ctx = ErrorContext::new(
+        endpoint.to_string(),
+        method.to_string(),
+        503,
+        ErrorKind::StorageLockTimeout,
+        "Storage temporarily busy, please retry".to_string(),
+    )
+    .with_duration_ms(waited_ms);
+
+    ctx.log();
+    warn!(%label, waited_ms, trace_id = %ctx.trace_id, "storage lock timeout - returning 503");
+
     Err(StorageLockError::Timeout)
 }
