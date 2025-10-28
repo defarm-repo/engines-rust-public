@@ -262,13 +262,8 @@ impl ApiKeyEngine {
             organization_type: request.organization_type.clone(),
             organization_id: request.organization_id,
             permissions: request.permissions.unwrap_or_default(),
-            allowed_endpoints: request.allowed_endpoints.unwrap_or_else(|| {
-                vec![
-                    "receipts".to_string(),
-                    "items".to_string(),
-                    "events".to_string(),
-                ]
-            }),
+            // Empty vector means no restrictions - allow all endpoints
+            allowed_endpoints: request.allowed_endpoints.unwrap_or_else(Vec::new),
             is_active: true,
             last_used_at: None,
             usage_count: 0,
