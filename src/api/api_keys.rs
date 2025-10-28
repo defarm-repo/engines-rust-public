@@ -17,6 +17,23 @@ use crate::api_key_engine::{
 use crate::api_key_storage::ApiKeyStorage;
 use crate::storage_helpers::{with_lock_mut, StorageLockError};
 
+/// Convert a string user ID to a deterministic UUID
+/// This allows the API key system (which uses UUIDs) to work with string user IDs
+/// Uses a simple hash-based approach for consistency
+fn user_id_to_uuid(user_id: &str) -> Uuid {
+    use blake3::Hasher;
+
+    // Hash the user ID to get a deterministic 16-byte value
+    let mut hasher = Hasher::new();
+    hasher.update(b"api_key_user_id:"); // Namespace prefix
+    hasher.update(user_id.as_bytes());
+    let hash = hasher.finalize();
+
+    // Take first 16 bytes for UUID
+    let bytes: [u8; 16] = hash.as_bytes()[0..16].try_into().unwrap();
+    Uuid::from_bytes(bytes)
+}
+
 /// Helper to extract authenticated user from JWT
 #[derive(Debug, Clone)]
 pub struct AuthUser {
@@ -117,13 +134,8 @@ pub async fn create_api_key(
     auth: AuthUser,
     Json(payload): Json<CreateApiKeyPayload>,
 ) -> Result<Json<CreateApiKeyResponse>, (StatusCode, String)> {
-    // Parse user_id as UUID
-    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Invalid user ID format".to_string(),
-        )
-    })?;
+    // Convert user_id to UUID (supports both UUID strings and regular strings)
+    let user_uuid = user_id_to_uuid(&auth.user_id);
 
     // Generate the API key
     let (full_key, _, _) = state.api_key_engine.generate_key();
@@ -186,13 +198,8 @@ pub async fn list_api_keys(
     auth: AuthUser,
     Query(query): Query<ListApiKeysQuery>,
 ) -> Result<Json<Vec<ApiKeyListItem>>, (StatusCode, String)> {
-    // Parse user_id as UUID
-    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Invalid user ID format".to_string(),
-        )
-    })?;
+    // Convert user_id to UUID
+    let user_uuid = user_id_to_uuid(&auth.user_id);
 
     let api_keys = state
         .api_key_storage
@@ -219,13 +226,8 @@ pub async fn get_api_key(
     auth: AuthUser,
     Path(key_id): Path<Uuid>,
 ) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)> {
-    // Parse user_id as UUID
-    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Invalid user ID format".to_string(),
-        )
-    })?;
+    // Convert user_id to UUID
+    let user_uuid = user_id_to_uuid(&auth.user_id);
 
     let api_key = state
         .api_key_storage
@@ -251,13 +253,8 @@ pub async fn update_api_key(
     Path(key_id): Path<Uuid>,
     Json(payload): Json<UpdateApiKeyPayload>,
 ) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)> {
-    // Parse user_id as UUID
-    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Invalid user ID format".to_string(),
-        )
-    })?;
+    // Convert user_id to UUID
+    let user_uuid = user_id_to_uuid(&auth.user_id);
 
     let mut api_key = state
         .api_key_storage
@@ -324,13 +321,8 @@ pub async fn delete_api_key(
     auth: AuthUser,
     Path(key_id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    // Parse user_id as UUID
-    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Invalid user ID format".to_string(),
-        )
-    })?;
+    // Convert user_id to UUID
+    let user_uuid = user_id_to_uuid(&auth.user_id);
 
     let api_key = state
         .api_key_storage
@@ -380,13 +372,8 @@ pub async fn revoke_api_key(
     auth: AuthUser,
     Path(key_id): Path<Uuid>,
 ) -> Result<Json<ApiKeyMetadata>, (StatusCode, String)> {
-    // Parse user_id as UUID
-    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Invalid user ID format".to_string(),
-        )
-    })?;
+    // Convert user_id to UUID
+    let user_uuid = user_id_to_uuid(&auth.user_id);
 
     let mut api_key = state
         .api_key_storage
@@ -439,13 +426,8 @@ pub async fn get_usage_stats(
     Path(key_id): Path<Uuid>,
     Query(query): Query<UsageStatsQuery>,
 ) -> Result<Json<UsageStatsResponse>, (StatusCode, String)> {
-    // Parse user_id as UUID
-    let user_uuid = Uuid::parse_str(&auth.user_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Invalid user ID format".to_string(),
-        )
-    })?;
+    // Convert user_id to UUID
+    let user_uuid = user_id_to_uuid(&auth.user_id);
 
     let api_key = state
         .api_key_storage
