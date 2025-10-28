@@ -60,19 +60,27 @@ impl<S: ApiKeyStorage> ApiKeyMiddlewareState<S> {
 }
 
 /// Extract API key from request headers
+/// Only extracts if it's an actual API key (starts with "dfm_")
+/// JWT tokens are ignored and handled by jwt_auth_middleware
 fn extract_api_key(headers: &HeaderMap) -> Option<String> {
     // Try X-API-Key header first
     if let Some(key) = headers.get("x-api-key") {
         if let Ok(key_str) = key.to_str() {
-            return Some(key_str.to_string());
+            if key_str.starts_with("dfm_") {
+                return Some(key_str.to_string());
+            }
         }
     }
 
     // Try Authorization header with Bearer scheme
+    // But only if it's an API key (starts with "dfm_"), not a JWT
     if let Some(auth) = headers.get("authorization") {
         if let Ok(auth_str) = auth.to_str() {
             if let Some(bearer_token) = auth_str.strip_prefix("Bearer ") {
-                return Some(bearer_token.to_string());
+                // Check if this is an API key (starts with dfm_) not a JWT
+                if bearer_token.starts_with("dfm_") {
+                    return Some(bearer_token.to_string());
+                }
             }
         }
     }
@@ -125,13 +133,10 @@ pub async fn api_key_auth_middleware<S: ApiKeyStorage + 'static>(
     next: Next,
 ) -> Result<Response, Response> {
     // Extract API key from headers
-    let api_key = extract_api_key(&headers).ok_or_else(|| {
-        error_response(
-            StatusCode::UNAUTHORIZED,
-            "missing_api_key",
-            "API key required. Provide it in X-API-Key header or Authorization Bearer token",
-        )
-    })?;
+    // If no API key found, pass through to JWT middleware
+    let Some(api_key) = extract_api_key(&headers) else {
+        return Ok(next.run(request).await);
+    };
 
     // Hash the key and look it up
     let key_hash = state.engine.hash_key(&api_key);
@@ -423,19 +428,44 @@ mod tests {
     #[tokio::test]
     async fn test_extract_api_key_from_header() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-api-key", "test_key".parse().unwrap());
+        headers.insert("x-api-key", "dfm_test_key_123".parse().unwrap());
 
         let key = extract_api_key(&headers);
-        assert_eq!(key, Some("test_key".to_string()));
+        assert_eq!(key, Some("dfm_test_key_123".to_string()));
     }
 
     #[tokio::test]
     async fn test_extract_api_key_from_bearer() {
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", "Bearer test_key".parse().unwrap());
+        headers.insert("authorization", "Bearer dfm_test_key_456".parse().unwrap());
 
         let key = extract_api_key(&headers);
-        assert_eq!(key, Some("test_key".to_string()));
+        assert_eq!(key, Some("dfm_test_key_456".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_jwt_token_ignored() {
+        // JWT tokens should be ignored by API key middleware
+        let mut headers = HeaderMap::new();
+        // Test JWT token (not a real secret, just for testing)
+        let test_jwt = format!(
+            "Bearer {}",
+            "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiaGVuIn0.xyz"
+        );
+        headers.insert("authorization", test_jwt.parse().unwrap());
+
+        let key = extract_api_key(&headers);
+        assert_eq!(key, None, "JWT tokens should not be extracted as API keys");
+    }
+
+    #[tokio::test]
+    async fn test_invalid_api_key_format_ignored() {
+        // API keys without dfm_ prefix should be ignored
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", "invalid_key_format".parse().unwrap());
+
+        let key = extract_api_key(&headers);
+        assert_eq!(key, None, "Keys without dfm_ prefix should be ignored");
     }
 
     #[tokio::test]
