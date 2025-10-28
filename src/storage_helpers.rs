@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
-const STORAGE_LOCK_TRY_MS: u64 = 50;
-const STORAGE_LOCK_SPIN_MS: u64 = 5;
+const STORAGE_LOCK_TRY_MS: u64 = 2000;
+const STORAGE_LOCK_SPIN_MS: u64 = 10;
 
 #[derive(Debug)]
 pub enum StorageLockError {
