@@ -190,7 +190,7 @@ async fn async_main() {
     // Storage access uses spawn_blocking to safely bridge sync storage with async runtime
     info!("🏗️  Creating PostgreSQL primary storage with optional Redis cache...");
     let pg_persistence_wrapped = Arc::new(tokio::sync::RwLock::new(Some(pg_persistence.clone())));
-    let redis_cache_wrapped = redis_cache_opt.map(|rc| Arc::new(rc));
+    let redis_cache_wrapped = redis_cache_opt.map(Arc::new);
     let postgres_storage =
         defarm_engine::PostgresStorageWithCache::new(pg_persistence_wrapped, redis_cache_wrapped);
     let shared_storage = Arc::new(std::sync::Mutex::new(postgres_storage));
@@ -840,7 +840,7 @@ async fn load_data_from_postgres(
     let users = pg.load_users().await?;
     let user_count = users.len();
     if !users.is_empty() {
-        let mut storage = app_state.shared_storage.lock().unwrap();
+        let storage = app_state.shared_storage.lock().unwrap();
 
         for user in users {
             storage
@@ -868,7 +868,7 @@ async fn load_data_from_postgres(
         let item_count = items.len();
 
         if !items.is_empty() {
-            let mut storage = app_state.shared_storage.lock().unwrap();
+            let storage = app_state.shared_storage.lock().unwrap();
 
             for item in items {
                 storage
@@ -893,7 +893,7 @@ async fn load_data_from_postgres(
     let circuits = pg.load_circuits().await?;
     let circuit_count = circuits.len();
     if !circuits.is_empty() {
-        let mut storage = app_state.shared_storage.lock().unwrap();
+        let storage = app_state.shared_storage.lock().unwrap();
 
         for circuit in circuits {
             storage
@@ -912,7 +912,7 @@ async fn load_data_from_postgres(
     let adapters = pg.load_adapter_configs().await?;
     let adapter_count = adapters.len();
     if !adapters.is_empty() {
-        let mut storage = app_state.shared_storage.lock().unwrap();
+        let storage = app_state.shared_storage.lock().unwrap();
 
         for adapter in adapters {
             storage

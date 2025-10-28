@@ -108,7 +108,7 @@ async fn timeline_entries_can_be_added() {
         .await
         .expect("push");
 
-    let mut guard = storage.lock().expect("lock storage");
+    let guard = storage.lock().expect("lock storage");
     guard
         .add_cid_to_timeline(
             &push.dfid,

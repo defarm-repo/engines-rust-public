@@ -1099,7 +1099,7 @@ async fn push_local_item(
     };
 
     let operation_to_persist = {
-        let operation_id_clone = result.operation_id.clone();
+        let operation_id_clone = result.operation_id;
         match with_storage(
             &state.shared_storage,
             "circuits::push_local::get_circuit_operation",
@@ -2701,7 +2701,7 @@ async fn reject_pending_item(
     drop(circuits_engine);
 
     let operation_to_persist = {
-        let operation_id_clone = operation_id.clone();
+        let operation_id_clone = operation_id;
         match with_storage(
             &state.shared_storage,
             "circuits::reject_pending_item::get_circuit_operation",

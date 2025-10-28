@@ -457,7 +457,7 @@ fn test_root_directory_cleanliness() {
         "CONTRIBUTING.md",
     ];
 
-    let allowed_dirs = vec![
+    let allowed_dirs = [
         "src", "tests", "examples", "docs", "scripts", "config", "target", ".git", ".cargo",
     ];
 

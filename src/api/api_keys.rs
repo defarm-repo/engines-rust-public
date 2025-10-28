@@ -152,7 +152,7 @@ pub async fn create_api_key(
             let user_opt = storage.get_user_account(&auth.user_id).map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Database error: {}", e),
+                    format!("Database error: {e}"),
                 )
             })?;
 
@@ -320,7 +320,7 @@ pub async fn update_api_key(
             let user_opt = storage.get_user_account(&auth.user_id).map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Database error: {}", e),
+                    format!("Database error: {e}"),
                 )
             })?;
 

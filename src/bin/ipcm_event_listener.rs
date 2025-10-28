@@ -24,7 +24,6 @@
 ///   MAINNET_BATCH_SIZE                - Mainnet ledgers per batch (default: 100)
 use std::env;
 use std::sync::Arc;
-use tokio;
 use tracing::{error, info, warn};
 
 use defarm_engine::blockchain_event_listener::{BlockchainEventListener, EventListenerConfig};

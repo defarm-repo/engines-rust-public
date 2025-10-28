@@ -18,7 +18,7 @@ impl std::fmt::Display for StorageLockError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StorageLockError::Timeout => write!(f, "Storage lock timeout"),
-            StorageLockError::Other(s) => write!(f, "{}", s),
+            StorageLockError::Other(s) => write!(f, "{s}"),
         }
     }
 }

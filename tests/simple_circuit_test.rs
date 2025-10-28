@@ -53,7 +53,7 @@ async fn test_circuit_basic_flow() {
             println!("      Sponsor access: {}", config.sponsor_adapter_access);
         }
         Err(e) => {
-            println!("   ❌ Failed to configure adapter: {}", e);
+            println!("   ❌ Failed to configure adapter: {e}");
         }
     }
 
@@ -74,7 +74,7 @@ async fn test_circuit_basic_flow() {
             println!("      Total members: {}", updated_circuit.members.len());
         }
         Err(e) => {
-            println!("   ❌ Failed to add member: {}", e);
+            println!("   ❌ Failed to add member: {e}");
         }
     }
 
@@ -90,16 +90,16 @@ async fn test_circuit_basic_flow() {
     let member_can_manage =
         final_circuit.has_permission("another-user", &Permission::ManageMembers);
 
-    println!("   Owner can manage: {}", owner_can_manage);
-    println!("   Member can push: {}", member_can_push);
-    println!("   Member can manage: {}", member_can_manage);
+    println!("   Owner can manage: {owner_can_manage}");
+    println!("   Member can push: {member_can_push}");
+    println!("   Member can manage: {member_can_manage}");
 
     assert!(owner_can_manage);
     assert!(member_can_push);
     assert!(!member_can_manage);
 
     println!("\n5️⃣  Testing storage history...");
-    let mut storage_guard = storage.lock().unwrap();
+    let storage_guard = storage.lock().unwrap();
 
     // Add a test storage record
     let test_dfid = "DFID-TEST-123";
@@ -130,7 +130,7 @@ async fn test_circuit_basic_flow() {
         if let defarm_engine::adapters::base::StorageLocation::IPFS { cid, .. } =
             &history.storage_records[0].storage_location
         {
-            println!("      IPFS CID: {}", cid);
+            println!("      IPFS CID: {cid}");
         }
     }
 

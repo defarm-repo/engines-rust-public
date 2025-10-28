@@ -130,7 +130,7 @@ async fn main() {
 
     // Create a demo item in storage first
     {
-        let mut storage = shared_storage.lock().unwrap();
+        let storage = shared_storage.lock().unwrap();
         let demo_identifiers = vec![
             Identifier::new("user_id", "user_12345"),
             Identifier::new("transaction_id", "tx_abc123"),

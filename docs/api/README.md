@@ -2,17 +2,56 @@
 
 This directory contains comprehensive API documentation for the DeFarm Engines system.
 
-## 📄 Files
+## 🌟 Quick Start
 
-### **openapi.yaml** - Complete API Specification ⭐
+### For New Users
+Start here: **[API_GUIDE.md](./API_GUIDE.md)** - Complete bilingual guide (English/Portuguese) with:
+- Authentication methods (JWT + API Keys)
+- Common workflows and examples
+- Error handling and best practices
+- Step-by-step tutorials
+
+### For Client-Specific Documentation
+- **[GERBOV_API.md](./GERBOV_API.md)** - Complete documentation in Portuguese for Gerbov client
+
+## 📄 Documentation Files
+
+### **API_GUIDE.md** - Comprehensive API Guide ⭐
+Complete bilingual documentation (English and Portuguese) covering:
+- 🔐 Dual authentication (JWT tokens + API Keys)
+- 📋 Step-by-step workflows
+- 🔑 Complete API Keys documentation
+- 🎯 Core concepts (Items, DFIDs, Circuits, Identifiers)
+- ❌ Error handling and troubleshooting
+- ⚡ Rate limiting and best practices
+- 💡 Real-world examples with bash scripts
+
+**Perfect for:**
+- New developers getting started
+- Integration developers
+- Frontend/mobile app developers
+- Third-party integrators
+
+### **GERBOV_API.md** - Client-Specific Documentation
+100% Portuguese documentation for Gerbov client including:
+- Credenciais de acesso e circuito de trabalho
+- Fluxo completo de autenticação JWT
+- Gerenciamento de chaves de API
+- Criação e tokenização de itens
+- Operações de circuito
+- Histórico e rastreabilidade
+- Códigos de erro com soluções
+- Scripts bash completos
+
+### **openapi.yaml** - OpenAPI 3.0 Specification
 The authoritative API contract between frontend and backend.
 
 **What it contains:**
-- ✅ All 27 API operations across 21 endpoint paths
+- ✅ All API operations and endpoint paths
 - ✅ Complete request/response schemas
 - ✅ Authentication requirements (JWT + API Key)
-- ✅ 16 API tags (modules)
-- ✅ 40+ data schemas
+- ✅ API tags and modules
+- ✅ Data schemas and validation rules
 - ✅ Error formats and status codes
 - ✅ Example requests and responses
 
@@ -49,14 +88,31 @@ npm install -g @apidevtools/swagger-cli
 swagger-cli validate openapi.yaml
 ```
 
-### **API_REQUESTS.md** - Circuit Public Settings
+### **Additional Documentation**
+
+#### **API_REQUESTS.md** - Circuit Public Settings
 Documents the circuit public settings feature including:
 - Public visibility configuration
 - Access modes (public/protected/scheduled)
 - Public circuit page customization
 - Join request workflows
 
-This is a supplement to the OpenAPI spec with additional implementation notes.
+#### **JWT_AUTHENTICATION_GUIDE.md** - JWT Authentication Details
+Deep dive into JWT authentication:
+- Token structure and claims
+- Token lifecycle and refresh
+- Security considerations
+
+#### **BACKEND_API_SPEC.md** - Legacy Backend Specification
+Historical API specification (superseded by openapi.yaml and API_GUIDE.md)
+
+### **archive/** - Historical Documentation
+Contains superseded documentation and unimplemented feature requests:
+- Historical API specifications
+- Feature request documents
+- Legacy guides
+
+See `archive/README.md` for details on archived documents.
 
 ---
 

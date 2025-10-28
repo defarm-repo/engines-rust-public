@@ -5776,7 +5776,7 @@ impl InMemoryStorage {
     /// Helper for tests to seed a circuit directly
     pub fn seed_circuit(&self, circuit: Circuit) {
         self.with_state(|s| {
-            s.circuits.insert(circuit.circuit_id.clone(), circuit);
+            s.circuits.insert(circuit.circuit_id, circuit);
         });
     }
 

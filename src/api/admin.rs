@@ -968,7 +968,7 @@ async fn adjust_user_credits(
                     // Get updated user balance and admin username for notification
                     let user = storage
                         .get_user_account(&user_id)?
-                        .ok_or_else(|| "User not found")?;
+                        .ok_or("User not found")?;
                     let admin = storage
                         .get_user_account(&admin_user_id)?
                         .map(|u| u.username)
