@@ -13,10 +13,43 @@ use defarm_engine::api::{
     shared_state::AppState, storage_history_routes, test_blockchain_routes, user_activity_routes,
     user_credits_routes, workspace_routes, zk_proof_routes, TimelineState,
 };
+use defarm_engine::api_key_middleware::ApiKeyMiddlewareState;
+use defarm_engine::api_key_storage::InMemoryApiKeyStorage;
 use defarm_engine::auth_middleware::jwt_auth_middleware;
 use defarm_engine::postgres_persistence::PostgresPersistence;
 use defarm_engine::StorageBackend;
 use std::sync::Arc;
+
+// Import middleware function components for API key auth
+use axum::extract::{Request, State};
+use axum::http::HeaderMap;
+use axum::middleware::Next;
+use axum::response::Response;
+
+// Wrapper for API key middleware with concrete type
+async fn api_key_middleware_wrapper(
+    State(state): State<Arc<ApiKeyMiddlewareState<InMemoryApiKeyStorage>>>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Result<Response, Response> {
+    // Extract the inner state and pass it through
+    // The state is already Arc-wrapped, so we can dereference and re-create State
+    let inner_state = ApiKeyMiddlewareState {
+        engine: state.engine.clone(),
+        storage: state.storage.clone(),
+        rate_limiter: state.rate_limiter.clone(),
+        logging: state.logging.clone(),
+    };
+
+    defarm_engine::api_key_middleware::api_key_auth_middleware(
+        State(inner_state),
+        headers,
+        request,
+        next,
+    )
+    .await
+}
 
 // Removed in-memory fallback - PostgreSQL is now required for data persistence
 
@@ -175,6 +208,14 @@ async fn async_main() {
 
     info!("✅ Application state initialized with PostgreSQL as single source of truth");
 
+    // Create API key middleware state from AppState components
+    let api_key_middleware_state = Arc::new(ApiKeyMiddlewareState::new(
+        app_state.api_key_engine.clone(),
+        app_state.api_key_storage.clone(),
+        app_state.rate_limiter.clone(),
+        app_state.logging.clone(),
+    ));
+
     // Health endpoints with state
     let health_routes = Router::new()
         .route("/health/db", get(health_check_db))
@@ -257,6 +298,10 @@ async fn async_main() {
         .layer(middleware::from_fn_with_state(
             app_state.clone(),
             jwt_auth_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            api_key_middleware_state,
+            api_key_middleware_wrapper,
         ));
 
     // Combine routes and add static file serving for docs

@@ -56,12 +56,10 @@ pub async fn jwt_auth_middleware(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     // Extract JWT token from Authorization header
-    let token = extract_jwt_token(&request).ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Missing authentication token"})),
-        )
-    })?;
+    // If no token, pass through (API key middleware might authenticate)
+    let Some(token) = extract_jwt_token(&request) else {
+        return Ok(next.run(request).await);
+    };
 
     // Verify and decode token using jwt_secret from AppState
     let claims = decode::<Claims>(
