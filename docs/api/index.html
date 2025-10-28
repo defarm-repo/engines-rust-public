@@ -245,9 +245,6 @@
             <button class="nav-tab" onclick="showTab('guide-pt')">
                 📘 Guia da API (PT)
             </button>
-            <button class="nav-tab" onclick="showTab('gerbov')">
-                📗 Gerbov (PT)
-            </button>
             <a href="/docs" class="nav-tab external" target="_blank">
                 🔬 Swagger UI (Interactive)
             </a>
@@ -281,13 +278,6 @@
                     <p>Guia completo com autenticação, fluxos de trabalho e exemplos em Português.</p>
                     <span class="badge badge-primary">Português</span>
                     <span class="badge badge-success">Passo a passo</span>
-                </div>
-
-                <div class="doc-card" onclick="showTab('gerbov')">
-                    <h3>📗 Documentação Gerbov</h3>
-                    <p>Documentação específica para o cliente Gerbov com credenciais e exemplos prontos.</p>
-                    <span class="badge badge-primary">Português</span>
-                    <span class="badge badge-info">Cliente Específico</span>
                 </div>
 
                 <a href="/docs" class="doc-card" target="_blank">
@@ -348,17 +338,6 @@
                 <div class="markdown-body" id="guide-pt-markdown"></div>
             </div>
         </div>
-
-        <!-- Gerbov Tab -->
-        <div id="gerbov-content" class="tab-content hidden">
-            <div class="card">
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <p>Carregando Documentação Gerbov...</p>
-                </div>
-                <div class="markdown-body" id="gerbov-markdown"></div>
-            </div>
-        </div>
     </div>
 
     <footer>
@@ -380,8 +359,7 @@
 
         let loadedDocs = {
             'guide-en': false,
-            'guide-pt': false,
-            'gerbov': false
+            'guide-pt': false
         };
 
         function showTab(tabName) {
@@ -407,8 +385,6 @@
                 loadMarkdown('guide-en', '/docs/api/API_GUIDE.md', 'English Documentation');
             } else if (tabName === 'guide-pt' && !loadedDocs['guide-pt']) {
                 loadMarkdown('guide-pt', '/docs/api/API_GUIDE.md', 'Documentação em Português', true);
-            } else if (tabName === 'gerbov' && !loadedDocs['gerbov']) {
-                loadMarkdown('gerbov', '/docs/api/GERBOV_API.md', 'Documentação Gerbov');
             }
         }
 
@@ -465,7 +441,7 @@
         window.addEventListener('DOMContentLoaded', () => {
             // Check if there's a hash in URL
             const hash = window.location.hash.substring(1);
-            if (hash && ['guide-en', 'guide-pt', 'gerbov'].includes(hash)) {
+            if (hash && ['guide-en', 'guide-pt'].includes(hash)) {
                 showTab(hash);
             }
         });
