@@ -137,6 +137,37 @@ pub async fn create_api_key(
     // Convert user_id to UUID (supports both UUID strings and regular strings)
     let user_uuid = user_id_to_uuid(&auth.user_id);
 
+    // SECURITY: Validate admin permission if user requests admin API key
+    if let Some(ref perms) = payload.permissions {
+        if perms.admin {
+            // Check if user is actually an admin
+            use crate::storage::StorageBackend;
+            let storage = state.shared_storage.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Storage lock error".to_string(),
+                )
+            })?;
+
+            let user_opt = storage.get_user_account(&auth.user_id).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database error: {}", e),
+                )
+            })?;
+
+            let user = user_opt
+                .ok_or_else(|| (StatusCode::NOT_FOUND, "User account not found".to_string()))?;
+
+            if !user.is_admin {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Only administrators can create API keys with admin permissions".to_string(),
+                ));
+            }
+        }
+    }
+
     // Generate the API key
     let (full_key, _, _) = state.api_key_engine.generate_key();
 
@@ -275,6 +306,34 @@ pub async fn update_api_key(
         api_key.name = name;
     }
     if let Some(permissions) = payload.permissions {
+        // SECURITY: Validate admin permission if user tries to set admin flag
+        if permissions.admin && !api_key.permissions.admin {
+            // User is trying to ELEVATE to admin - must be admin
+            use crate::storage::StorageBackend;
+            let storage = state.shared_storage.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Storage lock error".to_string(),
+                )
+            })?;
+
+            let user_opt = storage.get_user_account(&auth.user_id).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database error: {}", e),
+                )
+            })?;
+
+            let user = user_opt
+                .ok_or_else(|| (StatusCode::NOT_FOUND, "User account not found".to_string()))?;
+
+            if !user.is_admin {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Only administrators can grant admin permissions to API keys".to_string(),
+                ));
+            }
+        }
         api_key.permissions = permissions;
     }
     if let Some(is_active) = payload.is_active {
