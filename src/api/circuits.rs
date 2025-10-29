@@ -43,6 +43,7 @@ pub struct CreateCircuitRequest {
     pub adapter_config: Option<CreateCircuitAdapterConfigRequest>,
     pub alias_config: Option<CircuitAliasConfig>,
     pub allow_public_visibility: Option<bool>,
+    pub public_settings: Option<PublicSettingsRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -241,7 +242,7 @@ pub struct UpdatePublicSettingsRequest {
     // Note: requester_id is now extracted automatically from JWT token
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct PublicSettingsRequest {
     pub access_mode: String,
     pub scheduled_date: Option<String>,
@@ -587,6 +588,139 @@ fn parse_permission(permission_str: &str) -> Result<Permission, String> {
     }
 }
 
+fn parse_access_mode(value: &str) -> Option<crate::types::PublicAccessMode> {
+    match value.to_lowercase().as_str() {
+        "public" | "open" => Some(crate::types::PublicAccessMode::Public),
+        "protected" => Some(crate::types::PublicAccessMode::Protected),
+        "scheduled" => Some(crate::types::PublicAccessMode::Scheduled),
+        _ => None,
+    }
+}
+
+fn build_public_settings_from_request(
+    request: &PublicSettingsRequest,
+) -> Result<crate::types::PublicSettings, (StatusCode, Json<Value>)> {
+    let provided_mode = request.access_mode.clone();
+    let access_mode = parse_access_mode(&provided_mode).ok_or_else(|| {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": "validation_error",
+                "message": "Invalid access mode",
+                "details": {
+                    "field": "access_mode",
+                    "provided_value": provided_mode,
+                    "allowed_values": ["public", "protected", "scheduled", "open"],
+                    "issue": "access_mode must be one of: public, protected, scheduled"
+                }
+            })),
+        )
+    })?;
+
+    if matches!(access_mode, crate::types::PublicAccessMode::Scheduled)
+        && request.scheduled_date.is_none()
+    {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": "validation_error",
+                "message": "Scheduled date is required when access_mode is 'scheduled'",
+                "details": {
+                    "field": "scheduled_date",
+                    "required": true,
+                    "issue": "scheduled_date must be provided when access_mode is 'scheduled'"
+                }
+            })),
+        ));
+    }
+
+    let scheduled_date = if let Some(date_str) = &request.scheduled_date {
+        Some(
+            chrono::DateTime::parse_from_rfc3339(date_str)
+                .map_err(|e| {
+                    (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Json(json!({
+                            "error": "validation_error",
+                            "message": "Invalid scheduled date format",
+                            "details": {
+                                "field": "scheduled_date",
+                                "provided_value": date_str,
+                                "expected_format": "RFC3339 (e.g., '2025-01-01T00:00:00Z')",
+                                "issue": format!("Failed to parse date: {}", e)
+                            }
+                        })),
+                    )
+                })?
+                .with_timezone(&chrono::Utc),
+        )
+    } else {
+        None
+    };
+
+    if matches!(access_mode, crate::types::PublicAccessMode::Protected)
+        && request.access_password.is_none()
+    {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": "validation_error",
+                "message": "Password is required when access_mode is 'protected'",
+                "details": {
+                    "field": "access_password",
+                    "required": true,
+                    "issue": "access_password must be provided when access_mode is 'protected'"
+                }
+            })),
+        ));
+    }
+
+    let export_permissions = if let Some(export_str) = &request.export_permissions {
+        match export_str.to_lowercase().as_str() {
+            "admin" => Some(crate::types::ExportPermissionLevel::Admin),
+            "members" => Some(crate::types::ExportPermissionLevel::Members),
+            "public" => Some(crate::types::ExportPermissionLevel::Public),
+            _ => {
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(json!({
+                        "error": "validation_error",
+                        "message": "Invalid export permission level",
+                        "details": {
+                            "field": "export_permissions",
+                            "provided_value": export_str,
+                            "allowed_values": ["admin", "members", "public"],
+                            "issue": "export_permissions must be one of: admin, members, public"
+                        }
+                    })),
+                ))
+            }
+        }
+    } else {
+        None
+    };
+
+    Ok(crate::types::PublicSettings {
+        access_mode,
+        scheduled_date,
+        access_password: request.access_password.clone(),
+        public_name: request.public_name.clone(),
+        public_description: request.public_description.clone(),
+        primary_color: request.primary_color.clone(),
+        secondary_color: request.secondary_color.clone(),
+        logo_url: request.logo_url.clone(),
+        tagline: request.tagline.clone(),
+        footer_text: request.footer_text.clone(),
+        published_items: request.published_items.clone().unwrap_or_default(),
+        auto_approve_members: request.auto_approve_members.unwrap_or(false),
+        auto_publish_pushed_items: request.auto_publish_pushed_items.unwrap_or(false),
+        show_encrypted_events: request.show_encrypted_events.unwrap_or(false),
+        required_event_types: request.required_event_types.clone(),
+        data_quality_rules: request.data_quality_rules.clone(),
+        export_permissions,
+    })
+}
+
 fn circuit_to_response(circuit: Circuit) -> CircuitResponse {
     let role_counts = circuit.get_member_count_by_role();
 
@@ -710,19 +844,22 @@ async fn create_circuit(
     AuthenticatedUser(owner_id): AuthenticatedUser,
     Json(payload): Json<CreateCircuitRequest>,
 ) -> Result<Json<CircuitResponse>, (StatusCode, Json<Value>)> {
+    let CreateCircuitRequest {
+        name,
+        description,
+        adapter_config,
+        alias_config,
+        allow_public_visibility,
+        public_settings,
+    } = payload;
+
     // Create circuit in in-memory storage (must not hold lock across await)
     let circuit = {
         let mut engine = lock_circuits_engine(&state).await?;
 
         // First create circuit without adapter_config (owner_id from JWT)
-        let circuit = engine
-            .create_circuit(
-                payload.name,
-                payload.description,
-                owner_id.clone(),
-                None,
-                payload.alias_config,
-            )
+        let mut circuit = engine
+            .create_circuit(name, description, owner_id.clone(), None, alias_config)
             .await
             .map_err(|e| {
                 (
@@ -732,8 +869,8 @@ async fn create_circuit(
             })?;
 
         // Set adapter config if provided
-        if let Some(adapter_req) = payload.adapter_config {
-            engine
+        if let Some(adapter_req) = adapter_config {
+            let adapter_config = engine
                 .set_circuit_adapter_config(
                     &circuit.circuit_id,
                     &owner_id,
@@ -749,50 +886,53 @@ async fn create_circuit(
                         Json(json!({"error": format!("Failed to set adapter config: {}", e)})),
                     )
                 })?;
+            circuit.adapter_config = Some(adapter_config);
         }
 
         // Set public visibility if requested
-        if let Some(allow_public) = payload.allow_public_visibility {
-            if allow_public {
-                let updated_permissions = CircuitPermissions {
-                    require_approval_for_push: circuit.permissions.require_approval_for_push,
-                    require_approval_for_pull: circuit.permissions.require_approval_for_pull,
-                    allow_public_visibility: true,
-                };
-
-                engine
-                    .update_circuit(
-                        &circuit.circuit_id,
-                        None,
-                        None,
-                        Some(updated_permissions),
-                        &owner_id,
-                    )
-                    .await
-                    .map_err(|e| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                json!({"error": format!("Failed to set public visibility: {}", e)}),
-                            ),
-                        )
-                    })?;
-            }
+        let mut should_enable_public = allow_public_visibility.unwrap_or(false);
+        if public_settings.is_some() {
+            should_enable_public = true;
         }
 
-        // Get updated circuit
-        engine
-            .get_circuit(&circuit.circuit_id)
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+        if circuit.permissions.allow_public_visibility != should_enable_public {
+            let updated_permissions = CircuitPermissions {
+                require_approval_for_push: circuit.permissions.require_approval_for_push,
+                require_approval_for_pull: circuit.permissions.require_approval_for_pull,
+                allow_public_visibility: should_enable_public,
+            };
+
+            circuit = engine
+                .update_circuit(
+                    &circuit.circuit_id,
+                    None,
+                    None,
+                    Some(updated_permissions),
+                    &owner_id,
                 )
-            })?
-            .ok_or((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Circuit not found after creation"})),
-            ))?
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to set public visibility: {}", e)})),
+                    )
+                })?;
+        }
+
+        if let Some(settings_request) = public_settings {
+            let public_settings = build_public_settings_from_request(&settings_request)?;
+            circuit = engine
+                .update_public_settings(&circuit.circuit_id, public_settings, &owner_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Failed to apply public settings: {}", e)})),
+                    )
+                })?;
+        }
+
+        circuit
     };
 
     // Write-through cache: Also persist to PostgreSQL if available
@@ -2142,143 +2282,7 @@ async fn update_public_settings(
         )
     })?;
 
-    // Validate and parse access mode
-    let access_mode = match payload.public_settings.access_mode.to_lowercase().as_str() {
-        "public" => crate::types::PublicAccessMode::Public,
-        "protected" => crate::types::PublicAccessMode::Protected,
-        "scheduled" => crate::types::PublicAccessMode::Scheduled,
-        _ => {
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(json!({
-                    "error": "validation_error",
-                    "message": "Invalid access mode",
-                    "details": {
-                        "field": "access_mode",
-                        "provided_value": payload.public_settings.access_mode,
-                        "allowed_values": ["public", "protected", "scheduled"],
-                        "issue": "access_mode must be one of: public, protected, scheduled"
-                    }
-                })),
-            ))
-        }
-    };
-
-    // Validate scheduled date if access mode is scheduled
-    if matches!(access_mode, crate::types::PublicAccessMode::Scheduled)
-        && payload.public_settings.scheduled_date.is_none()
-    {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(json!({
-                "error": "validation_error",
-                "message": "Scheduled date is required when access_mode is 'scheduled'",
-                "details": {
-                    "field": "scheduled_date",
-                    "required": true,
-                    "issue": "scheduled_date must be provided when access_mode is 'scheduled'"
-                }
-            })),
-        ));
-    }
-
-    // Parse and validate scheduled date if provided
-    let scheduled_date = if let Some(date_str) = payload.public_settings.scheduled_date {
-        Some(
-            chrono::DateTime::parse_from_rfc3339(&date_str)
-                .map_err(|e| {
-                    (
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        Json(json!({
-                            "error": "validation_error",
-                            "message": "Invalid scheduled date format",
-                            "details": {
-                                "field": "scheduled_date",
-                                "provided_value": date_str,
-                                "expected_format": "RFC3339 (e.g., '2025-01-01T00:00:00Z')",
-                                "issue": format!("Failed to parse date: {}", e)
-                            }
-                        })),
-                    )
-                })?
-                .with_timezone(&chrono::Utc),
-        )
-    } else {
-        None
-    };
-
-    // Validate password if access mode is protected
-    if matches!(access_mode, crate::types::PublicAccessMode::Protected)
-        && payload.public_settings.access_password.is_none()
-    {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(json!({
-                "error": "validation_error",
-                "message": "Password is required when access_mode is 'protected'",
-                "details": {
-                    "field": "access_password",
-                    "required": true,
-                    "issue": "access_password must be provided when access_mode is 'protected'"
-                }
-            })),
-        ));
-    }
-
-    // Parse and validate export permissions
-    let export_permissions = if let Some(export_str) = payload.public_settings.export_permissions {
-        match export_str.to_lowercase().as_str() {
-            "admin" => Some(crate::types::ExportPermissionLevel::Admin),
-            "members" => Some(crate::types::ExportPermissionLevel::Members),
-            "public" => Some(crate::types::ExportPermissionLevel::Public),
-            _ => {
-                return Err((
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    Json(json!({
-                        "error": "validation_error",
-                        "message": "Invalid export permission level",
-                        "details": {
-                            "field": "export_permissions",
-                            "provided_value": export_str,
-                            "allowed_values": ["admin", "members", "public"],
-                            "issue": "export_permissions must be one of: admin, members, public"
-                        }
-                    })),
-                ))
-            }
-        }
-    } else {
-        None
-    };
-
-    let public_settings = crate::types::PublicSettings {
-        access_mode,
-        scheduled_date,
-        access_password: payload.public_settings.access_password,
-        public_name: payload.public_settings.public_name,
-        public_description: payload.public_settings.public_description,
-        primary_color: payload.public_settings.primary_color,
-        secondary_color: payload.public_settings.secondary_color,
-        logo_url: payload.public_settings.logo_url,
-        tagline: payload.public_settings.tagline,
-        footer_text: payload.public_settings.footer_text,
-        published_items: payload.public_settings.published_items.unwrap_or_default(),
-        auto_approve_members: payload
-            .public_settings
-            .auto_approve_members
-            .unwrap_or(false),
-        auto_publish_pushed_items: payload
-            .public_settings
-            .auto_publish_pushed_items
-            .unwrap_or(false),
-        show_encrypted_events: payload
-            .public_settings
-            .show_encrypted_events
-            .unwrap_or(false),
-        required_event_types: payload.public_settings.required_event_types,
-        data_quality_rules: payload.public_settings.data_quality_rules,
-        export_permissions,
-    };
+    let public_settings = build_public_settings_from_request(&payload.public_settings)?;
 
     let mut engine = lock_circuits_engine(&state).await?;
     match engine

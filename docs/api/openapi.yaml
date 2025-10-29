@@ -185,6 +185,12 @@ components:
           $ref: '#/components/schemas/AdapterConfig'
         alias_config:
           $ref: '#/components/schemas/CircuitAliasConfig'
+        allow_public_visibility:
+          type: boolean
+          default: false
+          description: Enable public visibility for the circuit at creation time
+        public_settings:
+          $ref: '#/components/schemas/PublicSettings'
 
     AdapterConfig:
       type: object
@@ -350,7 +356,7 @@ components:
       properties:
         access_mode:
           type: string
-          enum: [public, protected, scheduled]
+          enum: [public, protected, scheduled, open]
           default: public
         scheduled_date:
           type: string
