@@ -930,6 +930,30 @@ async fn create_circuit(
                         Json(json!({"error": format!("Failed to apply public settings: {}", e)})),
                     )
                 })?;
+
+            if should_enable_public && !circuit.permissions.allow_public_visibility {
+                let updated_permissions = CircuitPermissions {
+                    require_approval_for_push: circuit.permissions.require_approval_for_push,
+                    require_approval_for_pull: circuit.permissions.require_approval_for_pull,
+                    allow_public_visibility: true,
+                };
+
+                circuit = engine
+                    .update_circuit(
+                        &circuit.circuit_id,
+                        None,
+                        None,
+                        Some(updated_permissions),
+                        &owner_id,
+                    )
+                    .await
+                    .map_err(|e| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({"error": format!("Failed to finalize public visibility: {}", e)})),
+                        )
+                    })?;
+            }
         }
 
         circuit
