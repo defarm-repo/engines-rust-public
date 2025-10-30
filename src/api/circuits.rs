@@ -44,6 +44,10 @@ pub struct CreateCircuitRequest {
     pub alias_config: Option<CircuitAliasConfig>,
     pub allow_public_visibility: Option<bool>,
     pub public_settings: Option<PublicSettingsRequest>,
+    // Permission settings
+    pub require_approval_for_push: Option<bool>,
+    pub require_approval_for_pull: Option<bool>,
+    pub auto_approve_members: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -523,6 +527,7 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         )
         .route("/:id/adapter", get(get_circuit_adapter_config))
         .route("/:id/adapter", put(set_circuit_adapter_config))
+        .route("/:id/visibility/toggle", put(toggle_circuit_visibility))
         // Webhook configuration routes
         .route("/:id/post-actions", get(get_post_action_settings))
         .route("/:id/post-actions", put(update_post_action_settings))
@@ -851,15 +856,51 @@ async fn create_circuit(
         alias_config,
         allow_public_visibility,
         public_settings,
+        require_approval_for_push,
+        require_approval_for_pull,
+        auto_approve_members,
     } = payload;
+
+    // Determine public visibility from request
+    let should_enable_public =
+        allow_public_visibility.unwrap_or(false) || public_settings.is_some();
+
+    tracing::info!(
+        "create_circuit: allow_public_visibility={:?}, public_settings_present={}, enabling_public={}",
+        allow_public_visibility,
+        public_settings.is_some(),
+        should_enable_public
+    );
+
+    // Build initial permissions with public visibility setting
+    let initial_permissions = Some(CircuitPermissions {
+        require_approval_for_push: require_approval_for_push.unwrap_or(false),
+        require_approval_for_pull: require_approval_for_pull.unwrap_or(false),
+        allow_public_visibility: should_enable_public,
+    });
+
+    // Build public settings if provided
+    let public_settings_obj = if let Some(settings_request) = public_settings {
+        Some(build_public_settings_from_request(&settings_request)?)
+    } else {
+        None
+    };
 
     // Create circuit in in-memory storage (must not hold lock across await)
     let circuit = {
         let mut engine = lock_circuits_engine(&state).await?;
 
-        // First create circuit without adapter_config (owner_id from JWT)
+        // Create circuit with all settings in one operation
         let mut circuit = engine
-            .create_circuit(name, description, owner_id.clone(), None, alias_config)
+            .create_circuit_with_settings(
+                name,
+                description,
+                owner_id.clone(),
+                None,
+                alias_config,
+                initial_permissions,
+                public_settings_obj,
+            )
             .await
             .map_err(|e| {
                 (
@@ -868,7 +909,7 @@ async fn create_circuit(
                 )
             })?;
 
-        // Set adapter config if provided
+        // Set adapter config if provided (this is separate as it has its own validation)
         if let Some(adapter_req) = adapter_config {
             let adapter_config = engine
                 .set_circuit_adapter_config(
@@ -887,80 +928,6 @@ async fn create_circuit(
                     )
                 })?;
             circuit.adapter_config = Some(adapter_config);
-        }
-
-        // Set public visibility if requested
-        let mut should_enable_public = allow_public_visibility.unwrap_or(false);
-        if public_settings.is_some() {
-            should_enable_public = true;
-        }
-
-        tracing::info!(
-            "create_circuit public visibility request: allow_public_visibility={:?}, public_settings_present={}, resolved={}",
-            allow_public_visibility,
-            public_settings.is_some(),
-            should_enable_public
-        );
-
-        if circuit.permissions.allow_public_visibility != should_enable_public {
-            let updated_permissions = CircuitPermissions {
-                require_approval_for_push: circuit.permissions.require_approval_for_push,
-                require_approval_for_pull: circuit.permissions.require_approval_for_pull,
-                allow_public_visibility: should_enable_public,
-            };
-
-            circuit = engine
-                .update_circuit(
-                    &circuit.circuit_id,
-                    None,
-                    None,
-                    Some(updated_permissions),
-                    &owner_id,
-                )
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({"error": format!("Failed to set public visibility: {}", e)})),
-                    )
-                })?;
-        }
-
-        if let Some(settings_request) = public_settings {
-            let public_settings = build_public_settings_from_request(&settings_request)?;
-            circuit = engine
-                .update_public_settings(&circuit.circuit_id, public_settings, &owner_id)
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({"error": format!("Failed to apply public settings: {}", e)})),
-                    )
-                })?;
-
-            if should_enable_public && !circuit.permissions.allow_public_visibility {
-                let updated_permissions = CircuitPermissions {
-                    require_approval_for_push: circuit.permissions.require_approval_for_push,
-                    require_approval_for_pull: circuit.permissions.require_approval_for_pull,
-                    allow_public_visibility: true,
-                };
-
-                circuit = engine
-                    .update_circuit(
-                        &circuit.circuit_id,
-                        None,
-                        None,
-                        Some(updated_permissions),
-                        &owner_id,
-                    )
-                    .await
-                    .map_err(|e| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(json!({"error": format!("Failed to finalize public visibility: {}", e)})),
-                        )
-                    })?;
-            }
         }
 
         circuit
@@ -3609,5 +3576,86 @@ async fn get_webhook_deliveries(
         "success": true,
         "data": deliveries,
         "count": deliveries.len()
+    })))
+}
+
+/// Toggle circuit visibility between public and private
+#[axum::debug_handler]
+async fn toggle_circuit_visibility(
+    State(state): State<Arc<AppState>>,
+    AuthenticatedUser(user_id): AuthenticatedUser,
+    Path(circuit_id): Path<Uuid>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Get the current circuit
+    let circuit = {
+        let engine = lock_circuits_engine(&state).await?;
+        engine
+            .get_circuit(&circuit_id)
+            .map_err(|_| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Circuit not found"})),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Circuit not found"})),
+                )
+            })?
+    };
+
+    // Check if user is the owner or admin
+    let is_authorized = circuit.owner_id == user_id
+        || circuit
+            .members
+            .iter()
+            .any(|m| m.member_id == user_id && m.role == MemberRole::Admin);
+
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Only circuit owner or admin can toggle visibility"})),
+        ));
+    }
+
+    // Toggle the visibility
+    let new_visibility = !circuit.permissions.allow_public_visibility;
+
+    let updated_permissions = CircuitPermissions {
+        require_approval_for_push: circuit.permissions.require_approval_for_push,
+        require_approval_for_pull: circuit.permissions.require_approval_for_pull,
+        allow_public_visibility: new_visibility,
+    };
+
+    // Update the circuit
+    let updated_circuit = {
+        let mut engine = lock_circuits_engine(&state).await?;
+        engine
+            .update_circuit(&circuit_id, None, None, Some(updated_permissions), &user_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to update visibility: {}", e)})),
+                )
+            })?
+    };
+
+    // Persist to PostgreSQL if available
+    let pg_lock = state.postgres_persistence.read().await;
+    if let Some(pg) = &*pg_lock {
+        if let Err(e) = pg.persist_circuit(&updated_circuit).await {
+            tracing::warn!("Failed to persist circuit visibility to PostgreSQL: {}", e);
+        }
+    }
+    drop(pg_lock);
+
+    Ok(Json(json!({
+        "success": true,
+        "circuit_id": circuit_id,
+        "name": updated_circuit.name,
+        "visibility": if new_visibility { "public" } else { "private" },
+        "allow_public_visibility": new_visibility
     })))
 }

@@ -12,10 +12,11 @@ use crate::postgres_persistence::PostgresPersistence;
 use crate::storage::StorageBackend;
 use crate::types::{
     Activity, ActivityDetails, ActivityStatus, ActivityType, AdapterType, BatchPushItemResult,
-    BatchPushResult, Circuit, CircuitAdapterConfig, CircuitItem, CircuitOperation, CircuitStatus,
-    CustomRole, EventVisibility, Identifier, Item, ItemStatus, MemberRole, Notification,
-    NotificationType, OperationStatus, OperationType, Permission, PostActionTrigger, UserTier,
-    WebhookItemData, WebhookPayload, WebhookStorageData,
+    BatchPushResult, Circuit, CircuitAdapterConfig, CircuitItem, CircuitOperation,
+    CircuitPermissions, CircuitStatus, CustomRole, EventVisibility, Identifier, Item, ItemStatus,
+    MemberRole, Notification, NotificationType, OperationStatus, OperationType, Permission,
+    PostActionTrigger, PublicSettings, UserTier, WebhookItemData, WebhookPayload,
+    WebhookStorageData,
 };
 use crate::webhook_engine::WebhookEngine;
 use chrono::Utc;
@@ -246,6 +247,68 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             )
             .with_context("circuit_id", circuit.circuit_id.to_string())
             .with_context("name", name);
+
+        Ok(circuit)
+    }
+
+    pub async fn create_circuit_with_settings(
+        &mut self,
+        name: String,
+        description: String,
+        owner_id: String,
+        adapter_config: Option<CircuitAdapterConfig>,
+        alias_config: Option<CircuitAliasConfig>,
+        initial_permissions: Option<CircuitPermissions>,
+        public_settings: Option<PublicSettings>,
+    ) -> Result<Circuit, CircuitsError> {
+        // Create circuit with provided settings
+        let mut circuit = Circuit::new(name.clone(), description.clone(), owner_id.clone());
+        circuit.adapter_config = adapter_config;
+        circuit.alias_config = alias_config;
+
+        // Apply initial permissions if provided
+        if let Some(permissions) = initial_permissions {
+            circuit.permissions = permissions;
+        }
+
+        // Apply public settings if provided
+        if let Some(settings) = public_settings {
+            circuit.public_settings = Some(settings);
+        }
+
+        self.logger
+            .lock()
+            .unwrap()
+            .info(
+                "circuits_engine",
+                "circuit_creation_started",
+                format!("Creating circuit with settings: {name}"),
+            )
+            .with_context("circuit_id", circuit.circuit_id.to_string())
+            .with_context("owner_id", owner_id.clone())
+            .with_context(
+                "public_visibility",
+                circuit.permissions.allow_public_visibility.to_string(),
+            );
+
+        self.storage
+            .store_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger
+            .lock()
+            .unwrap()
+            .info(
+                "circuits_engine",
+                "circuit_created_with_settings",
+                "Circuit created successfully with initial settings",
+            )
+            .with_context("circuit_id", circuit.circuit_id.to_string())
+            .with_context("name", name)
+            .with_context(
+                "public_visibility",
+                circuit.permissions.allow_public_visibility.to_string(),
+            );
 
         Ok(circuit)
     }

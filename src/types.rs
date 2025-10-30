@@ -721,7 +721,7 @@ pub struct CircuitMember {
     pub joined_timestamp: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum MemberRole {
     Owner,
     Admin,
@@ -975,6 +975,17 @@ impl Circuit {
             adapter_config: Some(default_adapter_config),
             post_action_settings: None,
         }
+    }
+
+    pub fn new_with_permissions(
+        name: String,
+        description: String,
+        owner_id: String,
+        permissions: CircuitPermissions,
+    ) -> Self {
+        let mut circuit = Self::new(name, description, owner_id);
+        circuit.permissions = permissions;
+        circuit
     }
 
     pub fn add_member(&mut self, member_id: String, role: MemberRole) {

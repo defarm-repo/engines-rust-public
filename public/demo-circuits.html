@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeFarm Demo Circuits - Rastreabilidade Distribuída</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            padding: 40px 20px;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 3em;
+            font-weight: 700;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header p {
+            font-size: 1.3em;
+            opacity: 0.95;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .intro {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .intro h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.8em;
+        }
+
+        .intro p {
+            margin-bottom: 12px;
+            color: #555;
+            font-size: 1.05em;
+        }
+
+        .circuits-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .circuit-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            border-left: 5px solid;
+        }
+
+        .circuit-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.2);
+        }
+
+        .circuit-card.portugal {
+            border-left-color: #e74c3c;
+        }
+
+        .circuit-card.france {
+            border-left-color: #3498db;
+        }
+
+        .circuit-card.spain {
+            border-left-color: #f39c12;
+        }
+
+        .circuit-card.brazil {
+            border-left-color: #27ae60;
+        }
+
+        .circuit-card h3 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 1.5em;
+        }
+
+        .circuit-card .description {
+            color: #7f8c8d;
+            margin-bottom: 15px;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+
+        .circuit-stats {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ecf0f1;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: #95a5a6;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+
+        .badge.public {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge.testnet {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge.local {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+
+        .circuit-details {
+            margin-top: 15px;
+        }
+
+        .detail-row {
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+
+        .detail-label {
+            font-weight: 600;
+            color: #555;
+        }
+
+        .detail-value {
+            color: #777;
+        }
+
+        .footer {
+            text-align: center;
+            color: white;
+            padding: 30px 20px;
+            margin-top: 40px;
+        }
+
+        .footer a {
+            color: white;
+            text-decoration: underline;
+            font-weight: 600;
+        }
+
+        .api-info {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .api-info code {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .header p {
+                font-size: 1.1em;
+            }
+
+            .circuits-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌐 DeFarm Demo Circuits</h1>
+            <p>Rastreabilidade Distribuída para Cadeias Agroalimentares Europeias e Brasileiras</p>
+        </div>
+
+        <div class="intro">
+            <h2>Sobre os Circuitos Demo</h2>
+            <p>
+                Estes circuitos demonstram o sistema DeFarm de rastreabilidade distribuída aplicado a diferentes cadeias produtivas.
+                Cada circuito representa uma cadeia real com dados autênticos de produção, processamento e certificação.
+            </p>
+            <p>
+                Os dados são <strong>públicos</strong> e podem ser consultados via API REST. Todos os eventos mantêm integridade
+                criptográfica e podem ser verificados independentemente usando blockchain (Stellar Testnet) ou armazenamento local.
+            </p>
+        </div>
+
+        <div class="circuits-grid">
+            <!-- Portugal Circuit -->
+            <div class="circuit-card portugal">
+                <h3>🇵🇹 Porco Preto - Portugal</h3>
+                <div class="description">
+                    Cadeia suína de raças autóctones com produção extensiva e finalização controlada no Sudoeste de Portugal.
+                </div>
+
+                <div class="circuit-stats">
+                    <div class="stat">
+                        <div class="stat-value">3</div>
+                        <div class="stat-label">Items</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">20+</div>
+                        <div class="stat-label">Events</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">3</div>
+                        <div class="stat-label">Members</div>
+                    </div>
+                </div>
+
+                <div>
+                    <span class="badge public">Public</span>
+                    <span class="badge testnet">Stellar Testnet</span>
+                </div>
+
+                <div class="circuit-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Owner:</span>
+                        <span class="detail-value">demo_owner_pt</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Namespace:</span>
+                        <span class="detail-value">suino</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Identifiers:</span>
+                        <span class="detail-value">lote_cria, brinco, origem_macro</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Coverage:</span>
+                        <span class="detail-value">Birth → Health → Diet → Movement → Weighing → Quality → Slaughter → Grading</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- France Circuit -->
+            <div class="circuit-card france">
+                <h3>🇫🇷 Unité de Transformation - France</h3>
+                <div class="description">
+                    Etapas de recepção, découpe, salaison e expédition de produtos suínos em unidade industrial francesa.
+                </div>
+
+                <div class="circuit-stats">
+                    <div class="stat">
+                        <div class="stat-value">3</div>
+                        <div class="stat-label">Items</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">11+</div>
+                        <div class="stat-label">Events</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">2</div>
+                        <div class="stat-label">Members</div>
+                    </div>
+                </div>
+
+                <div>
+                    <span class="badge public">Public</span>
+                    <span class="badge local">Local Storage</span>
+                </div>
+
+                <div class="circuit-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Owner:</span>
+                        <span class="detail-value">demo_owner_fr</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Namespace:</span>
+                        <span class="detail-value">processamento</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Identifiers:</span>
+                        <span class="detail-value">lot_reception, shift, zone, temp_coldroom</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Coverage:</span>
+                        <span class="detail-value">Reception → Sampling → Triage → Cutting → Packaging → Cold Storage → QC → Dispatch</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Spain Circuit -->
+            <div class="circuit-card spain">
+                <h3>🇪🇸 Cadena de Jamón Artesanal</h3>
+                <div class="description">
+                    Maduración, curado y controles de calidad de piezas seleccionadas de jamón artesanal español.
+                </div>
+
+                <div class="circuit-stats">
+                    <div class="stat">
+                        <div class="stat-value">3</div>
+                        <div class="stat-label">Items</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">12+</div>
+                        <div class="stat-label">Events</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">2</div>
+                        <div class="stat-label">Members</div>
+                    </div>
+                </div>
+
+                <div>
+                    <span class="badge public">Public</span>
+                    <span class="badge testnet">Stellar Testnet</span>
+                </div>
+
+                <div class="circuit-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Owner:</span>
+                        <span class="detail-value">demo_owner_es</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Namespace:</span>
+                        <span class="detail-value">jamon</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Identifiers:</span>
+                        <span class="detail-value">pieza_id, lote_curado, sala, fase</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Coverage:</span>
+                        <span class="detail-value">Salting → Drying → Mold Control → Weight Check → Sensory Test → Labeling → Dispatch</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Brazil Circuit -->
+            <div class="circuit-card brazil">
+                <h3>🇧🇷 Selo do Boi - Brasil</h3>
+                <div class="description">
+                    Circuito de verificação documental e de boas práticas para cadeia bovina brasileira com certificação.
+                </div>
+
+                <div class="circuit-stats">
+                    <div class="stat">
+                        <div class="stat-value">4</div>
+                        <div class="stat-label">Items</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">11+</div>
+                        <div class="stat-label">Events</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">3</div>
+                        <div class="stat-label">Members</div>
+                    </div>
+                </div>
+
+                <div>
+                    <span class="badge public">Public</span>
+                    <span class="badge local">Local Storage</span>
+                </div>
+
+                <div class="circuit-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Owner:</span>
+                        <span class="detail-value">demo_owner_br</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Namespace:</span>
+                        <span class="detail-value">bovino</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Identifiers:</span>
+                        <span class="detail-value">dfid, alias_cadastro, categoria, procedencia_macro</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Coverage:</span>
+                        <span class="detail-value">Doc Check → Trace Tagging → Supplementation → Audit → Movement → Health Visit → Training</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <h2>Acesso via API REST</h2>
+            <div class="api-info">
+                <p style="margin-bottom: 15px;">
+                    Todos os circuitos estão disponíveis publicamente na API de produção:
+                </p>
+                <p style="font-weight: 600; font-size: 1.1em; margin-bottom: 15px;">
+                    Base URL: <code>https://defarm-engines-api-production.up.railway.app</code>
+                </p>
+                <p style="margin-bottom: 10px;">
+                    <strong>Listar circuitos públicos:</strong><br>
+                    <code>GET /api/circuits?visibility=public</code>
+                </p>
+                <p style="margin-bottom: 10px;">
+                    <strong>Obter detalhes do circuito:</strong><br>
+                    <code>GET /api/circuits/:circuit_id</code>
+                </p>
+                <p style="margin-bottom: 10px;">
+                    <strong>Listar items do circuito:</strong><br>
+                    <code>GET /api/circuits/:circuit_id/items</code>
+                </p>
+                <p>
+                    <strong>Ver eventos de um item:</strong><br>
+                    <code>GET /api/events?dfid=:dfid</code>
+                </p>
+            </div>
+
+            <p style="margin-top: 30px; font-size: 1.1em;">
+                Documentação completa: <a href="https://github.com/defarm-labs/engines" target="_blank">GitHub DeFarm Engines</a>
+            </p>
+            <p style="margin-top: 10px; opacity: 0.8;">
+                © 2025 DeFarm Labs - Sistema de Rastreabilidade Distribuída
+            </p>
+        </div>
+    </div>
+</body>
+</html>
