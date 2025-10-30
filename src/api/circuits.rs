@@ -895,6 +895,13 @@ async fn create_circuit(
             should_enable_public = true;
         }
 
+        tracing::info!(
+            "create_circuit public visibility request: allow_public_visibility={:?}, public_settings_present={}, resolved={}",
+            allow_public_visibility,
+            public_settings.is_some(),
+            should_enable_public
+        );
+
         if circuit.permissions.allow_public_visibility != should_enable_public {
             let updated_permissions = CircuitPermissions {
                 require_approval_for_push: circuit.permissions.require_approval_for_push,
