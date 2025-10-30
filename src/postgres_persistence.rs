@@ -582,15 +582,16 @@ impl PostgresPersistence {
             .execute(
                 "INSERT INTO circuits (
                 circuit_id, name, description, owner_id, status,
-                created_at_ts, last_modified_ts, permissions,
+                created_at_ts, last_modified_ts, permissions, default_namespace,
                 alias_config, adapter_config, public_settings, post_action_settings
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (circuit_id) DO UPDATE SET
                 name = EXCLUDED.name,
                 description = EXCLUDED.description,
                 status = EXCLUDED.status,
                 last_modified_ts = EXCLUDED.last_modified_ts,
                 permissions = EXCLUDED.permissions,
+                default_namespace = EXCLUDED.default_namespace,
                 alias_config = EXCLUDED.alias_config,
                 adapter_config = EXCLUDED.adapter_config,
                 public_settings = EXCLUDED.public_settings,
@@ -604,6 +605,7 @@ impl PostgresPersistence {
                     &circuit.created_timestamp.timestamp(),
                     &circuit.last_modified.timestamp(),
                     &permissions_json,
+                    &circuit.default_namespace,
                     &alias_config_json,
                     &adapter_config_json,
                     &public_settings_json,
@@ -706,7 +708,7 @@ impl PostgresPersistence {
             .query(
                 "SELECT
                     c.circuit_id, c.name, c.description, c.owner_id, c.status,
-                    c.created_at_ts, c.last_modified_ts, c.permissions,
+                    c.created_at_ts, c.last_modified_ts, c.permissions, c.default_namespace,
                     c.alias_config, c.adapter_config, c.public_settings, c.post_action_settings,
                     COALESCE(
                         json_agg(
@@ -803,7 +805,7 @@ impl PostgresPersistence {
             name: row.get("name"),
             description: row.get("description"),
             owner_id: row.get("owner_id"),
-            default_namespace: String::new(), // Will be loaded from storage if needed
+            default_namespace: row.get("default_namespace"),
             alias_config,
             created_timestamp: DateTime::from_timestamp(created_at_ts, 0).unwrap_or_else(Utc::now),
             last_modified: DateTime::from_timestamp(last_modified_ts, 0).unwrap_or_else(Utc::now),

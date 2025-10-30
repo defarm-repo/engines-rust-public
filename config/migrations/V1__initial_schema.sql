@@ -210,6 +210,7 @@ CREATE TABLE IF NOT EXISTS circuits (
 );
 
 -- Add missing columns to existing circuits table (idempotent migration)
+ALTER TABLE circuits ADD COLUMN IF NOT EXISTS default_namespace VARCHAR(255) NOT NULL DEFAULT 'generic';
 ALTER TABLE circuits ADD COLUMN IF NOT EXISTS alias_config JSONB;
 ALTER TABLE circuits ADD COLUMN IF NOT EXISTS adapter_config JSONB;
 ALTER TABLE circuits ADD COLUMN IF NOT EXISTS public_settings JSONB;
