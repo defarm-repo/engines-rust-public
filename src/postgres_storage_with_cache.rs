@@ -244,12 +244,28 @@ impl StorageBackend for PostgresStorageWithCache {
             tokio::runtime::Handle::current().block_on(async {
                 let pg = self.get_postgres().await?;
 
-                // PostgreSQL first
-                pg.persist_circuit(circuit)
-                    .await
-                    .map_err(|e| StorageError::WriteError(e.to_string()))?;
+                // PostgreSQL first - with detailed error logging
+                match pg.persist_circuit(circuit).await {
+                    Ok(()) => {
+                        tracing::info!(
+                            "✅ Circuit {} successfully persisted to PostgreSQL",
+                            circuit.circuit_id
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "❌ Failed to persist circuit {} to PostgreSQL: {}",
+                            circuit.circuit_id,
+                            e
+                        );
+                        return Err(StorageError::WriteError(format!(
+                            "PostgreSQL write failed for circuit {}: {}",
+                            circuit.circuit_id, e
+                        )));
+                    }
+                }
 
-                // Invalidate cache
+                // Invalidate cache after successful write
                 self.invalidate_cache(&format!("circuit:{}", circuit.circuit_id));
 
                 tracing::debug!(

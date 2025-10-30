@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 #
 # Demo Data Seeding Script
 # Populates production with realistic demo circuits from demo_seed_data.json
@@ -78,16 +78,43 @@ log ""
 
 # Parse JSON data
 log "Parsing demo data..."
-USERS=$(jq -r '.demo_data.users' "$DATA_FILE")
-CIRCUITS=$(jq -r '.demo_data.circuits' "$DATA_FILE")
+USERS=$(jq -r '.users' "$DATA_FILE")
+CIRCUITS=$(jq -r '.circuits' "$DATA_FILE")
 USER_COUNT=$(echo "$USERS" | jq 'length')
 CIRCUIT_COUNT=$(echo "$CIRCUITS" | jq 'length')
 log "Found: $USER_COUNT users, $CIRCUIT_COUNT circuits"
 log ""
 
-# Store user tokens
-declare -A USER_TOKENS
-declare -A USER_IDS
+# Store user tokens (using parallel arrays for bash 3.x compatibility)
+USER_NAMES=()
+USER_TOKENS=()
+USER_IDS=()
+
+# Helper function to get token by username
+get_user_token() {
+    local username=$1
+    local i
+    for i in "${!USER_NAMES[@]}"; do
+        if [ "${USER_NAMES[$i]}" = "$username" ]; then
+            echo "${USER_TOKENS[$i]}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Helper function to get user ID by username
+get_user_id() {
+    local username=$1
+    local i
+    for i in "${!USER_NAMES[@]}"; do
+        if [ "${USER_NAMES[$i]}" = "$username" ]; then
+            echo "${USER_IDS[$i]}"
+            return 0
+        fi
+    done
+    return 1
+}
 
 # Function: Create or login user
 create_or_login_user() {
@@ -110,7 +137,9 @@ create_or_login_user() {
 
     if [ -n "$token" ]; then
         success "User $username already exists, logged in"
-        USER_TOKENS[$username]=$token
+        USER_NAMES+=("$username")
+        USER_TOKENS+=("$token")
+        USER_IDS+=("")  # Placeholder, will be updated later
 
         # Get user ID from /users/me/profile
         local profile
@@ -118,7 +147,18 @@ create_or_login_user() {
             -H "Authorization: Bearer $token")
         local user_id
         user_id=$(echo "$profile" | jq -r '.user_id // empty')
-        USER_IDS[$username]=$user_id
+        # Update the user ID in the array
+        local idx=-1
+        local i
+        for i in "${!USER_NAMES[@]}"; do
+            if [ "${USER_NAMES[$i]}" = "$username" ]; then
+                idx=$i
+                break
+            fi
+        done
+        if [ $idx -ne -1 ]; then
+            USER_IDS[$idx]=$user_id
+        fi
         return 0
     fi
 
@@ -137,7 +177,9 @@ create_or_login_user() {
 
     if [ -n "$token" ]; then
         success "User $username created successfully"
-        USER_TOKENS[$username]=$token
+        USER_NAMES+=("$username")
+        USER_TOKENS+=("$token")
+        USER_IDS+=("")  # Placeholder, will be updated later
         ((USERS_CREATED++))
 
         # Get user ID
@@ -146,12 +188,65 @@ create_or_login_user() {
             -H "Authorization: Bearer $token")
         local user_id
         user_id=$(echo "$profile" | jq -r '.user_id // empty')
-        USER_IDS[$username]=$user_id
+        # Update the user ID in the array
+        local idx=-1
+        local i
+        for i in "${!USER_NAMES[@]}"; do
+            if [ "${USER_NAMES[$i]}" = "$username" ]; then
+                idx=$i
+                break
+            fi
+        done
+        if [ $idx -ne -1 ]; then
+            USER_IDS[$idx]=$user_id
+        fi
 
         # Update tier if not basic
         if [ "$tier" != "basic" ]; then
             log "Upgrading user $username to tier: $tier"
             # Note: This requires admin privileges, may need to be done separately
+            warn "Tier upgrade to $tier must be done via admin API"
+        fi
+
+        return 0
+    fi
+
+    # If signup failed, try login one more time
+    log "Signup failed, attempting login..."
+    response=$(curl -s -X POST "$API_BASE/api/auth/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\":\"$username\",\"password\":\"$password\"}" 2>&1)
+
+    token=$(echo "$response" | jq -r '.token // empty')
+
+    if [ -n "$token" ]; then
+        success "User $username logged in after signup failure"
+        USER_NAMES+=("$username")
+        USER_TOKENS+=("$token")
+        USER_IDS+=("")  # Placeholder, will be updated later
+
+        # Get user ID
+        local profile
+        profile=$(curl -s -X GET "$API_BASE/api/users/me/profile" \
+            -H "Authorization: Bearer $token")
+        local user_id
+        user_id=$(echo "$profile" | jq -r '.user_id // empty')
+        # Update the user ID in the array
+        local idx=-1
+        local i
+        for i in "${!USER_NAMES[@]}"; do
+            if [ "${USER_NAMES[$i]}" = "$username" ]; then
+                idx=$i
+                break
+            fi
+        done
+        if [ $idx -ne -1 ]; then
+            USER_IDS[$idx]=$user_id
+        fi
+
+        # Update tier if not basic
+        if [ "$tier" != "basic" ]; then
+            log "Upgrading user $username to tier: $tier"
             warn "Tier upgrade to $tier must be done via admin API"
         fi
 
@@ -173,7 +268,8 @@ create_circuit() {
 
     log "Creating circuit: $circuit_name (owner: $owner_username)"
 
-    local token="${USER_TOKENS[$owner_username]}"
+    local token
+    token=$(get_user_token "$owner_username")
     if [ -z "$token" ]; then
         error "No token found for user $owner_username"
         return 1
@@ -268,7 +364,8 @@ create_circuit() {
             member_username=$(echo "$member" | jq -r '.username')
             local member_role
             member_role=$(echo "$member" | jq -r '.role')
-            local member_user_id="${USER_IDS[$member_username]}"
+            local member_user_id
+            member_user_id=$(get_user_id "$member_username")
 
             if [ -z "$member_user_id" ]; then
                 warn "Cannot add member $member_username - user not found"
@@ -311,7 +408,8 @@ create_item() {
     local owner_username=$2
     local item_json=$3
 
-    local token="${USER_TOKENS[$owner_username]}"
+    local token
+    token=$(get_user_token "$owner_username")
     local item_name
     item_name=$(echo "$item_json" | jq -r '.name')
     local item_description
@@ -352,7 +450,7 @@ create_item() {
         -H "Content-Type: application/json" \
         -d "{
             \"local_id\":\"$local_id\",
-            \"requester_id\":\"${USER_IDS[$owner_username]}\"
+            \"requester_id\":\"$(get_user_id "$owner_username")\"
         }" 2>&1)
 
     local dfid
@@ -389,7 +487,8 @@ create_event() {
     local owner_username=$2
     local event_json=$3
 
-    local token="${USER_TOKENS[$owner_username]}"
+    local token
+    token=$(get_user_token "$owner_username")
     local event_type
     event_type=$(echo "$event_json" | jq -r '.event_type')
     local event_description

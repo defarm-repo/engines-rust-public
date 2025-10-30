@@ -362,37 +362,7 @@ pub struct PushLocalItemData {
     pub local_id: String,
 }
 
-fn spawn_persist_circuit(state: &Arc<AppState>, circuit: Circuit) {
-    let state_clone = Arc::clone(state);
-    tokio::spawn(async move {
-        let pg_lock = state_clone.postgres_persistence.read().await;
-        if let Some(pg) = &*pg_lock {
-            if let Err(e) = pg.persist_circuit(&circuit).await {
-                tracing::warn!(
-                    "Failed to persist circuit {} to PostgreSQL: {}",
-                    circuit.circuit_id,
-                    e
-                );
-            }
-        }
-    });
-}
-
-fn spawn_persist_circuit_operation(state: &Arc<AppState>, operation: CircuitOperation) {
-    let state_clone = Arc::clone(state);
-    tokio::spawn(async move {
-        let pg_lock = state_clone.postgres_persistence.read().await;
-        if let Some(pg) = &*pg_lock {
-            if let Err(e) = pg.persist_circuit_operation(&operation).await {
-                tracing::warn!(
-                    "Failed to persist circuit operation {} to PostgreSQL: {}",
-                    operation.operation_id,
-                    e
-                );
-            }
-        }
-    });
-}
+// Removed redundant persistence functions - CircuitsEngine handles persistence through PostgresStorageWithCache
 
 #[derive(Debug, Serialize)]
 pub struct CircuitOperationResponse {
@@ -858,7 +828,7 @@ async fn create_circuit(
         public_settings,
         require_approval_for_push,
         require_approval_for_pull,
-        auto_approve_members,
+        auto_approve_members: _,
     } = payload;
 
     // Determine public visibility from request
@@ -933,36 +903,8 @@ async fn create_circuit(
         circuit
     };
 
-    // Write-through cache: Also persist to PostgreSQL if available
-    let pg_lock = state.postgres_persistence.read().await;
-    if let Some(pg) = &*pg_lock {
-        tracing::info!(
-            "🔄 Attempting to persist circuit {} to PostgreSQL...",
-            circuit.circuit_id
-        );
-        match pg.persist_circuit(&circuit).await {
-            Ok(()) => {
-                tracing::info!(
-                    "✅ Successfully persisted circuit {} to PostgreSQL",
-                    circuit.circuit_id
-                );
-            }
-            Err(e) => {
-                tracing::error!(
-                    "❌ CRITICAL: Failed to persist circuit {} to PostgreSQL: {}",
-                    circuit.circuit_id,
-                    e
-                );
-                // Don't fail the request - in-memory write succeeded
-            }
-        }
-    } else {
-        tracing::warn!(
-            "⚠️  PostgreSQL not available, circuit {} only in memory!",
-            circuit.circuit_id
-        );
-    }
-    drop(pg_lock);
+    // CircuitsEngine already persists to PostgreSQL through PostgresStorageWithCache
+    // No need for redundant persistence here
 
     // Record user activity
     let circuit_id_str = circuit.circuit_id.to_string();
@@ -1527,9 +1469,9 @@ async fn approve_operation(
         .await
     {
         Ok(operation) => {
-            let operation_clone = operation.clone();
+            // Operation persistence is handled by the engine
             drop(engine);
-            spawn_persist_circuit_operation(&state, operation_clone);
+            // CircuitsEngine handles persistence through PostgresStorageWithCache
             Ok(Json(operation_to_response(operation)))
         }
         Err(e) => Err((
@@ -2702,46 +2644,8 @@ async fn reject_pending_item(
 
     drop(circuits_engine);
 
-    let operation_to_persist = {
-        let operation_id_clone = operation_id;
-        match with_storage(
-            &state.shared_storage,
-            "circuits::reject_pending_item::get_circuit_operation",
-            |storage| {
-                storage
-                    .get_circuit_operation(&operation_id_clone)
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-            },
-        ) {
-            Ok(Some(operation)) => Some(operation),
-            Ok(None) => {
-                tracing::warn!(
-                    "Circuit operation {} missing after rejection; skipping persistence",
-                    operation_id
-                );
-                None
-            }
-            Err(StorageLockError::Timeout) => {
-                tracing::warn!(
-                    "Storage lock timeout fetching circuit operation {}",
-                    operation_id
-                );
-                None
-            }
-            Err(StorageLockError::Other(e)) => {
-                tracing::warn!(
-                    "Storage error fetching circuit operation {}: {}",
-                    operation_id,
-                    e
-                );
-                None
-            }
-        }
-    };
-
-    if let Some(operation) = operation_to_persist {
-        spawn_persist_circuit_operation(&state, operation);
-    }
+    // CircuitOperation persistence is handled by the engine
+    // No need for redundant persistence here
 
     Ok(Json(RejectItemResponse {
         success: true,
@@ -2848,9 +2752,8 @@ async fn set_circuit_adapter_config(
         .await
     {
         Ok(adapter_config) => {
-            if let Ok(Some(circuit)) = engine.get_circuit(&circuit_id) {
-                spawn_persist_circuit(&state, circuit.clone());
-            }
+            // Circuit persistence is handled by the engine
+            // No need for redundant persistence here
 
             // Convert AdapterType enum to hyphenated string format
             let adapter_type_str = adapter_config
@@ -3137,8 +3040,8 @@ async fn create_webhook(
         ),
     })?;
 
-    let persisted_circuit = circuit.clone();
-    spawn_persist_circuit(&state, persisted_circuit);
+    // Circuit persistence is handled by the engine
+    // No need for redundant persistence here
 
     Ok(Json(json!({
         "success": true,
@@ -3324,8 +3227,8 @@ async fn update_webhook(
         ),
     })?;
 
-    let persisted_circuit = circuit.clone();
-    spawn_persist_circuit(&state, persisted_circuit);
+    // Circuit persistence is handled by the engine
+    // No need for redundant persistence here
 
     Ok(Json(json!({
         "success": true,
@@ -3411,8 +3314,8 @@ async fn delete_webhook(
         ),
     })?;
 
-    let persisted_circuit = circuit.clone();
-    spawn_persist_circuit(&state, persisted_circuit);
+    // Circuit persistence is handled by the engine
+    // No need for redundant persistence here
 
     Ok(Json(json!({
         "success": true,
@@ -3642,14 +3545,8 @@ async fn toggle_circuit_visibility(
             })?
     };
 
-    // Persist to PostgreSQL if available
-    let pg_lock = state.postgres_persistence.read().await;
-    if let Some(pg) = &*pg_lock {
-        if let Err(e) = pg.persist_circuit(&updated_circuit).await {
-            tracing::warn!("Failed to persist circuit visibility to PostgreSQL: {}", e);
-        }
-    }
-    drop(pg_lock);
+    // CircuitsEngine already persists to PostgreSQL through PostgresStorageWithCache
+    // No need for redundant persistence here
 
     Ok(Json(json!({
         "success": true,
