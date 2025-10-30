@@ -10,7 +10,7 @@
 #   ./scripts/seed_demo_data.sh https://defarm-engines-api-production.up.railway.app
 #   ./scripts/seed_demo_data.sh http://localhost:3000 /path/to/data.json
 
-set -euo pipefail
+set -uo pipefail
 
 # Configuration
 API_BASE="${1:-https://defarm-engines-api-production.up.railway.app}"
@@ -436,13 +436,15 @@ create_item() {
         }" 2>&1)
 
     local local_id
-    local_id=$(echo "$response" | jq -r '.local_id // empty')
+    local_id=$(echo "$response" | jq -r '.data.local_id // .local_id // empty')
 
     if [ -z "$local_id" ]; then
         error "  Failed to create local item: $item_name"
         echo "$response" | tee -a "$LOG_FILE"
         return 1
     fi
+
+    success "  Local item created with LID: $local_id"
 
     # Push to circuit to get DFID
     response=$(curl -s -X POST "$API_BASE/api/circuits/$circuit_id/push-local" \
