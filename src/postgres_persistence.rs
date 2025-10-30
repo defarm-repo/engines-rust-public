@@ -516,8 +516,9 @@ impl PostgresPersistence {
     }
     /// Persist a circuit to PostgreSQL
     pub async fn persist_circuit(&self, circuit: &Circuit) -> Result<(), String> {
-        self.enqueue_persist("persist_circuit", PersistCommand::Circuit(circuit.clone()))
-            .await
+        // CRITICAL FIX: Call persist_circuit_once directly for synchronous persistence
+        // The async queue was causing circuits to not be persisted to PostgreSQL
+        self.persist_circuit_once(circuit).await
     }
 
     async fn persist_circuit_once(&self, circuit: &Circuit) -> Result<(), String> {
