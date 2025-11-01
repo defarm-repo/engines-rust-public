@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
     used_at TIMESTAMP NULL,
     ip_address VARCHAR(45) NULL,
     user_agent TEXT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES user_accounts(user_id) ON DELETE CASCADE
 );
 
 -- Index for fast lookup by token hash
