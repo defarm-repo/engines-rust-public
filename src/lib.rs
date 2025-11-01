@@ -2,6 +2,7 @@ pub mod activity_engine;
 pub mod adapters;
 pub mod audit_engine;
 pub mod blockchain_event_listener;
+pub mod cattle_robot;
 pub mod circuits_engine;
 pub mod conflict_detection;
 pub mod dfid_engine;

@@ -15,6 +15,10 @@ path = "src/main.rs"
 name = "ipcm-event-listener"
 path = "src/bin/ipcm_event_listener.rs"
 
+[[bin]]
+name = "cattle-robot"
+path = "src/bin/cattle_robot.rs"
+
 [dependencies]
 # Core dependencies
 blake3 = "1.5"
@@ -24,6 +28,9 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 aes-gcm = "0.10"
 rand = "0.8"
+rand_distr = "0.4"
+env_logger = "0.11"
+log = "0.4"
 
 # Web server dependencies
 tokio = { version = "1.0", features = ["full"] }
@@ -66,6 +73,7 @@ soroban-sdk = "21"
 # PostgreSQL database with connection pooling
 tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"] }
 deadpool-postgres = "0.12"
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
 
 # Redis cache with connection pooling
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
