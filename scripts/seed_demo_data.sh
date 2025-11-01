@@ -10,7 +10,7 @@
 #   ./scripts/seed_demo_data.sh https://defarm-engines-api-production.up.railway.app
 #   ./scripts/seed_demo_data.sh http://localhost:3000 /path/to/data.json
 
-set -uo pipefail
+set -euo pipefail
 
 # Configuration
 API_BASE="${1:-https://defarm-engines-api-production.up.railway.app}"

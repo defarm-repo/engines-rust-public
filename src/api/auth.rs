@@ -4,7 +4,8 @@ use crate::http_utils::svc_unavailable_retry;
 use crate::storage::StorageBackend;
 use crate::storage_helpers::{with_storage, with_storage_traced, StorageLockError};
 use crate::types::{
-    AccountStatus, CreditTransaction, CreditTransactionType, TierLimits, UserAccount, UserTier,
+    AccountStatus, CreditTransaction, CreditTransactionType, PasswordResetToken, TierLimits,
+    UserAccount, UserTier,
 };
 use axum::{
     extract::{Extension, State},
@@ -15,7 +16,9 @@ use axum::{
     Router,
 };
 use bcrypt::{hash, verify, DEFAULT_COST};
+use blake3;
 use chrono::{Duration, Utc};
+use hex;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -93,7 +96,32 @@ pub struct UserProfile {
     pub workspace_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ForgotPasswordRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ForgotPasswordResponse {
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResetPasswordRequest {
+    pub token: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResetPasswordResponse {
+    pub message: String,
+}
+
 // Auth state contains JWT secret
+#[derive(Debug)]
 pub struct AuthState {
     pub jwt_secret: String,
 }
@@ -149,6 +177,48 @@ impl AuthState {
     }
 }
 
+fn password_reset_rate_limit_per_hour() -> usize {
+    std::env::var("PASSWORD_RESET_RATE_LIMIT_PER_HOUR")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(3)
+}
+
+fn should_log_reset_token() -> bool {
+    std::env::var("PASSWORD_RESET_DEBUG_LOG")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "" | "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn sanitize_optional_identifier(value: Option<String>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+fn map_storage_lock_error(e: StorageLockError) -> (StatusCode, Json<Value>) {
+    match e {
+        StorageLockError::Timeout => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Service temporarily unavailable, please retry"
+            })),
+        ),
+        StorageLockError::Other(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "error": msg
+            })),
+        ),
+    }
+}
+
 pub fn auth_routes(app_state: Arc<AppState>) -> Router {
     // Create AuthState using the shared JWT secret from AppState
     let auth_state = Arc::new(AuthState {
@@ -158,7 +228,9 @@ pub fn auth_routes(app_state: Arc<AppState>) -> Router {
     // Unauthenticated routes
     let public_routes = Router::new()
         .route("/login", post(login))
-        .route("/register", post(register)); // Active but hidden from public docs
+        .route("/register", post(register)) // Active but hidden from public docs
+        .route("/forgot-password", post(forgot_password))
+        .route("/reset-password", post(reset_password));
 
     // Protected routes requiring JWT authentication
     let protected_routes = Router::new()
@@ -173,6 +245,217 @@ pub fn auth_routes(app_state: Arc<AppState>) -> Router {
     public_routes
         .merge(protected_routes)
         .with_state((auth_state, app_state))
+}
+
+#[instrument(skip(app_state, payload))]
+async fn forgot_password(
+    State((_auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
+    Json(payload): Json<ForgotPasswordRequest>,
+) -> Result<Json<ForgotPasswordResponse>, (StatusCode, Json<Value>)> {
+    let ForgotPasswordRequest { email, username } = payload;
+    let email = sanitize_optional_identifier(email);
+    let username = sanitize_optional_identifier(username);
+
+    if email.is_none() && username.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Provide email or username to reset your password"
+            })),
+        ));
+    }
+
+    let lookup_email = email.clone();
+    let lookup_username = username.clone();
+
+    let user = with_storage_traced(
+        &app_state.shared_storage,
+        "auth_forgot_password_lookup",
+        "/api/auth/forgot-password",
+        "POST",
+        move |storage| {
+            if let Some(ref email) = lookup_email {
+                storage
+                    .get_user_by_email(email)
+                    .map_err(Box::<dyn std::error::Error>::from)
+            } else if let Some(ref username) = lookup_username {
+                storage
+                    .get_user_by_username(username)
+                    .map_err(Box::<dyn std::error::Error>::from)
+            } else {
+                Ok(None)
+            }
+        },
+    )
+    .map_err(map_storage_lock_error)?;
+
+    if let Some(user) = user {
+        let rate_window_start = Utc::now() - Duration::hours(1);
+        let user_id = user.user_id.clone();
+
+        let requests_in_window = with_storage_traced(
+            &app_state.shared_storage,
+            "auth_forgot_password_rate_limit",
+            "/api/auth/forgot-password",
+            "POST",
+            move |storage| {
+                storage
+                    .count_recent_reset_requests(&user_id, rate_window_start)
+                    .map_err(Box::<dyn std::error::Error>::from)
+            },
+        )
+        .map_err(map_storage_lock_error)?;
+
+        if requests_in_window >= password_reset_rate_limit_per_hour() {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({
+                    "error": "Too many password reset requests. Please try again later."
+                })),
+            ));
+        }
+
+        let (token_record, plaintext_token) =
+            PasswordResetToken::new(user.user_id.clone(), None, None);
+
+        let token_clone = token_record.clone();
+        with_storage_traced(
+            &app_state.shared_storage,
+            "auth_forgot_password_store_token",
+            "/api/auth/forgot-password",
+            "POST",
+            move |storage| {
+                storage
+                    .store_password_reset_token(&token_clone)
+                    .map_err(Box::<dyn std::error::Error>::from)
+            },
+        )
+        .map_err(map_storage_lock_error)?;
+
+        if should_log_reset_token() {
+            info!(
+                "Password reset token generated for user {} ({}): {}",
+                user.username, user.user_id, plaintext_token
+            );
+        }
+    }
+
+    Ok(Json(ForgotPasswordResponse {
+        message: "If the account exists, password reset instructions have been sent.".to_string(),
+    }))
+}
+
+#[instrument(skip(app_state, payload))]
+async fn reset_password(
+    State((_auth, app_state)): State<(Arc<AuthState>, Arc<AppState>)>,
+    Json(payload): Json<ResetPasswordRequest>,
+) -> Result<Json<ResetPasswordResponse>, (StatusCode, Json<Value>)> {
+    let ResetPasswordRequest {
+        token,
+        new_password,
+    } = payload;
+
+    let trimmed_token = token.trim();
+    if trimmed_token.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Password reset token is required"})),
+        ));
+    }
+
+    let sanitized_password = new_password.trim().to_string();
+    if let Err(msg) = validate_password_complexity(&sanitized_password) {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))));
+    }
+
+    let token_bytes = hex::decode(trimmed_token).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid password reset token"})),
+        )
+    })?;
+    let token_hash = blake3::hash(&token_bytes).to_hex().to_string();
+    let token_hash_clone = token_hash.clone();
+
+    let token_record = with_storage_traced(
+        &app_state.shared_storage,
+        "auth_reset_password_get_token",
+        "/api/auth/reset-password",
+        "POST",
+        move |storage| {
+            storage
+                .get_password_reset_token_by_hash(&token_hash_clone)
+                .map_err(Box::<dyn std::error::Error>::from)
+        },
+    )
+    .map_err(map_storage_lock_error)?
+    .ok_or((
+        StatusCode::BAD_REQUEST,
+        Json(json!({"error": "Invalid or expired password reset token"})),
+    ))?;
+
+    if token_record.is_expired() || token_record.is_used() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid or expired password reset token"})),
+        ));
+    }
+
+    let user_id = token_record.user_id.clone();
+    let user = with_storage_traced(
+        &app_state.shared_storage,
+        "auth_reset_password_get_user",
+        "/api/auth/reset-password",
+        "POST",
+        move |storage| {
+            storage
+                .get_user_account(&user_id)
+                .map_err(Box::<dyn std::error::Error>::from)
+        },
+    )
+    .map_err(map_storage_lock_error)?
+    .ok_or((
+        StatusCode::BAD_REQUEST,
+        Json(json!({"error": "Account associated with this token was not found"})),
+    ))?;
+
+    let hashed_password = hash(&sanitized_password, DEFAULT_COST).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to process password"})),
+        )
+    })?;
+
+    let mut updated_user = user.clone();
+    updated_user.password_hash = hashed_password;
+    updated_user.updated_at = Utc::now();
+
+    let token_id = token_record.token_id.clone();
+    let user_clone = updated_user.clone();
+
+    with_storage_traced(
+        &app_state.shared_storage,
+        "auth_reset_password_apply",
+        "/api/auth/reset-password",
+        "POST",
+        move |storage| {
+            storage
+                .update_user_account(&user_clone)
+                .map_err(Box::<dyn std::error::Error>::from)?;
+            storage
+                .mark_token_as_used(&token_id)
+                .map_err(Box::<dyn std::error::Error>::from)?;
+            Ok(())
+        },
+    )
+    .map_err(map_storage_lock_error)?;
+
+    info!("Password reset completed for user {}", updated_user.user_id);
+
+    Ok(Json(ResetPasswordResponse {
+        message: "Password reset successful. You can now log in with your new password."
+            .to_string(),
+    }))
 }
 
 #[instrument(skip(auth, app_state, payload), fields(username = %payload.username))]

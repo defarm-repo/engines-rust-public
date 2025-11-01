@@ -1177,6 +1177,63 @@ impl StorageBackend for RedisPostgresStorage {
         })
     }
 
+    fn store_password_reset_token(&self, token: &PasswordResetToken) -> Result<(), StorageError> {
+        let pg = self.get_pg()?;
+
+        tokio::runtime::Handle::current().block_on(async {
+            pg.store_password_reset_token(token)
+                .await
+                .map_err(StorageError::WriteError)
+        })
+    }
+
+    fn get_password_reset_token_by_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<PasswordResetToken>, StorageError> {
+        let pg = self.get_pg()?;
+
+        tokio::runtime::Handle::current().block_on(async {
+            pg.get_password_reset_token_by_hash(token_hash)
+                .await
+                .map_err(StorageError::ReadError)
+        })
+    }
+
+    fn mark_token_as_used(&self, token_id: &str) -> Result<(), StorageError> {
+        let pg = self.get_pg()?;
+
+        tokio::runtime::Handle::current().block_on(async {
+            pg.mark_password_reset_token_used(token_id)
+                .await
+                .map_err(StorageError::WriteError)
+        })
+    }
+
+    fn count_recent_reset_requests(
+        &self,
+        user_id: &str,
+        since: DateTime<Utc>,
+    ) -> Result<usize, StorageError> {
+        let pg = self.get_pg()?;
+
+        tokio::runtime::Handle::current().block_on(async {
+            pg.count_recent_password_reset_requests(user_id, since)
+                .await
+                .map_err(StorageError::ReadError)
+        })
+    }
+
+    fn cleanup_expired_tokens(&self) -> Result<usize, StorageError> {
+        let pg = self.get_pg()?;
+
+        tokio::runtime::Handle::current().block_on(async {
+            pg.cleanup_expired_password_reset_tokens()
+                .await
+                .map_err(StorageError::WriteError)
+        })
+    }
+
     fn delete_user_account(&self, _user_id: &str) -> Result<(), StorageError> {
         Err(StorageError::NotImplemented(
             "User deletion not implemented yet".to_string(),

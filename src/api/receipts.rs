@@ -8,12 +8,12 @@ use axum::{
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::api::items::{build_identifiers, IdentifierRequest};
+use crate::api::shared_state::AppState;
 use crate::storage_helpers::{with_lock_mut, StorageLockError};
-use crate::{InMemoryStorage, ReceiptEngine};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateReceiptRequest {
@@ -39,27 +39,7 @@ pub struct VerificationResponse {
     pub timestamp: i64,
 }
 
-pub struct ReceiptState {
-    pub engine: Arc<Mutex<ReceiptEngine<InMemoryStorage>>>,
-}
-
-impl Default for ReceiptState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ReceiptState {
-    pub fn new() -> Self {
-        Self {
-            engine: Arc::new(Mutex::new(ReceiptEngine::new(InMemoryStorage::new()))),
-        }
-    }
-}
-
-pub fn receipt_routes() -> Router {
-    let state = Arc::new(ReceiptState::new());
-
+pub fn receipt_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", post(create_receipt))
         .route("/:id", get(get_receipt))
@@ -68,11 +48,11 @@ pub fn receipt_routes() -> Router {
         .route("/search/key/:key", get(search_by_key))
         .route("/search/value/:value", get(search_by_value))
         .route("/list", get(list_receipts))
-        .with_state(state)
+        .with_state(app_state)
 }
 
 async fn create_receipt(
-    State(state): State<Arc<ReceiptState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateReceiptRequest>,
 ) -> Result<Json<ReceiptResponse>, (StatusCode, Json<Value>)> {
     // Decode base64 data
@@ -101,7 +81,7 @@ async fn create_receipt(
     }
 
     let receipt = with_lock_mut(
-        &state.engine,
+        &state.receipt_engine,
         "receipts::create_receipt::process_data",
         |engine| {
             engine
@@ -144,7 +124,7 @@ async fn create_receipt(
 }
 
 async fn get_receipt(
-    State(state): State<Arc<ReceiptState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<ReceiptResponse>, (StatusCode, Json<Value>)> {
     let receipt_id = Uuid::parse_str(&id).map_err(|_| {
@@ -155,7 +135,7 @@ async fn get_receipt(
     })?;
 
     let receipt_opt = with_lock_mut(
-        &state.engine,
+        &state.receipt_engine,
         "receipts::get_receipt::get_receipt",
         |engine| {
             engine
@@ -197,7 +177,7 @@ async fn get_receipt(
 }
 
 async fn verify_receipt(
-    State(state): State<Arc<ReceiptState>>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(payload): Json<Value>,
 ) -> Result<Json<VerificationResponse>, (StatusCode, Json<Value>)> {
@@ -226,7 +206,7 @@ async fn verify_receipt(
     })?;
 
     let (is_valid, receipt_opt) = with_lock_mut(
-        &state.engine,
+        &state.receipt_engine,
         "receipts::verify_receipt::verify_and_get",
         |engine| {
             let is_valid = engine
@@ -270,7 +250,7 @@ async fn verify_receipt(
 }
 
 async fn search_by_identifier(
-    State(state): State<Arc<ReceiptState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<IdentifierRequest>,
 ) -> Result<Json<Vec<ReceiptResponse>>, (StatusCode, Json<Value>)> {
     let identifier = payload.into_identifier().map_err(|e| {
@@ -281,7 +261,7 @@ async fn search_by_identifier(
     })?;
 
     let receipts = with_lock_mut(
-        &state.engine,
+        &state.receipt_engine,
         "receipts::search_by_identifier::find",
         |engine| {
             engine
@@ -318,14 +298,18 @@ async fn search_by_identifier(
 }
 
 async fn search_by_key(
-    State(state): State<Arc<ReceiptState>>,
+    State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
 ) -> Result<Json<Vec<ReceiptResponse>>, (StatusCode, Json<Value>)> {
-    let receipts = with_lock_mut(&state.engine, "receipts::search_by_key::find", |engine| {
-        engine
-            .find_receipts_by_key(&key)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-    })
+    let receipts = with_lock_mut(
+        &state.receipt_engine,
+        "receipts::search_by_key::find",
+        |engine| {
+            engine
+                .find_receipts_by_key(&key)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
     .map_err(|e| match e {
         StorageLockError::Timeout => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -355,14 +339,18 @@ async fn search_by_key(
 }
 
 async fn search_by_value(
-    State(state): State<Arc<ReceiptState>>,
+    State(state): State<Arc<AppState>>,
     Path(value): Path<String>,
 ) -> Result<Json<Vec<ReceiptResponse>>, (StatusCode, Json<Value>)> {
-    let receipts = with_lock_mut(&state.engine, "receipts::search_by_value::find", |engine| {
-        engine
-            .find_receipts_by_value(&value)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-    })
+    let receipts = with_lock_mut(
+        &state.receipt_engine,
+        "receipts::search_by_value::find",
+        |engine| {
+            engine
+                .find_receipts_by_value(&value)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
     .map_err(|e| match e {
         StorageLockError::Timeout => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -392,13 +380,17 @@ async fn search_by_value(
 }
 
 async fn list_receipts(
-    State(state): State<Arc<ReceiptState>>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<ReceiptResponse>>, (StatusCode, Json<Value>)> {
-    let receipts = with_lock_mut(&state.engine, "receipts::list_receipts::list", |engine| {
-        engine
-            .list_receipts()
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-    })
+    let receipts = with_lock_mut(
+        &state.receipt_engine,
+        "receipts::list_receipts::list",
+        |engine| {
+            engine
+                .list_receipts()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        },
+    )
     .map_err(|e| match e {
         StorageLockError::Timeout => (
             StatusCode::SERVICE_UNAVAILABLE,

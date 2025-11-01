@@ -23,7 +23,8 @@ use crate::types::{
     CustomRole, Permission, PublicSettings, UserActivity, UserActivityCategory, UserActivityType,
     UserResourceType,
 };
-use crate::{Circuit, CircuitOperation, CircuitsEngine, InMemoryStorage, ItemsEngine, MemberRole};
+use crate::webhook_engine::WebhookEngine;
+use crate::{Circuit, CircuitOperation, CircuitsEngine, ItemsEngine, MemberRole};
 
 type SharedStorage = Arc<Mutex<PostgresStorageWithCache>>;
 
@@ -392,25 +393,6 @@ pub struct SetAdapterConfigRequest {
     pub auto_migrate_existing: bool,
     pub requires_approval: bool,
     pub sponsor_adapter_access: bool,
-}
-
-pub struct CircuitState {
-    pub engine: Arc<std::sync::RwLock<CircuitsEngine<Arc<Mutex<InMemoryStorage>>>>>,
-}
-
-impl Default for CircuitState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CircuitState {
-    pub fn new() -> Self {
-        let storage = Arc::new(Mutex::new(InMemoryStorage::new()));
-        Self {
-            engine: Arc::new(std::sync::RwLock::new(CircuitsEngine::new(storage))),
-        }
-    }
 }
 
 use super::shared_state::AppState;
@@ -2945,9 +2927,7 @@ async fn create_webhook(
     })?;
 
     // Validate webhook URL
-    use crate::storage::InMemoryStorage;
-    use crate::webhook_engine::WebhookEngine;
-    WebhookEngine::<InMemoryStorage>::validate_webhook_url(&request.url).map_err(|e| {
+    WebhookEngine::<PostgresStorageWithCache>::validate_webhook_url(&request.url).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": e.to_string()})),
@@ -3190,9 +3170,7 @@ async fn update_webhook(
         webhook.name = name;
     }
     if let Some(url) = request.url {
-        use crate::storage::InMemoryStorage;
-        use crate::webhook_engine::WebhookEngine;
-        WebhookEngine::<InMemoryStorage>::validate_webhook_url(&url).map_err(|e| {
+        WebhookEngine::<PostgresStorageWithCache>::validate_webhook_url(&url).map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
                 Json(json!({"error": e.to_string()})),

@@ -8,16 +8,14 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::identifier_types::{namespaces, IdentifierType};
 use crate::items_engine::ResolutionAction;
 use crate::storage::StorageBackend;
 use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::types::{UserActivity, UserActivityCategory, UserActivityType, UserResourceType};
-use crate::{
-    Identifier, InMemoryStorage, Item, ItemStatus, ItemsEngine, PendingItem, PendingReason,
-};
+use crate::{Identifier, Item, ItemStatus, PendingItem, PendingReason};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
@@ -382,25 +380,6 @@ pub struct SharedWithCheckResponse {
     pub is_shared: bool,
     pub share_id: Option<String>,
     pub shared_at: Option<i64>,
-}
-
-pub struct ItemState {
-    pub engine: Arc<Mutex<ItemsEngine<InMemoryStorage>>>,
-}
-
-impl Default for ItemState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ItemState {
-    pub fn new() -> Self {
-        let storage = InMemoryStorage::new();
-        Self {
-            engine: Arc::new(Mutex::new(ItemsEngine::new(storage))),
-        }
-    }
 }
 
 use super::shared_state::AppState;

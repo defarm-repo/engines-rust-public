@@ -413,41 +413,39 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_circuit_item(&self, circuit_item: &CircuitItem) -> Result<(), StorageError> {
-        // Circuit items are tracked through circuit operations
-        // For now, we store them as part of circuit state
-        let circuit = self
-            .get_circuit(&circuit_item.circuit_id)?
-            .ok_or(StorageError::NotFound)?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-        // Update circuit to include this item
-        // (Implementation depends on Circuit structure)
-        self.store_circuit(&circuit)
+                pg.store_circuit_item(circuit_item)
+                    .await
+                    .map_err(StorageError::WriteError)
+            })
+        })
     }
 
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
-        // Load all operations for this circuit
-        let operations = self.get_circuit_operations(circuit_id)?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
 
-        // Extract unique items from operations
-        let mut circuit_items = Vec::new();
-        for op in operations {
-            // op.dfid is String, not Option<String>
-            circuit_items.push(CircuitItem {
-                dfid: op.dfid.clone(),
-                circuit_id: *circuit_id,
-                pushed_by: op.requester_id.clone(),
-                pushed_at: op.timestamp,
-                permissions: Vec::new(), // TODO: extract from operation metadata if available
-            });
-        }
-
-        Ok(circuit_items)
+                pg.load_circuit_items(circuit_id)
+                    .await
+                    .map_err(StorageError::ReadError)
+            })
+        })
     }
 
     fn remove_circuit_item(&self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
-        // Mark circuit item as removed (soft delete via status update)
-        // Implementation depends on how circuit items are stored
-        Ok(())
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
+
+                pg.remove_circuit_item(circuit_id, dfid)
+                    .await
+                    .map_err(StorageError::WriteError)
+            })
+        })
     }
 
     // ============================================================================
@@ -560,6 +558,73 @@ impl StorageBackend for PostgresStorageWithCache {
                 pg.load_users()
                     .await
                     .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
+        })
+    }
+
+    fn store_password_reset_token(&self, token: &PasswordResetToken) -> Result<(), StorageError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
+
+                pg.store_password_reset_token(token)
+                    .await
+                    .map_err(StorageError::WriteError)
+            })
+        })
+    }
+
+    fn get_password_reset_token_by_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<PasswordResetToken>, StorageError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
+
+                pg.get_password_reset_token_by_hash(token_hash)
+                    .await
+                    .map_err(StorageError::ReadError)
+            })
+        })
+    }
+
+    fn mark_token_as_used(&self, token_id: &str) -> Result<(), StorageError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
+
+                pg.mark_password_reset_token_used(token_id)
+                    .await
+                    .map_err(StorageError::WriteError)
+            })
+        })
+    }
+
+    fn count_recent_reset_requests(
+        &self,
+        user_id: &str,
+        since: DateTime<Utc>,
+    ) -> Result<usize, StorageError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
+
+                pg.count_recent_password_reset_requests(user_id, since)
+                    .await
+                    .map_err(StorageError::ReadError)
+            })
+        })
+    }
+
+    fn cleanup_expired_tokens(&self) -> Result<usize, StorageError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
+
+                pg.cleanup_expired_password_reset_tokens()
+                    .await
+                    .map_err(StorageError::WriteError)
             })
         })
     }

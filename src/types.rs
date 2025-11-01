@@ -2541,6 +2541,72 @@ pub enum BillingCycle {
     Yearly,
 }
 
+/// Password Reset Token
+/// Stores temporary tokens for password reset functionality
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PasswordResetToken {
+    pub token_id: String,
+    pub user_id: String,
+    pub token_hash: String, // BLAKE3 hash of the actual token
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub used_at: Option<DateTime<Utc>>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+impl PasswordResetToken {
+    /// Create a new password reset token
+    /// Returns (token_record, plaintext_token) - only show plaintext once!
+    pub fn new(
+        user_id: String,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> (Self, String) {
+        use blake3::hash;
+        use rand::Rng;
+
+        // Generate cryptographically secure random token (32 bytes = 256 bits)
+        let mut rng = rand::thread_rng();
+        let token_bytes: [u8; 32] = rng.gen();
+        let plaintext_token = hex::encode(token_bytes);
+
+        // Hash the token for storage
+        let token_hash = hex::encode(hash(&token_bytes).as_bytes());
+
+        let now = Utc::now();
+        let expires_at = now + chrono::Duration::minutes(30); // 30 minute expiration
+
+        let token_record = Self {
+            token_id: uuid::Uuid::new_v4().to_string(),
+            user_id,
+            token_hash,
+            created_at: now,
+            expires_at,
+            used_at: None,
+            ip_address,
+            user_agent,
+        };
+
+        (token_record, plaintext_token)
+    }
+
+    /// Check if token is expired
+    pub fn is_expired(&self) -> bool {
+        Utc::now() > self.expires_at
+    }
+
+    /// Check if token has been used
+    pub fn is_used(&self) -> bool {
+        self.used_at.is_some()
+    }
+
+    /// Check if token is valid (not expired and not used)
+    pub fn is_valid(&self) -> bool {
+        !self.is_expired() && !self.is_used()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TierLimits {
     pub max_items_per_month: Option<i64>,

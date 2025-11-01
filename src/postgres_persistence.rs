@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep, timeout};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use tokio_postgres::{NoTls, Row};
 use uuid::Uuid;
@@ -1225,6 +1225,149 @@ impl PostgresPersistence {
         Ok(users)
     }
 
+    /// Store a password reset token (one-time use)
+    pub async fn store_password_reset_token(
+        &self,
+        token: &PasswordResetToken,
+    ) -> Result<(), String> {
+        if let Err(e) = self.wait_for_connection(5).await {
+            tracing::debug!(
+                "⏳ Waiting for PostgreSQL connection before storing password reset token..."
+            );
+            return Err(e);
+        }
+
+        let client = self.get_client().await?;
+
+        let created_at = token.created_at.naive_utc();
+        let expires_at = token.expires_at.naive_utc();
+        let used_at = token.used_at.map(|ts| ts.naive_utc());
+
+        let rows = client
+            .execute(
+                "INSERT INTO password_reset_tokens
+                (token_id, user_id, token_hash, created_at, expires_at, used_at, ip_address, user_agent)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                &[
+                    &token.token_id,
+                    &token.user_id,
+                    &token.token_hash,
+                    &created_at,
+                    &expires_at,
+                    &used_at,
+                    &token.ip_address,
+                    &token.user_agent,
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to store password reset token: {e}"))?;
+
+        if rows == 0 {
+            return Err("Password reset token was not inserted".to_string());
+        }
+
+        tracing::debug!(
+            "✅ Stored password reset token {} for user {}",
+            token.token_id,
+            token.user_id
+        );
+
+        Ok(())
+    }
+
+    /// Fetch password reset token by BLAKE3 hash
+    pub async fn get_password_reset_token_by_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<PasswordResetToken>, String> {
+        self.wait_for_connection(5).await?;
+
+        let client = self.get_client().await?;
+
+        let row = client
+            .query_opt(
+                "SELECT token_id, user_id, token_hash, created_at, expires_at, used_at, ip_address, user_agent
+                 FROM password_reset_tokens
+                 WHERE token_hash = $1",
+                &[&token_hash],
+            )
+            .await
+            .map_err(|e| format!("Failed to load password reset token: {e}"))?;
+
+        match row {
+            Some(row) => Self::row_to_password_reset_token(&row).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Mark a password reset token as used
+    pub async fn mark_password_reset_token_used(&self, token_id: &str) -> Result<(), String> {
+        self.wait_for_connection(5).await?;
+
+        let client = self.get_client().await?;
+
+        let rows = client
+            .execute(
+                "UPDATE password_reset_tokens
+                 SET used_at = NOW()
+                 WHERE token_id = $1 AND used_at IS NULL",
+                &[&token_id],
+            )
+            .await
+            .map_err(|e| format!("Failed to mark password reset token as used: {e}"))?;
+
+        if rows == 0 {
+            return Err("Password reset token not found or already used".to_string());
+        }
+
+        tracing::debug!("✅ Password reset token {} marked as used", token_id);
+        Ok(())
+    }
+
+    /// Count recent password reset requests for rate limiting
+    pub async fn count_recent_password_reset_requests(
+        &self,
+        user_id: &str,
+        since: DateTime<Utc>,
+    ) -> Result<usize, String> {
+        self.wait_for_connection(5).await?;
+
+        let client = self.get_client().await?;
+        let since_naive = since.naive_utc();
+
+        let row = client
+            .query_one(
+                "SELECT COUNT(*) AS request_count
+                 FROM password_reset_tokens
+                 WHERE user_id = $1 AND created_at >= $2",
+                &[&user_id, &since_naive],
+            )
+            .await
+            .map_err(|e| format!("Failed to count password reset requests: {e}"))?;
+
+        let count: i64 = row.get("request_count");
+        Ok(count.max(0) as usize)
+    }
+
+    /// Remove expired or consumed password reset tokens
+    pub async fn cleanup_expired_password_reset_tokens(&self) -> Result<usize, String> {
+        self.wait_for_connection(5).await?;
+
+        let client = self.get_client().await?;
+
+        let rows = client
+            .execute(
+                "DELETE FROM password_reset_tokens
+                 WHERE expires_at < NOW() OR used_at IS NOT NULL",
+                &[],
+            )
+            .await
+            .map_err(|e| format!("Failed to clean up password reset tokens: {e}"))?;
+
+        tracing::debug!("🧹 Cleaned up {} expired password reset tokens", rows);
+        Ok(rows as usize)
+    }
+
     /// Persist item to PostgreSQL (write-through cache)
     pub async fn persist_item(&self, item: &crate::types::Item) -> Result<(), String> {
         self.enqueue_persist("persist_item", PersistCommand::Item(item.clone()))
@@ -1722,6 +1865,41 @@ impl PostgresPersistence {
         })
     }
 
+    fn row_to_password_reset_token(row: &Row) -> Result<PasswordResetToken, String> {
+        let created_at: NaiveDateTime = row.get("created_at");
+        let expires_at: NaiveDateTime = row.get("expires_at");
+        let used_at: Option<NaiveDateTime> = row.get("used_at");
+
+        Ok(PasswordResetToken {
+            token_id: row.get("token_id"),
+            user_id: row.get("user_id"),
+            token_hash: row.get("token_hash"),
+            created_at: DateTime::<Utc>::from_naive_utc_and_offset(created_at, Utc),
+            expires_at: DateTime::<Utc>::from_naive_utc_and_offset(expires_at, Utc),
+            used_at: used_at.map(|ts| DateTime::<Utc>::from_naive_utc_and_offset(ts, Utc)),
+            ip_address: row.get("ip_address"),
+            user_agent: row.get("user_agent"),
+        })
+    }
+
+    fn row_to_circuit_item(row: &Row) -> Result<CircuitItem, String> {
+        let added_at_ts: i64 = row.get("added_at_ts");
+        let pushed_at = DateTime::from_timestamp(added_at_ts, 0).ok_or_else(|| {
+            format!(
+                "Invalid added_at_ts for circuit item {}",
+                row.get::<_, String>("dfid")
+            )
+        })?;
+
+        Ok(CircuitItem {
+            dfid: row.get("dfid"),
+            circuit_id: row.get("circuit_id"),
+            pushed_by: row.get("added_by"),
+            pushed_at,
+            permissions: Vec::new(),
+        })
+    }
+
     // ========================================================================
     // LID-DFID MAPPINGS PERSISTENCE
     // ========================================================================
@@ -1823,13 +2001,15 @@ impl PostgresPersistence {
         // They will be NULL for now until the struct is enhanced with approval tracking
         client.execute(
             "INSERT INTO circuit_operations
-             (operation_id, circuit_id, operation_type, requester_id, status, created_at_ts, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+             (operation_id, circuit_id, dfid, operation_type, requester_id, status, created_at_ts, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
              ON CONFLICT (operation_id) DO UPDATE
-             SET status = EXCLUDED.status",
+             SET status = EXCLUDED.status,
+                 dfid = EXCLUDED.dfid",
             &[
                 &operation.operation_id,
                 &operation.circuit_id,
+                &operation.dfid,
                 &format!("{:?}", operation.operation_type),
                 &operation.requester_id,
                 &format!("{:?}", operation.status),
@@ -1855,7 +2035,7 @@ impl PostgresPersistence {
 
         let rows = client
             .query(
-                "SELECT operation_id, circuit_id, operation_type, requester_id, status, created_at_ts
+                "SELECT operation_id, circuit_id, dfid, operation_type, requester_id, status, created_at_ts
                  FROM circuit_operations
                  WHERE circuit_id = $1
                  ORDER BY created_at_ts DESC",
@@ -1885,10 +2065,11 @@ impl PostgresPersistence {
 
                 let created_at_ts: i64 = row.get("created_at_ts");
 
+                let dfid: Option<String> = row.get("dfid");
                 Some(CircuitOperation {
                     operation_id: row.get("operation_id"),
                     circuit_id: row.get("circuit_id"),
-                    dfid: "".to_string(), // Will be populated from circuit_pending_items if needed
+                    dfid: dfid.unwrap_or_default(),
                     operation_type,
                     requester_id: row.get("requester_id"),
                     timestamp: DateTime::from_timestamp(created_at_ts, 0).unwrap_or_else(Utc::now),
@@ -1899,6 +2080,91 @@ impl PostgresPersistence {
             .collect();
 
         Ok(operations)
+    }
+
+    // ========================================================================
+    // CIRCUIT ITEMS PERSISTENCE
+    // ========================================================================
+
+    pub async fn store_circuit_item(&self, item: &CircuitItem) -> Result<(), String> {
+        if let Err(e) = self.wait_for_connection(10).await {
+            tracing::debug!("⏳ Waiting for PostgreSQL connection before storing circuit item...");
+            return Err(e);
+        }
+
+        let client = self.get_client().await?;
+
+        client
+            .execute(
+                "INSERT INTO circuit_items (circuit_id, dfid, added_at_ts, added_by, created_at)
+                 VALUES ($1, $2, $3, $4, NOW())
+                 ON CONFLICT (circuit_id, dfid) DO UPDATE
+                 SET added_at_ts = EXCLUDED.added_at_ts,
+                     added_by = EXCLUDED.added_by,
+                     created_at = NOW()",
+                &[
+                    &item.circuit_id,
+                    &item.dfid,
+                    &item.pushed_at.timestamp(),
+                    &item.pushed_by,
+                ],
+            )
+            .await
+            .map_err(|e| format!("Failed to store circuit item: {e}"))?;
+
+        tracing::debug!(
+            "✅ Stored item {} in circuit {}",
+            item.dfid,
+            item.circuit_id
+        );
+        Ok(())
+    }
+
+    pub async fn load_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .query(
+                "SELECT circuit_id, dfid, added_at_ts, added_by
+                 FROM circuit_items
+                 WHERE circuit_id = $1
+                 ORDER BY added_at_ts DESC",
+                &[circuit_id],
+            )
+            .await
+            .map_err(|e| format!("Failed to load circuit items: {e}"))?;
+
+        let mut items = Vec::new();
+        for row in rows {
+            match Self::row_to_circuit_item(&row) {
+                Ok(item) => items.push(item),
+                Err(err) => tracing::warn!("⚠️  Skipping circuit item due to parse error: {}", err),
+            }
+        }
+
+        Ok(items)
+    }
+
+    pub async fn remove_circuit_item(&self, circuit_id: &Uuid, dfid: &str) -> Result<(), String> {
+        let client = self.get_client().await?;
+
+        let rows = client
+            .execute(
+                "DELETE FROM circuit_items WHERE circuit_id = $1 AND dfid = $2",
+                &[circuit_id, &dfid],
+            )
+            .await
+            .map_err(|e| format!("Failed to delete circuit item: {e}"))?;
+
+        if rows == 0 {
+            tracing::debug!(
+                "Circuit item {} not found in circuit {} during delete",
+                dfid,
+                circuit_id
+            );
+        }
+
+        Ok(())
     }
 
     // ========================================================================

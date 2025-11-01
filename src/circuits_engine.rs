@@ -1401,6 +1401,12 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             )
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
+        if !circuit.permissions.require_approval_for_pull {
+            self.storage
+                .remove_circuit_item(circuit_id, dfid)
+                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+        }
+
         self.logger
             .lock()
             .unwrap()
@@ -1439,49 +1445,56 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
         operation.approve();
         operation.complete();
 
-        // If this is a push operation, store the circuit item and log activity
-        if matches!(operation.operation_type, OperationType::Push) {
-            let circuit_item = CircuitItem::new(
-                operation.dfid.clone(),
-                operation.circuit_id,
-                operation.requester_id.clone(),
-                vec!["read".to_string(), "verify".to_string()],
-            );
-            self.storage
-                .store_circuit_item(&circuit_item)
-                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+        let op_type = operation.operation_type.clone();
+        match op_type {
+            OperationType::Push => {
+                let circuit_item = CircuitItem::new(
+                    operation.dfid.clone(),
+                    operation.circuit_id,
+                    operation.requester_id.clone(),
+                    vec!["read".to_string(), "verify".to_string()],
+                );
+                self.storage
+                    .store_circuit_item(&circuit_item)
+                    .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
-            let activity = Activity::new(
-                ActivityType::Push,
-                operation.circuit_id,
-                circuit.name.clone(),
-                vec![operation.dfid.clone()],
-                operation.requester_id.clone(),
-                ActivityStatus::Success,
-                ActivityDetails {
-                    items_affected: 1,
-                    enrichments_made: None,
-                    error_message: None,
-                },
-            );
-            self.storage
-                .store_activity(&activity)
-                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
-            self.spawn_persist_activity(activity.clone());
+                let activity = Activity::new(
+                    ActivityType::Push,
+                    operation.circuit_id,
+                    circuit.name.clone(),
+                    vec![operation.dfid.clone()],
+                    operation.requester_id.clone(),
+                    ActivityStatus::Success,
+                    ActivityDetails {
+                        items_affected: 1,
+                        enrichments_made: None,
+                        error_message: None,
+                    },
+                );
+                self.storage
+                    .store_activity(&activity)
+                    .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+                self.spawn_persist_activity(activity.clone());
 
-            // Handle auto-publish if enabled
-            if let Some(ref public_settings) = circuit.public_settings {
-                if public_settings.auto_publish_pushed_items {
-                    let mut updated_circuit = circuit.clone();
-                    if let Some(ref mut settings) = updated_circuit.public_settings {
-                        if !settings.published_items.contains(&operation.dfid) {
-                            settings.published_items.push(operation.dfid.clone());
-                            self.storage
-                                .store_circuit(&updated_circuit)
-                                .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+                // Handle auto-publish if enabled
+                if let Some(ref public_settings) = circuit.public_settings {
+                    if public_settings.auto_publish_pushed_items {
+                        let mut updated_circuit = circuit.clone();
+                        if let Some(ref mut settings) = updated_circuit.public_settings {
+                            if !settings.published_items.contains(&operation.dfid) {
+                                settings.published_items.push(operation.dfid.clone());
+                                self.storage
+                                    .store_circuit(&updated_circuit)
+                                    .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+                            }
                         }
                     }
                 }
+            }
+            OperationType::Pull => {
+                self.storage
+                    .remove_circuit_item(&operation.circuit_id, &operation.dfid)
+                    .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
             }
         }
 

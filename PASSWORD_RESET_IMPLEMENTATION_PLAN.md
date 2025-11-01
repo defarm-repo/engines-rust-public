@@ -3,7 +3,7 @@
 ## Status: Database Schema Created ✅
 
 ### Completed
-1. ✅ Created migration `V4__password_reset_tokens.sql` with:
+1. ✅ Created migration `V5__password_reset_tokens.sql` with:
    - `password_reset_tokens` table
    - Indexes for performance and cleanup
    - Foreign key to users table
@@ -103,7 +103,7 @@ tokio::spawn(async move {
 8. Test password complexity validation
 
 ### Files to Modify
-- ✅ `config/migrations/V4__password_reset_tokens.sql` - Created
+- ✅ `config/migrations/V5__password_reset_tokens.sql` - Created
 - `src/types.rs` - Add PasswordResetToken struct
 - `src/storage.rs` - Add trait methods
 - `src/in_memory_storage.rs` - Implement for in-memory backend

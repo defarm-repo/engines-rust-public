@@ -208,6 +208,36 @@ async fn async_main() {
 
     info!("✅ Application state initialized with PostgreSQL as single source of truth");
 
+    // Background cleanup for expired password reset tokens
+    {
+        let storage = app_state.shared_storage.clone();
+        tokio::spawn(async move {
+            use std::time::Duration;
+            let mut interval = tokio::time::interval(Duration::from_secs(3600));
+            loop {
+                interval.tick().await;
+                let storage_clone = storage.clone();
+                match tokio::task::spawn_blocking(move || storage_clone.cleanup_expired_tokens())
+                    .await
+                {
+                    Ok(Ok(count)) if count > 0 => {
+                        tracing::debug!(
+                            "🧹 Password reset cleanup removed {} expired tokens",
+                            count
+                        );
+                    }
+                    Ok(Ok(_)) => { /* nothing to report */ }
+                    Ok(Err(err)) => {
+                        tracing::warn!("⚠️  Failed to clean up password reset tokens: {}", err);
+                    }
+                    Err(join_err) => {
+                        tracing::warn!("⚠️  Password reset cleanup task join error: {}", join_err);
+                    }
+                }
+            }
+        });
+    }
+
     // Create API key middleware state from AppState components
     let api_key_middleware_state = Arc::new(ApiKeyMiddlewareState::new(
         app_state.api_key_engine.clone(),
@@ -265,7 +295,7 @@ async fn async_main() {
 
     // Protected routes (require JWT authentication)
     let protected_routes = Router::new()
-        .nest("/api/receipts", receipt_routes())
+        .nest("/api/receipts", receipt_routes(app_state.clone()))
         .nest("/api/events", event_routes(app_state.clone()))
         .nest("/api/circuits", circuit_routes(app_state.clone()))
         .nest("/api/items", item_routes(app_state.clone()))

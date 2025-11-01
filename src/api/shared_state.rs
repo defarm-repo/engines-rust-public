@@ -9,6 +9,7 @@ use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::storage_history_reader::StorageHistoryReader;
 use crate::{
     ActivityEngine, AuditEngine, CircuitsEngine, EventsEngine, ItemsEngine, NotificationEngine,
+    ReceiptEngine,
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, RwLock as AsyncRwLock};
@@ -27,6 +28,7 @@ pub struct AppState {
     pub events_engine: Arc<AsyncRwLock<EventsEngine<SharedStorage>>>,
     pub audit_engine: AuditEngine<SharedStorage>,
     pub activity_engine: Arc<AsyncRwLock<ActivityEngine<SharedStorage>>>,
+    pub receipt_engine: Arc<Mutex<ReceiptEngine<SharedStorage>>>,
     pub shared_storage: SharedStorage,
     pub storage_history_reader: StorageHistoryReader<SharedStorage>,
     pub logging: Arc<Mutex<LoggingEngine>>,
@@ -52,6 +54,7 @@ impl AppState {
         let storage_for_audit = Arc::clone(&storage);
         let storage_for_activity = Arc::clone(&storage);
         let storage_for_notifications = Arc::clone(&storage);
+        let storage_for_receipts = Arc::clone(&storage);
         let storage_for_history = Arc::clone(&storage);
 
         let circuits_engine = Arc::new(AsyncRwLock::new(CircuitsEngine::<SharedStorage>::new(
@@ -70,6 +73,7 @@ impl AppState {
         let notification_engine = Arc::new(AsyncRwLock::new(
             NotificationEngine::<SharedStorage>::new(storage_for_notifications),
         ));
+        let receipt_engine = Arc::new(Mutex::new(ReceiptEngine::new(storage_for_receipts)));
         let storage_history_reader =
             StorageHistoryReader::<SharedStorage>::new(storage_for_history);
 
@@ -96,6 +100,7 @@ impl AppState {
             events_engine,
             audit_engine,
             activity_engine,
+            receipt_engine,
             shared_storage: storage,
             storage_history_reader,
             logging,

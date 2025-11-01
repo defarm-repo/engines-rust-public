@@ -7,9 +7,9 @@ use crate::types::{
     CircuitItem, CircuitOperation, CircuitType, ComplianceReport, ComplianceStatus,
     ConflictResolution, CreditTransaction, DataLakeEntry, Event, EventCidMapping, EventType,
     EventVisibility, Identifier, IdentifierMapping, IndexingProgress, Item, ItemShare, ItemStatus,
-    ItemStorageHistory, Notification, PendingItem, PendingPriority, PendingReason,
-    ProcessingStatus, Receipt, SecurityIncident, SecurityIncidentSummary, StorageRecord,
-    SystemStatistics, TimelineEntry, UserAccount, UserActivity, WebhookDelivery,
+    ItemStorageHistory, Notification, PasswordResetToken, PendingItem, PendingPriority,
+    PendingReason, ProcessingStatus, Receipt, SecurityIncident, SecurityIncidentSummary,
+    StorageRecord, SystemStatistics, TimelineEntry, UserAccount, UserActivity, WebhookDelivery,
 };
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -373,6 +373,20 @@ pub trait StorageBackend: Send + Sync {
     fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError>;
     fn delete_user_account(&self, user_id: &str) -> Result<(), StorageError>;
 
+    // Password Reset Token operations
+    fn store_password_reset_token(&self, token: &PasswordResetToken) -> Result<(), StorageError>;
+    fn get_password_reset_token_by_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<PasswordResetToken>, StorageError>;
+    fn mark_token_as_used(&self, token_id: &str) -> Result<(), StorageError>;
+    fn count_recent_reset_requests(
+        &self,
+        user_id: &str,
+        since: DateTime<Utc>,
+    ) -> Result<usize, StorageError>;
+    fn cleanup_expired_tokens(&self) -> Result<usize, StorageError>;
+
     // Credit Transaction operations
     fn record_credit_transaction(
         &self,
@@ -545,6 +559,9 @@ struct InMemoryState {
     indexing_progress: HashMap<String, IndexingProgress>, // network -> progress
     // User Activity tracking
     user_activities: Vec<UserActivity>,
+    // Password Reset Tokens
+    password_reset_tokens: HashMap<String, PasswordResetToken>, // token_hash -> token
+    password_reset_tokens_by_user: HashMap<String, Vec<String>>, // user_id -> token_hashes
 }
 
 pub struct InMemoryStorage {
@@ -2046,6 +2063,90 @@ impl StorageBackend for InMemoryStorage {
         })
     }
 
+    // Password Reset Token operations
+    fn store_password_reset_token(&self, token: &PasswordResetToken) -> Result<(), StorageError> {
+        self.with_state(|s| {
+            s.password_reset_tokens
+                .insert(token.token_hash.clone(), token.clone());
+            s.password_reset_tokens_by_user
+                .entry(token.user_id.clone())
+                .or_default()
+                .push(token.token_hash.clone());
+        });
+        Ok(())
+    }
+
+    fn get_password_reset_token_by_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<PasswordResetToken>, StorageError> {
+        Ok(self.with_state(|s| s.password_reset_tokens.get(token_hash).cloned()))
+    }
+
+    fn mark_token_as_used(&self, token_id: &str) -> Result<(), StorageError> {
+        self.with_state(|s| {
+            for token in s.password_reset_tokens.values_mut() {
+                if token.token_id == token_id {
+                    token.used_at = Some(Utc::now());
+                    return Ok(());
+                }
+            }
+            Err(StorageError::NotFound)
+        })
+    }
+
+    fn count_recent_reset_requests(
+        &self,
+        user_id: &str,
+        since: DateTime<Utc>,
+    ) -> Result<usize, StorageError> {
+        Ok(self.with_state(|s| {
+            s.password_reset_tokens_by_user
+                .get(user_id)
+                .map(|hashes| {
+                    hashes
+                        .iter()
+                        .filter(|hash| {
+                            s.password_reset_tokens
+                                .get(*hash)
+                                .map(|t| t.created_at >= since)
+                                .unwrap_or(false)
+                        })
+                        .count()
+                })
+                .unwrap_or(0)
+        }))
+    }
+
+    fn cleanup_expired_tokens(&self) -> Result<usize, StorageError> {
+        let now = Utc::now();
+        let mut count = 0;
+
+        self.with_state(|s| {
+            // Collect expired token hashes
+            let expired_hashes: Vec<String> = s
+                .password_reset_tokens
+                .iter()
+                .filter(|(_, token)| token.expires_at < now)
+                .map(|(hash, _)| hash.clone())
+                .collect();
+
+            count = expired_hashes.len();
+
+            // Remove from main storage and indices
+            for hash in expired_hashes {
+                if let Some(token) = s.password_reset_tokens.remove(&hash) {
+                    // Remove from user index
+                    if let Some(hashes) = s.password_reset_tokens_by_user.get_mut(&token.user_id) {
+                        hashes.retain(|h| h != &hash);
+                    }
+                }
+            }
+        });
+
+        Ok(count)
+    }
+
     // Credit Transaction operations
     fn record_credit_transaction(
         &self,
@@ -3299,6 +3400,43 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         guard.list_user_accounts()
     }
 
+    fn store_password_reset_token(&self, _token: &PasswordResetToken) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn get_password_reset_token_by_hash(
+        &self,
+        _token_hash: &str,
+    ) -> Result<Option<PasswordResetToken>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn mark_token_as_used(&self, _token_id: &str) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn count_recent_reset_requests(
+        &self,
+        _user_id: &str,
+        _since: DateTime<Utc>,
+    ) -> Result<usize, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn cleanup_expired_tokens(&self) -> Result<usize, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
     fn delete_user_account(&self, user_id: &str) -> Result<(), StorageError> {
         let guard = self.lock().unwrap();
         guard.delete_user_account(user_id)
@@ -4448,6 +4586,43 @@ impl StorageBackend for EncryptedFileStorage {
         ))
     }
 
+    fn store_password_reset_token(&self, _token: &PasswordResetToken) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not yet implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn get_password_reset_token_by_hash(
+        &self,
+        _token_hash: &str,
+    ) -> Result<Option<PasswordResetToken>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not yet implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn mark_token_as_used(&self, _token_id: &str) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not yet implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn count_recent_reset_requests(
+        &self,
+        _user_id: &str,
+        _since: DateTime<Utc>,
+    ) -> Result<usize, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not yet implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
+    fn cleanup_expired_tokens(&self) -> Result<usize, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Password reset tokens not yet implemented for EncryptedFileStorage".to_string(),
+        ))
+    }
+
     // Credit Transaction operations (stub implementations for now)
     fn record_credit_transaction(
         &self,
@@ -5486,6 +5661,38 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
     fn list_user_accounts(&self) -> Result<Vec<UserAccount>, StorageError> {
         let guard = self.lock().unwrap();
         guard.list_user_accounts()
+    }
+
+    fn store_password_reset_token(&self, token: &PasswordResetToken) -> Result<(), StorageError> {
+        let guard = self.lock().unwrap();
+        guard.store_password_reset_token(token)
+    }
+
+    fn get_password_reset_token_by_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<PasswordResetToken>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_password_reset_token_by_hash(token_hash)
+    }
+
+    fn mark_token_as_used(&self, token_id: &str) -> Result<(), StorageError> {
+        let guard = self.lock().unwrap();
+        guard.mark_token_as_used(token_id)
+    }
+
+    fn count_recent_reset_requests(
+        &self,
+        user_id: &str,
+        since: DateTime<Utc>,
+    ) -> Result<usize, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.count_recent_reset_requests(user_id, since)
+    }
+
+    fn cleanup_expired_tokens(&self) -> Result<usize, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.cleanup_expired_tokens()
     }
 
     fn delete_user_account(&self, user_id: &str) -> Result<(), StorageError> {
