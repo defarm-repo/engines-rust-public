@@ -234,6 +234,22 @@ impl PostgresPersistence {
                 "V2__create_cid_timeline",
                 include_str!("../config/migrations/V2__create_cid_timeline.sql"),
             ),
+            (
+                "V3__extend_items_identifier_schema",
+                include_str!("../config/migrations/V3__extend_items_identifier_schema.sql"),
+            ),
+            (
+                "V4__add_timeline_and_stats",
+                include_str!("../config/migrations/V4__add_timeline_and_stats.sql"),
+            ),
+            (
+                "V5__password_reset_tokens",
+                include_str!("../config/migrations/V5__password_reset_tokens.sql"),
+            ),
+            (
+                "V6__add_dfid_to_circuit_operations",
+                include_str!("../config/migrations/V6__add_dfid_to_circuit_operations.sql"),
+            ),
         ];
 
         for (name, migration_sql) in migrations {
