@@ -129,10 +129,11 @@ This is an automated message, please do not reply to this email.
         username, reset_link
     );
 
-    // Send email via configured provider
+    // Send email via configured provider with automatic SMTP fallback
     match config.provider {
         EmailProvider::MailerSend => {
-            send_via_mailersend(
+            // Try MailerSend API first
+            match send_via_mailersend(
                 &config,
                 to_email,
                 "Reset Your Password",
@@ -140,6 +141,24 @@ This is an automated message, please do not reply to this email.
                 &text_body,
             )
             .await
+            {
+                Ok(()) => Ok(()),
+                Err(api_error) => {
+                    // Fallback to SMTP if API fails
+                    tracing::warn!(
+                        "MailerSend API failed ({}), falling back to SMTP",
+                        api_error
+                    );
+                    send_via_smtp(
+                        &config,
+                        to_email,
+                        "Reset Your Password",
+                        &html_body,
+                        &text_body,
+                    )
+                    .await
+                }
+            }
         }
         EmailProvider::SendGrid => {
             send_via_sendgrid(
@@ -287,6 +306,90 @@ async fn send_via_sendgrid(
             "SendGrid API returned status {}: {}",
             status, error_body
         ))
+    }
+}
+
+/// Send email via SMTP (fallback method for maximum reliability)
+async fn send_via_smtp(
+    config: &EmailConfig,
+    to_email: &str,
+    subject: &str,
+    html_body: &str,
+    text_body: &str,
+) -> Result<(), String> {
+    use lettre::message::{header::ContentType, MultiPart, SinglePart};
+    use lettre::transport::smtp::authentication::Credentials;
+    use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+
+    // Load SMTP configuration from environment
+    let smtp_host =
+        env::var("SMTP_HOST").map_err(|_| "SMTP_HOST environment variable not set".to_string())?;
+    let smtp_port = env::var("SMTP_PORT")
+        .map_err(|_| "SMTP_PORT environment variable not set".to_string())?
+        .parse::<u16>()
+        .map_err(|e| format!("Invalid SMTP_PORT: {}", e))?;
+    let smtp_username = env::var("SMTP_USERNAME")
+        .map_err(|_| "SMTP_USERNAME environment variable not set".to_string())?;
+    let smtp_password = env::var("SMTP_PASSWORD")
+        .map_err(|_| "SMTP_PASSWORD environment variable not set".to_string())?;
+
+    tracing::debug!(
+        "Sending email via SMTP to {} using {}:{}",
+        to_email,
+        smtp_host,
+        smtp_port
+    );
+
+    // Build email message
+    let email = Message::builder()
+        .from(
+            format!("{} <{}>", config.from_name, config.from_email)
+                .parse()
+                .map_err(|e| format!("Invalid from address: {}", e))?,
+        )
+        .to(to_email
+            .parse()
+            .map_err(|e| format!("Invalid to address: {}", e))?)
+        .subject(subject)
+        .multipart(
+            MultiPart::alternative()
+                .singlepart(
+                    SinglePart::builder()
+                        .header(ContentType::TEXT_PLAIN)
+                        .body(text_body.to_string()),
+                )
+                .singlepart(
+                    SinglePart::builder()
+                        .header(ContentType::TEXT_HTML)
+                        .body(html_body.to_string()),
+                ),
+        )
+        .map_err(|e| format!("Failed to build email message: {}", e))?;
+
+    // Configure SMTP transport
+    let credentials = Credentials::new(smtp_username, smtp_password);
+
+    let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
+        .map_err(|e| format!("Failed to create SMTP transport: {}", e))?
+        .port(smtp_port)
+        .credentials(credentials)
+        .build();
+
+    // Send email
+    match mailer.send(email).await {
+        Ok(_) => {
+            tracing::info!(
+                "✅ Password reset email sent successfully to {} via SMTP ({}:{})",
+                to_email,
+                smtp_host,
+                smtp_port
+            );
+            Ok(())
+        }
+        Err(e) => {
+            tracing::error!("❌ SMTP delivery error: {}", e);
+            Err(format!("SMTP delivery failed: {}", e))
+        }
     }
 }
 

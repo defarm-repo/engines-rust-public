@@ -60,8 +60,10 @@ thiserror = "1.0"
 reqwest = { version = "0.11", features = ["json", "multipart"] }
 url = "2.5"
 
-# Email service (SendGrid for password reset emails)
-# Using reqwest for SendGrid API calls - no additional email dependencies needed
+# Email service (MailerSend for password reset emails)
+# - reqwest for MailerSend/SendGrid API calls (primary method)
+# - lettre for SMTP fallback (increased reliability)
+lettre = { version = "0.11", default-features = false, features = ["tokio1", "tokio1-native-tls", "smtp-transport", "builder"] }
 
 # Blockchain and cryptography
 ed25519-dalek = "2.0"
