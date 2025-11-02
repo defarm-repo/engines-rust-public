@@ -23,7 +23,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tracing::{info, instrument, warn};
+use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
 
 /// Validates password complexity requirements
@@ -332,7 +332,39 @@ async fn forgot_password(
         )
         .map_err(map_storage_lock_error)?;
 
-        if should_log_reset_token() {
+        // Send email if SendGrid is configured, otherwise log token for development
+        if crate::email_service::EmailConfig::is_enabled() {
+            // Send email via SendGrid
+            match crate::email_service::send_password_reset_email(
+                &user.email,
+                &user.username,
+                &plaintext_token,
+            )
+            .await
+            {
+                Ok(()) => {
+                    info!(
+                        "Password reset email sent successfully to {} (user: {})",
+                        user.email, user.username
+                    );
+                }
+                Err(e) => {
+                    // Log error but don't reveal it to user (prevent enumeration)
+                    error!(
+                        "Failed to send password reset email to {}: {}",
+                        user.email, e
+                    );
+                    // Fall back to logging token in development mode
+                    if should_log_reset_token() {
+                        warn!(
+                            "Email failed - Password reset token for user {} ({}): {}",
+                            user.username, user.user_id, plaintext_token
+                        );
+                    }
+                }
+            }
+        } else if should_log_reset_token() {
+            // Development mode: log token to console
             info!(
                 "Password reset token generated for user {} ({}): {}",
                 user.username, user.user_id, plaintext_token
