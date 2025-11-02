@@ -25,7 +25,10 @@ RUN rustup update && \
 RUN rustc --version && cargo --version
 
 # Copy dependency manifests
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY Cargo.toml Cargo.lock ./
+
+# DON'T copy rust-toolchain.toml - it may force wrong target
+# rustup default already set to 1.88.0 above
 
 # Create dummy main to cache dependencies
 RUN mkdir src && \
@@ -34,14 +37,17 @@ RUN mkdir src && \
     echo "fn main() {}" > src/bin/cattle_robot.rs
 
 # Build dependencies (this layer will be cached)
-RUN cargo build --release --bin cattle-robot && \
+# Explicitly set target to Linux
+RUN cargo build --release --target x86_64-unknown-linux-gnu --bin cattle-robot && \
     rm -rf src
 
-# Copy actual source code
-COPY . .
+# Copy actual source code (excluding .cargo which has macOS-specific config)
+COPY src ./src
+COPY migrations ./migrations
+# Don't copy .cargo/config.toml - it forces macOS target which breaks Linux builds
 
-# Build the cattle-robot binary
-RUN cargo build --release --bin cattle-robot
+# Build the cattle-robot binary (explicitly set Linux target)
+RUN cargo build --release --target x86_64-unknown-linux-gnu --bin cattle-robot
 
 # ============================================================================
 # Stage 2: Runtime
@@ -61,8 +67,8 @@ RUN useradd -m -u 1000 cattlerobot
 
 WORKDIR /app
 
-# Copy the built binary
-COPY --from=builder /app/target/release/cattle-robot /app/cattle-robot
+# Copy the built binary (from Linux target directory)
+COPY --from=builder /app/target/x86_64-unknown-linux-gnu/release/cattle-robot /app/cattle-robot
 
 # Set ownership
 RUN chown -R cattlerobot:cattlerobot /app
