@@ -1,19 +1,39 @@
 # Email Configuration Guide
 
-This document explains how to configure email sending for password reset functionality using SendGrid.
+This document explains how to configure email sending for password reset functionality using MailerSend (recommended) or SendGrid.
 
 ## Overview
 
-The DeFarm API supports password reset emails via SendGrid. When configured, users will receive professional HTML emails with password reset links. Without configuration, reset tokens are logged to the console for development purposes.
+The DeFarm API supports password reset emails via multiple providers:
+- **MailerSend** (recommended) - 3,000 emails/month free forever
+- **SendGrid** (fallback) - Limited free trial (60 days)
 
-## Environment Variables
+When configured, users will receive professional HTML emails with password reset links. Without configuration, reset tokens are logged to the console for development purposes.
 
-### Required for Email Functionality
+## Quick Start (Recommended: MailerSend)
+
+MailerSend offers a permanent free tier with 3,000 emails/month, making it ideal for most projects.
+
+### Environment Variables
+
+```bash
+# MailerSend API Token (recommended - get from https://app.mailersend.com)
+MAILERSEND_API_KEY=mlsn.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Optional configuration
+FROM_EMAIL=noreply@your-domain.com  # default: noreply@defarm.net
+FROM_NAME="Your Company Name"       # default: DeFarm Connect
+FRONTEND_URL=https://your-app.com   # default: https://connect.defarm.net
+```
+
+### Alternative: SendGrid (if you already have an account)
 
 ```bash
 # SendGrid API Key (get from https://app.sendgrid.com/settings/api_keys)
 SENDGRID_API_KEY=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+**Note**: The system checks for `MAILERSEND_API_KEY` first, then falls back to `SENDGRID_API_KEY`.
 
 ### Optional Configuration
 
@@ -38,13 +58,63 @@ PASSWORD_RESET_DEBUG_LOG=1
 
 ## Setup Steps
 
-### 1. Create SendGrid Account
+### Option A: MailerSend Setup (Recommended)
+
+#### 1. Create MailerSend Account
+
+1. Go to [https://www.mailersend.com](https://www.mailersend.com)
+2. Sign up for a free account
+3. Verify your email address
+4. **Free tier**: 3,000 emails/month forever (no credit card required)
+
+#### 2. Add and Verify Your Domain
+
+1. Log in to MailerSend dashboard
+2. Go to **Domains** section
+3. Click **Add Domain**
+4. Enter your domain (e.g., `defarm.net`)
+5. Add the provided DNS records to your domain:
+   - SPF record (TXT)
+   - DKIM record (TXT)
+   - CNAME record for tracking
+6. Click **Verify Domain** (may take up to 48 hours)
+
+**For testing**: You can use MailerSend's trial domain before verifying your own domain.
+
+#### 3. Generate API Token
+
+1. Go to **Settings** → **API Tokens**
+2. Click **Create Token**
+3. Name: "DeFarm Password Reset"
+4. Permissions: Select **Full Access** (or just **Email Send**)
+5. Click **Create Token**
+6. **Copy the API token immediately** (starts with `mlsn.`)
+7. Store it securely - you won't see it again!
+
+#### 4. Configure Environment
+
+Add to Railway or your `.env` file:
+
+```bash
+MAILERSEND_API_KEY=mlsn.your_token_here
+FROM_EMAIL=noreply@defarm.net
+FRONTEND_URL=https://connect.defarm.net
+```
+
+**Done!** You're ready to send emails.
+
+---
+
+### Option B: SendGrid Setup (If You Already Have Account)
+
+#### 1. Create SendGrid Account
 
 1. Go to [https://sendgrid.com](https://sendgrid.com)
-2. Sign up for a free account (100 emails/day free tier)
+2. Sign up for a free account
 3. Verify your email address
+4. **Note**: Free tier is limited to 60-day trial
 
-### 2. Generate API Key
+#### 2. Generate API Key
 
 1. Log in to SendGrid dashboard
 2. Go to Settings → API Keys
@@ -56,16 +126,28 @@ PASSWORD_RESET_DEBUG_LOG=1
 
 ### 3. Configure Environment
 
-#### Railway Deployment
+#### Railway Deployment (Both Providers)
 
 1. Go to your Railway project dashboard
-2. Navigate to Variables tab
+2. Navigate to **Variables** tab
 3. Add the following variables:
-   ```
-   SENDGRID_API_KEY=SG.your_api_key_here
-   FROM_EMAIL=noreply@defarm.net
-   FRONTEND_URL=https://connect.defarm.net
-   ```
+
+**For MailerSend** (recommended):
+```
+MAILERSEND_API_KEY=mlsn.your_token_here
+FROM_EMAIL=noreply@defarm.net
+FROM_NAME=DeFarm Connect
+FRONTEND_URL=https://connect.defarm.net
+```
+
+**OR for SendGrid**:
+```
+SENDGRID_API_KEY=SG.your_api_key_here
+FROM_EMAIL=noreply@defarm.net
+FROM_NAME=DeFarm Connect
+FRONTEND_URL=https://connect.defarm.net
+```
+
 4. Save and redeploy
 
 #### Local Development
@@ -76,9 +158,13 @@ PASSWORD_RESET_DEBUG_LOG=1
    DATABASE_URL=postgresql://localhost/defarm_dev
    JWT_SECRET=your-local-secret-key-for-development-only
 
-   # Email (optional for local dev)
-   SENDGRID_API_KEY=SG.your_api_key_here
+   # Email - Choose one provider (MailerSend recommended)
+   MAILERSEND_API_KEY=mlsn.your_token_here
+   # OR
+   # SENDGRID_API_KEY=SG.your_api_key_here
+
    FROM_EMAIL=noreply@defarm.net
+   FROM_NAME=DeFarm Connect
    FRONTEND_URL=http://localhost:3000
 
    # Development mode: log tokens instead of sending email
@@ -244,22 +330,61 @@ If tokens aren't appearing in logs:
 2. Check log level is INFO or higher
 3. Ensure `SENDGRID_API_KEY` is NOT set (otherwise email mode is used)
 
-## Cost and Limits
+## Cost and Limits Comparison
 
-### SendGrid Free Tier
-- 100 emails per day
-- Forever free
-- Full email template support
-- Email Activity Feed (30 days)
+### MailerSend (Recommended)
 
-### SendGrid Paid Tiers
+**Free Tier** - ✅ Forever Free
+- 3,000 emails/month (~100/day)
+- No credit card required
+- Full feature access
+- Email templates and tracking
+- Activity log (30 days)
+- **No time limit**
+
+**Paid Tiers** (if you need more)
+- **Email**: $1/month per 1,000 emails (pay as you grow)
+- **Starting at**: $25/month for 25,000 emails
+- **Volume discounts** for high usage
+
+**API Rate Limits**
+- General: Varies by plan (sufficient for most use cases)
+- Password reset: 3 requests per hour per user (enforced by DeFarm API)
+
+---
+
+### SendGrid (Alternative)
+
+**Free Tier** - ⚠️ Limited Trial Only
+- 100 emails/day during trial
+- **Trial lasts only 60 days**
+- Requires credit card for continued use
+- Activity feed (30 days)
+
+**Paid Tiers** (required after trial)
 - **Essentials**: $19.95/month - 50,000 emails/month
 - **Pro**: $89.95/month - 100,000 emails/month
 - **Premier**: Custom pricing
 
-### Rate Limits
-- Password reset: 3 requests per hour per user (enforced by API)
-- SendGrid: 600 requests per minute (API limit)
+**API Rate Limits**
+- SendGrid: 600 requests per minute
+- Password reset: 3 requests per hour per user (enforced by DeFarm API)
+
+---
+
+### Recommendation
+
+**For most projects, use MailerSend**:
+- ✅ True forever-free tier (3,000 emails/month)
+- ✅ No credit card required
+- ✅ Better pricing as you scale
+- ✅ Simple, clean API
+- ✅ Good deliverability rates
+
+**Use SendGrid only if**:
+- You already have a paid SendGrid account
+- You need SendGrid-specific features
+- You're already over 3,000 emails/month and have negotiated pricing
 
 ## Security Considerations
 

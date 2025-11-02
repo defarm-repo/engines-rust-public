@@ -1,13 +1,24 @@
-/// Email Service for sending transactional emails via SendGrid
+/// Email Service for sending transactional emails
 ///
-/// This module provides email sending functionality using the SendGrid API.
+/// This module provides email sending functionality using multiple providers:
+/// - MailerSend (recommended - 3,000 emails/month free forever)
+/// - SendGrid (fallback - limited free trial)
+///
 /// It supports password reset emails and can be extended for other use cases.
 use serde_json::json;
 use std::env;
 
+/// Email provider selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmailProvider {
+    MailerSend,
+    SendGrid,
+}
+
 /// Configuration for the email service
 pub struct EmailConfig {
-    pub sendgrid_api_key: String,
+    pub provider: EmailProvider,
+    pub api_key: String,
     pub from_email: String,
     pub from_name: String,
     pub frontend_url: String,
@@ -15,9 +26,19 @@ pub struct EmailConfig {
 
 impl EmailConfig {
     /// Load email configuration from environment variables
+    /// Checks for MAILERSEND_API_KEY first (recommended), then SENDGRID_API_KEY
     pub fn from_env() -> Result<Self, String> {
-        let sendgrid_api_key = env::var("SENDGRID_API_KEY")
-            .map_err(|_| "SENDGRID_API_KEY environment variable not set".to_string())?;
+        // Try MailerSend first (recommended provider)
+        let (provider, api_key) = if let Ok(key) = env::var("MAILERSEND_API_KEY") {
+            (EmailProvider::MailerSend, key)
+        } else if let Ok(key) = env::var("SENDGRID_API_KEY") {
+            (EmailProvider::SendGrid, key)
+        } else {
+            return Err(
+                "Neither MAILERSEND_API_KEY nor SENDGRID_API_KEY environment variable is set"
+                    .to_string(),
+            );
+        };
 
         let from_email =
             env::var("FROM_EMAIL").unwrap_or_else(|_| "noreply@defarm.net".to_string());
@@ -28,16 +49,17 @@ impl EmailConfig {
             env::var("FRONTEND_URL").unwrap_or_else(|_| "https://connect.defarm.net".to_string());
 
         Ok(Self {
-            sendgrid_api_key,
+            provider,
+            api_key,
             from_email,
             from_name,
             frontend_url,
         })
     }
 
-    /// Check if email service is enabled (SendGrid API key is set)
+    /// Check if email service is enabled (any provider API key is set)
     pub fn is_enabled() -> bool {
-        env::var("SENDGRID_API_KEY").is_ok()
+        env::var("MAILERSEND_API_KEY").is_ok() || env::var("SENDGRID_API_KEY").is_ok()
     }
 }
 
@@ -107,18 +129,97 @@ This is an automated message, please do not reply to this email.
         username, reset_link
     );
 
-    // Send email via SendGrid API
-    send_via_sendgrid(
-        &config,
-        to_email,
-        "Reset Your Password",
-        &html_body,
-        &text_body,
-    )
-    .await
+    // Send email via configured provider
+    match config.provider {
+        EmailProvider::MailerSend => {
+            send_via_mailersend(
+                &config,
+                to_email,
+                "Reset Your Password",
+                &html_body,
+                &text_body,
+            )
+            .await
+        }
+        EmailProvider::SendGrid => {
+            send_via_sendgrid(
+                &config,
+                to_email,
+                "Reset Your Password",
+                &html_body,
+                &text_body,
+            )
+            .await
+        }
+    }
 }
 
-/// Send email via SendGrid API v3
+/// Send email via MailerSend API v1 (recommended - 3,000 emails/month free)
+async fn send_via_mailersend(
+    config: &EmailConfig,
+    to_email: &str,
+    subject: &str,
+    html_body: &str,
+    text_body: &str,
+) -> Result<(), String> {
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "from": {
+            "email": config.from_email,
+            "name": config.from_name
+        },
+        "to": [{
+            "email": to_email
+        }],
+        "subject": subject,
+        "text": text_body,
+        "html": html_body
+    });
+
+    tracing::debug!(
+        "Sending email via MailerSend to {} with subject '{}'",
+        to_email,
+        subject
+    );
+
+    let response = client
+        .post("https://api.mailersend.com/v1/email")
+        .header("Authorization", format!("Bearer {}", config.api_key))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to send request to MailerSend: {}", e))?;
+
+    let status = response.status();
+
+    if status.is_success() {
+        tracing::info!(
+            "✅ Password reset email sent successfully to {} via MailerSend",
+            to_email
+        );
+        Ok(())
+    } else {
+        let error_body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unable to read error response".to_string());
+
+        tracing::error!(
+            "❌ MailerSend API error (status {}): {}",
+            status,
+            error_body
+        );
+
+        Err(format!(
+            "MailerSend API returned status {}: {}",
+            status, error_body
+        ))
+    }
+}
+
+/// Send email via SendGrid API v3 (fallback - limited free trial)
 async fn send_via_sendgrid(
     config: &EmailConfig,
     to_email: &str,
@@ -151,14 +252,15 @@ async fn send_via_sendgrid(
         ]
     });
 
-    tracing::debug!("Sending email to {} with subject '{}'", to_email, subject);
+    tracing::debug!(
+        "Sending email via SendGrid to {} with subject '{}'",
+        to_email,
+        subject
+    );
 
     let response = client
         .post("https://api.sendgrid.com/v3/mail/send")
-        .header(
-            "Authorization",
-            format!("Bearer {}", config.sendgrid_api_key),
-        )
+        .header("Authorization", format!("Bearer {}", config.api_key))
         .header("Content-Type", "application/json")
         .json(&payload)
         .send()
@@ -168,7 +270,10 @@ async fn send_via_sendgrid(
     let status = response.status();
 
     if status.is_success() {
-        tracing::info!("✅ Password reset email sent successfully to {}", to_email);
+        tracing::info!(
+            "✅ Password reset email sent successfully to {} via SendGrid",
+            to_email
+        );
         Ok(())
     } else {
         let error_body = response
