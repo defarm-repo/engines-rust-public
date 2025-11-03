@@ -63,7 +63,7 @@ url = "2.5"
 # Email service (MailerSend for password reset emails)
 # - reqwest for MailerSend/SendGrid API calls (primary method)
 # - lettre for SMTP fallback (increased reliability)
-lettre = { version = "0.11", default-features = false, features = ["tokio1", "tokio1-native-tls", "smtp-transport", "builder"] }
+lettre = { version = "0.11", default-features = false, features = ["tokio1", "tokio1-rustls-tls", "smtp-transport", "builder"] }
 
 # Blockchain and cryptography
 ed25519-dalek = "2.0"
