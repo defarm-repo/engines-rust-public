@@ -1,0 +1,11 @@
+# Railway service-specific configuration for ipcm-event-listener
+# This overrides the root railway.toml for the ipcm-event-listener service
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "config/Dockerfile.event-listener"
+
+[deploy]
+startCommand = "/app/ipcm-event-listener"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
