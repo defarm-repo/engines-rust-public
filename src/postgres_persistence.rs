@@ -250,6 +250,10 @@ impl PostgresPersistence {
                 "V6__add_dfid_to_circuit_operations",
                 include_str!("../config/migrations/V6__add_dfid_to_circuit_operations.sql"),
             ),
+            (
+                "V7__create_robot_tables",
+                include_str!("../config/migrations/V7__create_robot_tables.sql"),
+            ),
         ];
 
         for (name, migration_sql) in migrations {
