@@ -656,6 +656,7 @@ pub struct PublicSettings {
     pub required_event_types: Option<String>,
     pub data_quality_rules: Option<String>,
     pub export_permissions: Option<ExportPermissionLevel>,
+    pub public_since: Option<DateTime<Utc>>, // Timestamp when circuit became public
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -710,6 +711,8 @@ pub struct PublicCircuitInfo {
     pub published_items: Vec<String>,
     pub auto_publish_pushed_items: bool,
     pub published_items_with_events: Vec<PublicItemWithEvents>,
+    pub public_since: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1271,7 +1274,7 @@ impl Circuit {
         Ok(())
     }
 
-    pub fn update_public_settings(&mut self, settings: PublicSettings) -> Result<(), String> {
+    pub fn update_public_settings(&mut self, mut settings: PublicSettings) -> Result<(), String> {
         // Validate scheduled date if access mode is scheduled
         if let PublicAccessMode::Scheduled = settings.access_mode {
             if settings.scheduled_date.is_none() {
@@ -1284,6 +1287,21 @@ impl Circuit {
             if settings.access_password.is_none() {
                 return Err("Password is required for protected access mode".to_string());
             }
+        }
+
+        // Set public_since timestamp when circuit becomes public for the first time
+        let is_becoming_public = matches!(settings.access_mode, PublicAccessMode::Public);
+        let was_never_public = self
+            .public_settings
+            .as_ref()
+            .and_then(|s| s.public_since)
+            .is_none();
+
+        if is_becoming_public && was_never_public {
+            settings.public_since = Some(Utc::now());
+        } else if let Some(existing_settings) = &self.public_settings {
+            // Preserve existing public_since if it exists
+            settings.public_since = existing_settings.public_since;
         }
 
         self.public_settings = Some(settings);
@@ -1350,6 +1368,8 @@ impl Circuit {
                 .map(|s| s.auto_publish_pushed_items)
                 .unwrap_or(false),
             published_items_with_events: Vec::new(), // Will be populated by circuits_engine
+            public_since: settings.and_then(|s| s.public_since),
+            created_at: self.created_timestamp,
         })
     }
 

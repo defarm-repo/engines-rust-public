@@ -399,6 +399,35 @@ use super::shared_state::AppState;
 use crate::types::{HttpMethod, PostActionTrigger, WebhookAuthType, WebhookConfig};
 
 // ============================================================================
+// PUBLIC CIRCUIT INFO (for unauthenticated access)
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct PublicCircuitInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub public_settings: PublicCircuitSettings,
+    pub member_count: usize,
+    pub item_count: usize,
+    pub created_at: String,
+    pub public_since: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PublicCircuitSettings {
+    pub access_mode: String,
+    pub public_name: Option<String>,
+    pub public_description: Option<String>,
+    pub primary_color: Option<String>,
+    pub secondary_color: Option<String>,
+    pub logo_url: Option<String>,
+    pub tagline: Option<String>,
+    pub footer_text: Option<String>,
+    pub auto_approve_members: bool,
+}
+
+// ============================================================================
 // WEBHOOK CONFIGURATION TYPES
 // ============================================================================
 
@@ -675,6 +704,7 @@ fn build_public_settings_from_request(
         required_event_types: request.required_event_types.clone(),
         data_quality_rules: request.data_quality_rules.clone(),
         export_permissions,
+        public_since: None, // Will be set automatically when circuit becomes public
     })
 }
 
@@ -2282,12 +2312,14 @@ async fn get_public_circuit(
                 "is_currently_accessible": public_info.is_currently_accessible,
                 "published_items": public_info.published_items,
                 "auto_publish_pushed_items": public_info.auto_publish_pushed_items,
+                "public_since": public_info.public_since.map(|dt| dt.to_rfc3339()),
+                "created_at": public_info.created_at.to_rfc3339(),
                 "recent_activity": []
             }
         }))),
         Ok(None) => Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Circuit is not publicly accessible"})),
+            Json(json!({"error": "Circuit not found or not public", "code": "CIRCUIT_NOT_PUBLIC"})),
         )),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
