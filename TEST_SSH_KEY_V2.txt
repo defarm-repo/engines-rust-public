@@ -1,0 +1,14 @@
+# SSH Key v2 Test
+
+This test file verifies the new SSH key (v2) works correctly with GitHub Actions.
+
+Test timestamp: 2025-11-05 15:45 UTC
+
+Expected behavior:
+✅ GitHub Actions workflow triggers on push
+✅ Workflow uses new DEPLOY_KEY_PRIVATE secret
+✅ SSH authentication succeeds (no libcrypto error)
+✅ Filtered code syncs to public repository
+✅ This file should NOT appear in public repo (all .txt/.md files excluded)
+
+If you see this file in the public repository, the filtering is not working correctly.
