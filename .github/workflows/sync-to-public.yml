@@ -54,19 +54,22 @@ jobs:
           git add -A
           git commit -m "Sync from private repo (filtered)" || echo "No changes to commit"
 
+      - name: Setup SSH Agent with Deploy Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_KEY_PRIVATE }}
+
       - name: Push to public repository
-        env:
-          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         run: |
-          # Configure git with token authentication
+          # Configure git
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
 
-          # Set up remote with direct token authentication (for fine-grained tokens)
-          git remote add public https://${GITHUB_TOKEN}@github.com/defarm-repo/engines-rust-public.git
+          # Set up remote with SSH
+          git remote add public git@github.com:defarm-repo/engines-rust-public.git
 
           # Force push the filtered branch to public repo
-          echo "Pushing to public repository..."
+          echo "Pushing to public repository via SSH..."
           git push public public-sync:main --force
 
           echo "✅ Successfully pushed to public repository!"
