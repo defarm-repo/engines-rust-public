@@ -1,0 +1,87 @@
+name: Sync to Public Repository
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  sync-to-public:
+    name: Sync Filtered Code to Public Repo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout private repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for git-filter-repo
+
+      - name: Set up Python for git-filter-repo
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install git-filter-repo
+        run: |
+          pip install git-filter-repo
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+
+      - name: Create filtered branch
+        run: |
+          # Create a working branch for filtering
+          git checkout -b public-sync
+
+          # Remove all .md files (documentation)
+          echo "Removing .md files..."
+          find . -type f -name "*.md" -not -path "./.git/*" -delete
+
+          # Remove tests directory
+          echo "Removing tests/ directory..."
+          rm -rf tests/
+
+          # Remove docs directory
+          echo "Removing docs/ directory..."
+          rm -rf docs/
+
+          # Remove sensitive or internal files
+          echo "Removing additional internal files..."
+          rm -rf .github/  # Remove GitHub workflows from public repo
+
+          # Commit changes
+          git add -A
+          git commit -m "Sync from private repo (filtered)" || echo "No changes to commit"
+
+      - name: Push to public repository
+        env:
+          PUBLIC_REPO_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          PUBLIC_REPO_URL: ${{ secrets.PUBLIC_REPO_URL }}
+        run: |
+          if [ -z "$PUBLIC_REPO_TOKEN" ] || [ -z "$PUBLIC_REPO_URL" ]; then
+            echo "⚠️  PUBLIC_REPO_TOKEN or PUBLIC_REPO_URL not configured in GitHub secrets"
+            echo "Skipping push to public repository"
+            echo "To enable sync, configure these secrets in repository settings"
+            exit 0
+          fi
+
+          # Configure remote with authentication
+          git remote add public "https://x-access-token:${PUBLIC_REPO_TOKEN}@${PUBLIC_REPO_URL}"
+
+          # Push to public repository (force push to maintain clean history)
+          git push -f public public-sync:main
+
+          echo "✅ Successfully synced to public repository"
+
+      - name: Summary
+        run: |
+          echo "## Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Filtered content synced to public repository" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Excluded from public repo:**" >> $GITHUB_STEP_SUMMARY
+          echo "- All .md files (documentation)" >> $GITHUB_STEP_SUMMARY
+          echo "- tests/ directory" >> $GITHUB_STEP_SUMMARY
+          echo "- docs/ directory" >> $GITHUB_STEP_SUMMARY
+          echo "- .github/ workflows" >> $GITHUB_STEP_SUMMARY

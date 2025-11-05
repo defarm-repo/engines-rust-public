@@ -23,3 +23,17 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Sensitive files - Added by security fix
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+service-account.json
+secrets.toml
+secrets.json
+
+# SSL certificates
+config/nginx/ssl/*.pem
+config/nginx/ssl/*.key
