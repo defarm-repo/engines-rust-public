@@ -1,0 +1,25 @@
+# Rust
+target/
+# Cargo.lock - REMOVED: Binary applications should commit Cargo.lock for reproducible builds
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Claude
+.claude/
+
+# Environment
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp

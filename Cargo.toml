@@ -15,10 +15,6 @@ path = "src/main.rs"
 name = "ipcm-event-listener"
 path = "src/bin/ipcm_event_listener.rs"
 
-[[bin]]
-name = "cattle-robot"
-path = "src/bin/cattle_robot.rs"
-
 [dependencies]
 # Core dependencies
 blake3 = "1.5"
