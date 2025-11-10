@@ -128,6 +128,21 @@ jobs:
           # Remove deployment-specific files (keep only Docker basics)
           rm -f fly.toml render.yaml heroku.yml
 
+          # SANITIZE SOURCE CODE
+          echo "Sanitizing source code..."
+
+          # 1. Clean up TODO/FIXME comments (replace with generic text, not delete)
+          echo "  - Replacing TODO/FIXME comments..."
+          find . -name "*.rs" -exec sed -i 's|//.*TODO.*|// Implementation pending|g; s|//.*FIXME.*|// Under review|g' {} \; 2>/dev/null || true
+
+          # 2. Replace hardcoded Stellar addresses with placeholders
+          echo "  - Replacing default Stellar addresses..."
+          find . -name "*.rs" -exec sed -i 's/GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ/STELLAR_WALLET_PLACEHOLDER/g' {} \; 2>/dev/null || true
+
+          # 3. Clean up any accidental test credentials (just in case)
+          echo "  - Checking for test credentials..."
+          find . -name "*.rs" -exec sed -i 's/demo123/[REDACTED]/g; s/Demo123/[REDACTED]/g; s/admin123/[REDACTED]/g' {} \; 2>/dev/null || true
+
           # Ensure src/ directory exists and is not empty
           if [ ! -d "src" ] || [ -z "$(ls -A src)" ]; then
             echo "ERROR: src/ directory is missing or empty!"
@@ -180,3 +195,8 @@ jobs:
           echo "- Environment files (.env*)" >> $GITHUB_STEP_SUMMARY
           echo "- Railway/deployment configs" >> $GITHUB_STEP_SUMMARY
           echo "- Internal configuration files" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Code Sanitization Applied:**" >> $GITHUB_STEP_SUMMARY
+          echo "- TODO/FIXME comments replaced with generic text" >> $GITHUB_STEP_SUMMARY
+          echo "- Stellar wallet addresses replaced with placeholders" >> $GITHUB_STEP_SUMMARY
+          echo "- Test credentials redacted (if any found)" >> $GITHUB_STEP_SUMMARY
