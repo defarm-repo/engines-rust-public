@@ -79,6 +79,7 @@ struct ApiKeyLimits {
     requests: VecDeque<RequestRecord>,
     config: RateLimitConfig,
     burst_tokens: f64,
+    burst_capacity: Option<u32>,
     last_burst_refill: DateTime<Utc>,
 }
 
@@ -86,10 +87,12 @@ impl ApiKeyLimits {
     fn new(config: RateLimitConfig) -> Self {
         let now = Utc::now();
         let burst_tokens = config.burst_size.unwrap_or(0) as f64;
+        let burst_capacity = config.burst_size;
         Self {
             requests: VecDeque::new(),
             config,
             burst_tokens,
+            burst_capacity,
             last_burst_refill: now,
         }
     }
@@ -228,7 +231,8 @@ impl ApiKeyLimits {
 
     fn sync_burst_settings(&mut self) {
         let now = Utc::now();
-        if let Some(capacity) = self.config.burst_size {
+        self.burst_capacity = self.config.burst_size;
+        if let Some(capacity) = self.burst_capacity {
             if self.burst_tokens == 0.0 {
                 self.burst_tokens = capacity as f64;
             } else {
@@ -241,7 +245,7 @@ impl ApiKeyLimits {
     }
 
     fn refill_burst_tokens(&mut self, now: DateTime<Utc>) {
-        if let Some(capacity) = self.config.burst_size {
+        if let Some(capacity) = self.burst_capacity {
             if now > self.last_burst_refill {
                 let elapsed_secs =
                     (now - self.last_burst_refill).num_milliseconds() as f64 / 1000.0;
@@ -267,7 +271,7 @@ impl ApiKeyLimits {
     }
 
     fn consume_burst_token(&mut self) -> bool {
-        if self.config.burst_size.is_some() && self.burst_tokens >= 1.0 {
+        if self.burst_capacity.is_some() && self.burst_tokens >= 1.0 {
             self.burst_tokens -= 1.0;
             true
         } else {
@@ -556,5 +560,31 @@ mod tests {
         // Further requests should be denied once burst tokens are consumed
         let result = limiter.check_rate_limit(api_key_id, &config).unwrap();
         assert!(!result.allowed);
+    }
+
+    #[test]
+    fn test_burst_resets_when_config_changes() {
+        let limiter = create_test_limiter();
+        let api_key_id = Uuid::new_v4();
+        let config_small = RateLimitConfig::new(10).with_minute_limit(2).with_burst(1);
+
+        // Consume minute budget and the single burst token
+        for _ in 0..3 {
+            limiter.check_rate_limit(api_key_id, &config_small).unwrap();
+            limiter.record_request(api_key_id).unwrap();
+        }
+        let result = limiter.check_rate_limit(api_key_id, &config_small).unwrap();
+        assert!(
+            !result.allowed,
+            "Request should fail after burst is exhausted"
+        );
+
+        // Expanding the config should refresh burst tokens to the new capacity
+        let config_large = RateLimitConfig::new(10).with_minute_limit(2).with_burst(3);
+        let result = limiter.check_rate_limit(api_key_id, &config_large).unwrap();
+        assert!(
+            result.allowed,
+            "Config change should resync burst bucket to new capacity"
+        );
     }
 }

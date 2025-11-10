@@ -235,16 +235,6 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
                     next_reset: None,
                 });
             }
-        } else if !self.is_feature_enabled(&user.tier, &check.operation) {
-            return Ok(PermissionResult {
-                allowed: false,
-                reason: Some(format!(
-                    "Feature '{}' not available for {:?} tier",
-                    check.operation, user.tier
-                )),
-                remaining_quota: None,
-                next_reset: None,
-            });
         }
 
         // Check usage limits (this would require implementation of usage tracking)
