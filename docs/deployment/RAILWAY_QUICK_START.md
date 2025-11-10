@@ -74,10 +74,12 @@ railway variables set IPFS_GATEWAY="https://gateway.pinata.cloud/ipfs"
 
 # Stellar network configurations
 railway variables set STELLAR_TESTNET_RPC_URL="https://soroban-testnet.stellar.org"
+railway variables set STELLAR_TESTNET_RPC_FALLBACKS="https://soroban-rpc.testnet.stellar.gateway.fm,https://stellar-soroban-testnet-public.nodies.app"
 railway variables set STELLAR_TESTNET_NETWORK="testnet"
 railway variables set STELLAR_TESTNET_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 
 railway variables set STELLAR_MAINNET_RPC_URL="https://soroban-mainnet.stellar.org"
+railway variables set STELLAR_MAINNET_RPC_FALLBACKS="https://soroban-rpc.mainnet.stellar.org,https://soroban-rpc.mainnet.stellar.gateway.fm,https://stellar-soroban-public.nodies.app,https://stellar.api.onfinality.io/public,https://rpc.lightsail.network/,https://archive-rpc.lightsail.network/,https://mainnet.sorobanrpc.com"
 railway variables set STELLAR_MAINNET_NETWORK="mainnet"
 railway variables set STELLAR_MAINNET_NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
 ```

@@ -35,6 +35,7 @@ DATABASE_URL=postgresql://postgres:OWlsOeBLeDQnHSfpOQDFcMQXQeipFtom@postgres.rai
 ENABLE_TESTNET_LISTENER=true
 STELLAR_TESTNET_IPCM_CONTRACT=CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS
 STELLAR_TESTNET_RPC_URL=https://soroban-testnet.stellar.org
+STELLAR_TESTNET_RPC_FALLBACKS=https://soroban-rpc.testnet.stellar.gateway.fm,https://stellar-soroban-testnet-public.nodies.app
 TESTNET_POLL_INTERVAL=10
 TESTNET_BATCH_SIZE=100
 ```
@@ -42,7 +43,9 @@ TESTNET_BATCH_SIZE=100
 **Details**:
 - `ENABLE_TESTNET_LISTENER`: Set to `true` to monitor testnet blockchain
 - `STELLAR_TESTNET_IPCM_CONTRACT`: IPCM v2.1.0 contract address on testnet (with event emission)
-- `STELLAR_TESTNET_RPC_URL`: Soroban RPC endpoint for testnet
+- `STELLAR_TESTNET_RPC_URL`: Primary Soroban RPC endpoint for testnet
+- `STELLAR_TESTNET_RPC_FALLBACKS`: Optional comma/space separated list of backup RPC hosts.
+  Defaults use the providers recommended in [Stellar’s public RPC catalog](https://developers.stellar.org/docs/data/apis/rpc/providers).
 - `TESTNET_POLL_INTERVAL`: Seconds between blockchain queries (default: 10)
 - `TESTNET_BATCH_SIZE`: Number of ledgers to fetch per query (default: 100)
 
@@ -54,6 +57,7 @@ TESTNET_BATCH_SIZE=100
 ENABLE_MAINNET_LISTENER=false
 STELLAR_MAINNET_IPCM_CONTRACT=CBHYQKSG2ZADD7NXZPLFZIH7ZK766VA3YWRLISKJ6PH6KXJ4JZ52OLNZ
 STELLAR_MAINNET_RPC_URL=https://soroban-mainnet.stellar.org
+STELLAR_MAINNET_RPC_FALLBACKS=https://soroban-rpc.mainnet.stellar.org,https://soroban-rpc.mainnet.stellar.gateway.fm,https://stellar-soroban-public.nodies.app,https://stellar.api.onfinality.io/public,https://rpc.lightsail.network/,https://archive-rpc.lightsail.network/,https://mainnet.sorobanrpc.com
 MAINNET_POLL_INTERVAL=10
 MAINNET_BATCH_SIZE=100
 ```
@@ -61,7 +65,8 @@ MAINNET_BATCH_SIZE=100
 **Details**:
 - `ENABLE_MAINNET_LISTENER`: Set to `false` initially (enable when ready for production)
 - `STELLAR_MAINNET_IPCM_CONTRACT`: IPCM v2.1.0 contract address on mainnet (with event emission)
-- `STELLAR_MAINNET_RPC_URL`: Soroban RPC endpoint for mainnet
+- `STELLAR_MAINNET_RPC_URL`: Primary Soroban RPC endpoint for mainnet
+- `STELLAR_MAINNET_RPC_FALLBACKS`: Optional comma/space separated list of backup RPC hosts (defaults align with Stellar’s provider list linked above)
 - `MAINNET_POLL_INTERVAL`: Seconds between blockchain queries (default: 10)
 - `MAINNET_BATCH_SIZE`: Number of ledgers to fetch per query (default: 100)
 
@@ -134,7 +139,7 @@ railway logs --service ipcm-event-listener
    Mainnet Listener: ❌ DISABLED
 🌐 Testnet Configuration:
    IPCM Contract: CCDJV6VAFC2MSSDSL4AEJB5BAMGDA5PMCUIZ3UF6AYIJL467PQTBZ7BS
-   Soroban RPC: https://soroban-testnet.stellar.org
+   Soroban RPC endpoints: https://soroban-testnet.stellar.org, https://soroban-rpc.testnet.stellar.gateway.fm, https://stellar-soroban-testnet-public.nodies.app
    Poll Interval: 10s
    Batch Size: 100 ledgers
 🎧 Starting testnet event listener...

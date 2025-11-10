@@ -33,19 +33,51 @@ pub struct EventListenerConfig {
     pub poll_interval_secs: u64,
     /// Number of ledgers to query per batch
     pub batch_size: u32,
-    /// Soroban RPC endpoint URL
-    pub soroban_rpc_url: String,
+    /// Soroban RPC endpoint URLs (first entry is treated as primary)
+    pub soroban_rpc_urls: Vec<String>,
 }
 
 impl Default for EventListenerConfig {
     fn default() -> Self {
+        let network = StellarNetwork::Testnet;
         Self {
-            network: StellarNetwork::Testnet,
+            network: network.clone(),
             ipcm_contract_address: crate::stellar_client::TESTNET_IPCM_CONTRACT.to_string(),
             poll_interval_secs: 10,
             batch_size: 100,
-            soroban_rpc_url: "https://soroban-testnet.stellar.org".to_string(),
+            soroban_rpc_urls: Self::recommended_rpc_urls(&network),
         }
+    }
+}
+
+// Based on Stellar's public RPC catalog:
+// https://developers.stellar.org/docs/data/apis/rpc/providers (retrieved Nov 10, 2025)
+const TESTNET_RPC_ENDPOINTS: &[&str] = &[
+    "https://soroban-testnet.stellar.org",
+    "https://soroban-rpc.testnet.stellar.gateway.fm",
+    "https://stellar-soroban-testnet-public.nodies.app",
+];
+
+const MAINNET_RPC_ENDPOINTS: &[&str] = &[
+    "https://soroban-mainnet.stellar.org",
+    "https://soroban-rpc.mainnet.stellar.org",
+    "https://soroban-rpc.mainnet.stellar.gateway.fm",
+    "https://stellar-soroban-public.nodies.app",
+    "https://stellar.api.onfinality.io/public",
+    "https://rpc.lightsail.network/",
+    "https://archive-rpc.lightsail.network/",
+    "https://mainnet.sorobanrpc.com",
+];
+
+impl EventListenerConfig {
+    /// Returns a curated list of RPC endpoints for a network, ordered by preference.
+    pub fn recommended_rpc_urls(network: &StellarNetwork) -> Vec<String> {
+        let defaults: &[&str] = match network {
+            StellarNetwork::Testnet => TESTNET_RPC_ENDPOINTS,
+            StellarNetwork::Mainnet => MAINNET_RPC_ENDPOINTS,
+        };
+
+        defaults.iter().map(|url| url.to_string()).collect()
     }
 }
 
@@ -74,7 +106,7 @@ pub struct BlockchainEventListener {
 impl BlockchainEventListener {
     /// Create a new event listener
     pub fn new(config: EventListenerConfig, persistence: Arc<PostgresPersistence>) -> Self {
-        let soroban_client = SorobanRpcClient::new(config.soroban_rpc_url.clone());
+        let soroban_client = SorobanRpcClient::new(config.soroban_rpc_urls.clone());
 
         Self {
             config,
@@ -203,15 +235,34 @@ impl BlockchainEventListener {
 
 /// Client for querying Soroban RPC
 pub struct SorobanRpcClient {
-    rpc_url: String,
+    rpc_urls: Vec<String>,
     client: reqwest::Client,
 }
 
 impl SorobanRpcClient {
     /// Create a new Soroban RPC client
-    pub fn new(rpc_url: String) -> Self {
+    pub fn new(rpc_urls: Vec<String>) -> Self {
+        let deduped = rpc_urls
+            .into_iter()
+            .map(|url| url.trim().to_string())
+            .filter(|url| !url.is_empty())
+            .fold(Vec::<String>::new(), |mut acc, url| {
+                if !acc
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(&url))
+                {
+                    acc.push(url);
+                }
+                acc
+            });
+
+        assert!(
+            !deduped.is_empty(),
+            "At least one Soroban RPC endpoint must be provided"
+        );
+
         Self {
-            rpc_url,
+            rpc_urls: deduped,
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
                 .build()
@@ -227,8 +278,45 @@ impl SorobanRpcClient {
         start_ledger: i64,
         _end_ledger: i64,
     ) -> Result<Vec<IpcmEvent>, String> {
-        // Query Soroban RPC for events
-        // POST request to RPC endpoint with getEvents method
+        let mut last_error = None;
+
+        for rpc_url in &self.rpc_urls {
+            match self
+                .query_rpc_endpoint(rpc_url, contract_address, start_ledger)
+                .await
+            {
+                Ok(events) => {
+                    if tracing::enabled!(tracing::Level::DEBUG) {
+                        tracing::debug!(
+                            "📡 Soroban RPC {} returned {} events",
+                            rpc_url,
+                            events.len()
+                        );
+                    }
+                    return Ok(events);
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "⚠️  Soroban RPC endpoint {} failed ({}). Trying next fallback...",
+                        rpc_url,
+                        err
+                    );
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            "All Soroban RPC endpoints failed for getEvents request".to_string()
+        }))
+    }
+
+    async fn query_rpc_endpoint(
+        &self,
+        rpc_url: &str,
+        contract_address: &str,
+        start_ledger: i64,
+    ) -> Result<Vec<IpcmEvent>, String> {
         // Using xdrFormat: "json" for easier parsing (can refactor to XDR decoding later)
         let request_body = serde_json::json!({
             "jsonrpc": "2.0",
@@ -246,7 +334,7 @@ impl SorobanRpcClient {
 
         let response = self
             .client
-            .post(&self.rpc_url)
+            .post(rpc_url)
             .json(&request_body)
             .send()
             .await
@@ -262,9 +350,7 @@ impl SorobanRpcClient {
             .map_err(|e| format!("Failed to parse RPC response: {e}"))?;
 
         // Parse events from response
-        let events = self.parse_events_response(response_json)?;
-
-        Ok(events)
+        self.parse_events_response(response_json)
     }
 
     /// Parse Soroban RPC events response into IpcmEvent structs
@@ -408,6 +494,7 @@ mod tests {
         let config = EventListenerConfig::default();
         assert_eq!(config.poll_interval_secs, 10);
         assert_eq!(config.batch_size, 100);
+        assert!(!config.soroban_rpc_urls.is_empty());
     }
 
     #[test]

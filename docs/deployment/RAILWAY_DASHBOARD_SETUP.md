@@ -105,6 +105,7 @@ IPFS_GATEWAY=https://gateway.pinata.cloud/ipfs
 STELLAR_TESTNET_IPCM_CONTRACT=<your-testnet-contract-id>
 STELLAR_TESTNET_SECRET=<your-testnet-secret-key>
 STELLAR_TESTNET_RPC_URL=https://soroban-testnet.stellar.org
+STELLAR_TESTNET_RPC_FALLBACKS="https://soroban-rpc.testnet.stellar.gateway.fm,https://stellar-soroban-testnet-public.nodies.app"
 STELLAR_TESTNET_NETWORK=testnet
 STELLAR_TESTNET_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
 
@@ -112,6 +113,7 @@ STELLAR_TESTNET_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
 STELLAR_MAINNET_IPCM_CONTRACT=<your-mainnet-contract-id>
 STELLAR_MAINNET_SECRET_KEY=<your-mainnet-secret-key>
 STELLAR_MAINNET_RPC_URL=https://soroban-mainnet.stellar.org
+STELLAR_MAINNET_RPC_FALLBACKS="https://soroban-rpc.mainnet.stellar.org,https://soroban-rpc.mainnet.stellar.gateway.fm,https://stellar-soroban-public.nodies.app,https://stellar.api.onfinality.io/public,https://rpc.lightsail.network/,https://archive-rpc.lightsail.network/,https://mainnet.sorobanrpc.com"
 STELLAR_MAINNET_NETWORK=mainnet
 STELLAR_MAINNET_NETWORK_PASSPHRASE=Public Global Stellar Network ; September 2015
 DEFARM_OWNER_WALLET=<your-owner-wallet-address>
@@ -270,6 +272,7 @@ Before deployment, ensure all these variables are set:
 - [ ] `STELLAR_TESTNET_IPCM_CONTRACT`
 - [ ] `STELLAR_TESTNET_SECRET`
 - [ ] `STELLAR_TESTNET_RPC_URL`
+- [ ] `STELLAR_TESTNET_RPC_FALLBACKS`
 - [ ] `STELLAR_TESTNET_NETWORK`
 - [ ] `STELLAR_TESTNET_NETWORK_PASSPHRASE`
 
@@ -277,6 +280,7 @@ Before deployment, ensure all these variables are set:
 - [ ] `STELLAR_MAINNET_IPCM_CONTRACT`
 - [ ] `STELLAR_MAINNET_SECRET_KEY`
 - [ ] `STELLAR_MAINNET_RPC_URL`
+- [ ] `STELLAR_MAINNET_RPC_FALLBACKS`
 - [ ] `STELLAR_MAINNET_NETWORK`
 - [ ] `STELLAR_MAINNET_NETWORK_PASSPHRASE`
 - [ ] `DEFARM_OWNER_WALLET`

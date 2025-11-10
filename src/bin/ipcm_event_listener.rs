@@ -13,13 +13,15 @@
 ///
 ///   ENABLE_TESTNET_LISTENER           - Enable testnet listener (default: true)
 ///   STELLAR_TESTNET_IPCM_CONTRACT     - Testnet IPCM contract (optional, uses default)
-///   STELLAR_TESTNET_RPC_URL           - Testnet Soroban RPC (optional, uses default)
+///   STELLAR_TESTNET_RPC_URL           - Testnet Soroban RPC primary endpoint (optional)
+///   STELLAR_TESTNET_RPC_FALLBACKS     - Comma/space separated testnet RPC fallbacks (optional)
 ///   TESTNET_POLL_INTERVAL             - Testnet poll interval in seconds (default: 10)
 ///   TESTNET_BATCH_SIZE                - Testnet ledgers per batch (default: 100)
 ///
 ///   ENABLE_MAINNET_LISTENER           - Enable mainnet listener (default: false)
 ///   STELLAR_MAINNET_IPCM_CONTRACT     - Mainnet IPCM contract (optional, uses default)
-///   STELLAR_MAINNET_RPC_URL           - Mainnet Soroban RPC (optional, uses default)
+///   STELLAR_MAINNET_RPC_URL           - Mainnet Soroban RPC primary endpoint (optional)
+///   STELLAR_MAINNET_RPC_FALLBACKS     - Comma/space separated mainnet RPC fallbacks (optional)
 ///   MAINNET_POLL_INTERVAL             - Mainnet poll interval in seconds (default: 10)
 ///   MAINNET_BATCH_SIZE                - Mainnet ledgers per batch (default: 100)
 use std::env;
@@ -97,8 +99,11 @@ async fn main() {
     if enable_testnet {
         let testnet_contract = env::var("STELLAR_TESTNET_IPCM_CONTRACT")
             .unwrap_or_else(|_| TESTNET_IPCM_CONTRACT.to_string());
-        let testnet_rpc = env::var("STELLAR_TESTNET_RPC_URL")
-            .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
+        let testnet_rpcs = build_rpc_url_list(
+            "STELLAR_TESTNET_RPC_URL",
+            "STELLAR_TESTNET_RPC_FALLBACKS",
+            &StellarNetwork::Testnet,
+        );
         let testnet_poll = env::var("TESTNET_POLL_INTERVAL")
             .ok()
             .and_then(|s| s.parse().ok())
@@ -110,7 +115,7 @@ async fn main() {
 
         info!("🌐 Testnet Configuration:");
         info!("   IPCM Contract: {}", testnet_contract);
-        info!("   Soroban RPC: {}", testnet_rpc);
+        info!("   Soroban RPC endpoints: {}", testnet_rpcs.join(", "));
         info!("   Poll Interval: {}s", testnet_poll);
         info!("   Batch Size: {} ledgers", testnet_batch);
 
@@ -119,7 +124,7 @@ async fn main() {
             ipcm_contract_address: testnet_contract,
             poll_interval_secs: testnet_poll,
             batch_size: testnet_batch,
-            soroban_rpc_url: testnet_rpc,
+            soroban_rpc_urls: testnet_rpcs.clone(),
         };
 
         let testnet_persistence = persistence.clone();
@@ -137,8 +142,11 @@ async fn main() {
     if enable_mainnet {
         let mainnet_contract = env::var("STELLAR_MAINNET_IPCM_CONTRACT")
             .unwrap_or_else(|_| MAINNET_IPCM_CONTRACT.to_string());
-        let mainnet_rpc = env::var("STELLAR_MAINNET_RPC_URL")
-            .unwrap_or_else(|_| "https://soroban-mainnet.stellar.org".to_string());
+        let mainnet_rpcs = build_rpc_url_list(
+            "STELLAR_MAINNET_RPC_URL",
+            "STELLAR_MAINNET_RPC_FALLBACKS",
+            &StellarNetwork::Mainnet,
+        );
         let mainnet_poll = env::var("MAINNET_POLL_INTERVAL")
             .ok()
             .and_then(|s| s.parse().ok())
@@ -150,7 +158,7 @@ async fn main() {
 
         info!("🌐 Mainnet Configuration:");
         info!("   IPCM Contract: {}", mainnet_contract);
-        info!("   Soroban RPC: {}", mainnet_rpc);
+        info!("   Soroban RPC endpoints: {}", mainnet_rpcs.join(", "));
         info!("   Poll Interval: {}s", mainnet_poll);
         info!("   Batch Size: {} ledgers", mainnet_batch);
 
@@ -159,7 +167,7 @@ async fn main() {
             ipcm_contract_address: mainnet_contract,
             poll_interval_secs: mainnet_poll,
             batch_size: mainnet_batch,
-            soroban_rpc_url: mainnet_rpc,
+            soroban_rpc_urls: mainnet_rpcs.clone(),
         };
 
         let mainnet_persistence = persistence.clone();
@@ -183,4 +191,45 @@ async fn main() {
 
     warn!("⚠️  All listener tasks completed (unexpected)");
     std::process::exit(1);
+}
+
+fn build_rpc_url_list(
+    primary_env: &str,
+    fallback_env: &str,
+    network: &StellarNetwork,
+) -> Vec<String> {
+    let mut urls = Vec::new();
+
+    if let Ok(primary) = env::var(primary_env) {
+        let trimmed = primary.trim();
+        if !trimmed.is_empty() {
+            urls.push(trimmed.to_string());
+        }
+    }
+
+    if let Ok(fallbacks) = env::var(fallback_env) {
+        urls.extend(parse_url_list(&fallbacks));
+    }
+
+    for default in EventListenerConfig::recommended_rpc_urls(network) {
+        if !urls
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(&default))
+        {
+            urls.push(default);
+        }
+    }
+
+    if urls.is_empty() {
+        urls = EventListenerConfig::recommended_rpc_urls(network);
+    }
+
+    urls
+}
+
+fn parse_url_list(raw: &str) -> Vec<String> {
+    raw.split(|c: char| c == ',' || c.is_whitespace())
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect()
 }
