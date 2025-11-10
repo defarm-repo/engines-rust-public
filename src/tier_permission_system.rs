@@ -223,7 +223,19 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
         }
 
         // Check feature availability
-        if !self.is_feature_enabled(&user.tier, &check.operation) {
+        if let Some(feature) = Self::feature_required_for_operation(&check.operation) {
+            if !self.is_feature_enabled(&user.tier, feature) {
+                return Ok(PermissionResult {
+                    allowed: false,
+                    reason: Some(format!(
+                        "Feature '{}' not available for {:?} tier",
+                        feature, user.tier
+                    )),
+                    remaining_quota: None,
+                    next_reset: None,
+                });
+            }
+        } else if !self.is_feature_enabled(&user.tier, &check.operation) {
             return Ok(PermissionResult {
                 allowed: false,
                 reason: Some(format!(
@@ -281,6 +293,23 @@ impl<S: StorageBackend> TierPermissionSystem<S> {
                 || tier_config.features_enabled.contains(&feature.to_string())
         } else {
             false
+        }
+    }
+
+    fn feature_required_for_operation(operation: &str) -> Option<&'static str> {
+        match operation {
+            "read_items" | "create_items" | "update_items" | "delete_items" => {
+                Some("basic_storage")
+            }
+            "read_events" | "create_events" | "update_events" | "delete_events" => {
+                Some("basic_api")
+            }
+            "read_circuits" | "create_circuits" | "update_circuits" | "delete_circuits"
+            | "execute_circuits" => Some("circuits"),
+            "bulk_operations" => Some("bulk_operations"),
+            "advanced_analytics" => Some("advanced_analytics"),
+            "custom_integrations" => Some("custom_integrations"),
+            _ => None,
         }
     }
 

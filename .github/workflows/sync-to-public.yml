@@ -13,16 +13,7 @@ jobs:
       - name: Checkout private repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history needed for git-filter-repo
-
-      - name: Set up Python for git-filter-repo
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-
-      - name: Install git-filter-repo
-        run: |
-          pip install git-filter-repo
+          fetch-depth: 0  # Full history needed for filtering
 
       - name: Configure Git
         run: |
@@ -34,25 +25,122 @@ jobs:
           # Create a working branch for filtering
           git checkout -b public-sync
 
-          # Remove all .md files (documentation)
-          echo "Removing .md files..."
-          find . -type f -name "*.md" -not -path "./.git/*" -delete
+          # List of files/directories to KEEP (whitelist approach)
+          echo "Creating temporary directory for filtered content..."
+          mkdir -p /tmp/public-content
 
-          # Remove tests directory
-          echo "Removing tests/ directory..."
-          rm -rf tests/
+          # Copy only essential source code
+          echo "Copying essential source code..."
+          cp -r src/ /tmp/public-content/ 2>/dev/null || true
+          cp Cargo.toml /tmp/public-content/ 2>/dev/null || true
+          cp Cargo.lock /tmp/public-content/ 2>/dev/null || true
+          cp rust-toolchain.toml /tmp/public-content/ 2>/dev/null || true
+          cp .gitignore /tmp/public-content/ 2>/dev/null || true
 
-          # Remove docs directory
-          echo "Removing docs/ directory..."
-          rm -rf docs/
+          # Copy only essential configuration files
+          cp Dockerfile /tmp/public-content/ 2>/dev/null || true
+          cp docker-compose.yml /tmp/public-content/ 2>/dev/null || true
 
-          # Remove sensitive or internal files
-          echo "Removing additional internal files..."
-          rm -rf .github/  # Remove GitHub workflows from public repo
+          # Create minimal README for public repo
+          cat > /tmp/public-content/README.md << 'EOF'
+          # DeFarm Engines - Rust Implementation
+
+          This is the public repository for the DeFarm Engines API, a high-performance backend system built with Rust.
+
+          ## Overview
+
+          DeFarm Engines provides a comprehensive API for managing distributed farm data with blockchain integration.
+
+          ## Features
+
+          - High-performance REST API built with Axum
+          - PostgreSQL database with migration support
+          - JWT and API key authentication
+          - Circuit-based data tokenization
+          - Stellar blockchain integration
+          - IPFS storage adapter support
+
+          ## License
+
+          Proprietary - All Rights Reserved
+
+          For licensing inquiries, please contact the DeFarm team.
+          EOF
+
+          # Clear current directory (except .git)
+          echo "Clearing current directory..."
+          find . -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} \;
+
+          # Copy filtered content back
+          echo "Restoring filtered content..."
+          cp -r /tmp/public-content/* . 2>/dev/null || true
+          cp /tmp/public-content/.gitignore . 2>/dev/null || true
+
+          # Clean up any remaining internal files
+          echo "Final cleanup..."
+
+          # Remove all markdown files except README.md
+          find . -type f -name "*.md" -not -name "README.md" -not -path "./.git/*" -delete
+
+          # Remove all shell scripts
+          find . -type f -name "*.sh" -not -path "./.git/*" -delete
+
+          # Remove test files
+          find . -type f -name "*test*" -not -path "./.git/*" -delete
+          find . -type f -name "*Test*" -not -path "./.git/*" -delete
+
+          # Remove documentation directories
+          rm -rf docs/ tests/ scripts/ examples/ benches/ .github/
+
+          # Remove internal configuration and documentation files
+          rm -f CLAUDE.md \
+                API_*.md \
+                ARCHITECTURE_*.md \
+                CATTLE_*.md \
+                CHANGELOG.md \
+                DUAL_*.md \
+                EMAIL_*.md \
+                EXPLICACAO_*.md \
+                FRONTEND_*.md \
+                GITHUB_*.md \
+                IMMEDIATE_*.md \
+                IPCM_*.md \
+                ITEM_*.md \
+                PASSWORD_*.md \
+                PERSISTENCE_*.md \
+                PROMPT_*.md \
+                RAILWAY_*.md \
+                REDIS_*.md \
+                REQUEST_*.md \
+                RESEARCH_*.md \
+                ROBOT_*.md \
+                SCALABILITY_*.md \
+                SECURITY_*.md \
+                *.sh \
+                .env* \
+                *.log \
+                *.bak \
+                .DS_Store
+
+          # Remove any Railway-specific files
+          rm -f railway.json railway.toml nixpacks.toml
+
+          # Remove deployment-specific files (keep only Docker basics)
+          rm -f fly.toml render.yaml heroku.yml
+
+          # Ensure src/ directory exists and is not empty
+          if [ ! -d "src" ] || [ -z "$(ls -A src)" ]; then
+            echo "ERROR: src/ directory is missing or empty!"
+            exit 1
+          fi
+
+          # Show what's being included
+          echo "Files included in public repository:"
+          find . -type f -not -path "./.git/*" | sort
 
           # Commit changes
           git add -A
-          git commit -m "Sync from private repo (filtered)" || echo "No changes to commit"
+          git commit -m "Sync from private repo (filtered - code only)" || echo "No changes to commit"
 
       - name: Setup SSH Agent with Deploy Key
         uses: webfactory/ssh-agent@v0.9.0
@@ -61,10 +149,6 @@ jobs:
 
       - name: Push to public repository
         run: |
-          # Configure git
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-
           # Set up remote with SSH
           git remote add public git@github.com:defarm-repo/engines-rust-public.git
 
@@ -80,8 +164,19 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ Filtered content synced to public repository" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Included in public repo:**" >> $GITHUB_STEP_SUMMARY
+          echo "- src/ (source code)" >> $GITHUB_STEP_SUMMARY
+          echo "- Cargo.toml, Cargo.lock" >> $GITHUB_STEP_SUMMARY
+          echo "- Dockerfile, docker-compose.yml" >> $GITHUB_STEP_SUMMARY
+          echo "- README.md (minimal public version)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Excluded from public repo:**" >> $GITHUB_STEP_SUMMARY
-          echo "- All .md files (documentation)" >> $GITHUB_STEP_SUMMARY
+          echo "- All internal documentation (.md files)" >> $GITHUB_STEP_SUMMARY
+          echo "- All test scripts (.sh files)" >> $GITHUB_STEP_SUMMARY
           echo "- tests/ directory" >> $GITHUB_STEP_SUMMARY
           echo "- docs/ directory" >> $GITHUB_STEP_SUMMARY
+          echo "- scripts/ directory" >> $GITHUB_STEP_SUMMARY
           echo "- .github/ workflows" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment files (.env*)" >> $GITHUB_STEP_SUMMARY
+          echo "- Railway/deployment configs" >> $GITHUB_STEP_SUMMARY
+          echo "- Internal configuration files" >> $GITHUB_STEP_SUMMARY

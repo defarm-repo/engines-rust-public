@@ -17,7 +17,7 @@ pub enum RateLimitError {
     LockError(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RateLimitConfig {
     pub requests_per_hour: u32,
     pub requests_per_minute: Option<u32>,
@@ -78,13 +78,19 @@ struct RequestRecord {
 struct ApiKeyLimits {
     requests: VecDeque<RequestRecord>,
     config: RateLimitConfig,
+    burst_tokens: f64,
+    last_burst_refill: DateTime<Utc>,
 }
 
 impl ApiKeyLimits {
     fn new(config: RateLimitConfig) -> Self {
+        let now = Utc::now();
+        let burst_tokens = config.burst_size.unwrap_or(0) as f64;
         Self {
             requests: VecDeque::new(),
             config,
+            burst_tokens,
+            last_burst_refill: now,
         }
     }
 
@@ -109,6 +115,7 @@ impl ApiKeyLimits {
 
     fn check_limit(&mut self) -> RateLimitResult {
         let now = Utc::now();
+        self.refill_burst_tokens(now);
 
         // Clean old requests from all windows
         self.clean_old_requests(Duration::days(1));
@@ -127,6 +134,16 @@ impl ApiKeyLimits {
 
                 let reset_at = oldest_in_window + Duration::minutes(1);
                 let retry_after = (reset_at - now).num_seconds().max(0) as u64;
+
+                if self.consume_burst_token() {
+                    return RateLimitResult {
+                        allowed: true,
+                        limit: minute_limit,
+                        remaining: 0,
+                        reset_at,
+                        retry_after_seconds: None,
+                    };
+                }
 
                 return RateLimitResult {
                     allowed: false,
@@ -208,6 +225,55 @@ impl ApiKeyLimits {
             timestamp: Utc::now(),
         });
     }
+
+    fn sync_burst_settings(&mut self) {
+        let now = Utc::now();
+        if let Some(capacity) = self.config.burst_size {
+            if self.burst_tokens == 0.0 {
+                self.burst_tokens = capacity as f64;
+            } else {
+                self.burst_tokens = self.burst_tokens.min(capacity as f64);
+            }
+        } else {
+            self.burst_tokens = 0.0;
+        }
+        self.last_burst_refill = now;
+    }
+
+    fn refill_burst_tokens(&mut self, now: DateTime<Utc>) {
+        if let Some(capacity) = self.config.burst_size {
+            if now > self.last_burst_refill {
+                let elapsed_secs =
+                    (now - self.last_burst_refill).num_milliseconds() as f64 / 1000.0;
+                if elapsed_secs > 0.0 {
+                    let rate_per_second = self.burst_refill_rate_per_second();
+                    self.burst_tokens =
+                        (self.burst_tokens + rate_per_second * elapsed_secs).min(capacity as f64);
+                }
+            }
+            self.last_burst_refill = now;
+        } else {
+            self.burst_tokens = 0.0;
+            self.last_burst_refill = now;
+        }
+    }
+
+    fn burst_refill_rate_per_second(&self) -> f64 {
+        if let Some(minute_limit) = self.config.requests_per_minute {
+            f64::from(minute_limit) / 60.0
+        } else {
+            f64::from(self.config.requests_per_hour) / 3600.0
+        }
+    }
+
+    fn consume_burst_token(&mut self) -> bool {
+        if self.config.burst_size.is_some() && self.burst_tokens >= 1.0 {
+            self.burst_tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 pub struct RateLimiter {
@@ -243,7 +309,10 @@ impl RateLimiter {
             .or_insert_with(|| ApiKeyLimits::new(config.clone()));
 
         // Update config if changed
-        key_limits.config = config.clone();
+        if key_limits.config != *config {
+            key_limits.config = config.clone();
+            key_limits.sync_burst_settings();
+        }
 
         let result = key_limits.check_limit();
 
@@ -278,6 +347,10 @@ impl RateLimiter {
         let key_limits = limits
             .entry(api_key_id)
             .or_insert_with(|| ApiKeyLimits::new(config.clone()));
+        if key_limits.config != *config {
+            key_limits.config = config.clone();
+            key_limits.sync_burst_settings();
+        }
 
         Ok(key_limits.check_limit())
     }
@@ -459,5 +532,29 @@ mod tests {
 
         let result = limiter.check_rate_limit(api_key_id, &config).unwrap();
         assert_eq!(result.remaining, 9);
+    }
+
+    #[test]
+    fn test_burst_allows_temporary_spike() {
+        let limiter = create_test_limiter();
+        let api_key_id = Uuid::new_v4();
+        let config = RateLimitConfig::new(10).with_minute_limit(2).with_burst(2);
+
+        // First two requests consume regular minute allowance
+        for _ in 0..2 {
+            limiter.check_rate_limit(api_key_id, &config).unwrap();
+            limiter.record_request(api_key_id).unwrap();
+        }
+
+        // Next two requests should be allowed because of burst capacity
+        for i in 0..2 {
+            let result = limiter.check_rate_limit(api_key_id, &config).unwrap();
+            assert!(result.allowed, "Burst request {i} should be allowed");
+            limiter.record_request(api_key_id).unwrap();
+        }
+
+        // Further requests should be denied once burst tokens are consumed
+        let result = limiter.check_rate_limit(api_key_id, &config).unwrap();
+        assert!(!result.allowed);
     }
 }
