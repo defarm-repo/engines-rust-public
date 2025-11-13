@@ -14,5 +14,6 @@ restartPolicyMaxRetries = 3
 
 # Health check configuration
 # Railway will not route traffic until this endpoint returns 200
-healthcheckPath = "/health/db"
+# Changed from /health/db to /health to avoid PostgreSQL dependency on wake-up
+healthcheckPath = "/health"
 healthcheckTimeout = 30

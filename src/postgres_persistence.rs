@@ -185,7 +185,7 @@ impl PostgresPersistence {
         let manager = Manager::from_config(config, NoTls, manager_config);
 
         let pool = Pool::builder(manager)
-            .max_size(20) // Reduced from 32: mutex fix allows lower pool size
+            .max_size(5) // Reduced from 20: optimize for serverless/sleep mode compatibility
             .wait_timeout(Some(Duration::from_secs(30))) // Increased from 10: more time for busy periods
             .create_timeout(Some(Duration::from_secs(15))) // Time to establish new connection
             .recycle_timeout(Some(Duration::from_secs(10))) // Time to test connection health

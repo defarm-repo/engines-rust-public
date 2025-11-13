@@ -1,5 +1,208 @@
 # Claude Instructions
 
+## 🚂 Railway CLI Complete Guide
+
+### Authentication Methods
+
+#### IMPORTANTE: Como Autenticar no Railway
+**Token Configurado para Claude (2025-11-13):**
+- Token Name: `claude`
+- Token Value: `fb76b340-b105-4172-b4bf-4dcb894225a8`
+- Armazenado em: `/Users/gabrielrondon/rust/engines/.env`
+- Variável: `RAILWAY_TOKEN`
+
+**Autenticação via CLI:**
+1. Com login interativo: `railway login` (já feito)
+2. Com token em comandos: `RAILWAY_TOKEN=$RAILWAY_TOKEN railway [command]`
+3. Após fazer link com projeto, comandos funcionam direto
+
+**Projeto DeFarm Linkado:**
+- Project ID: `2e6d7cdb-f993-4411-bcf4-1844f5b38011`
+- Environment: `production`
+- Service: `defarm-engines-api` (ID: `37705203-a155-44bc-95a1-62eba333d383`)
+
+#### Token Types
+1. **Project Token** (`RAILWAY_TOKEN`) - Scoped to specific project/environment
+   - Deploy code: `railway up`
+   - View logs: `railway logs`
+   - Redeploy services
+   - Cannot create projects or check account info
+
+2. **API Token** (`RAILWAY_API_TOKEN`) - Account or team level access
+   - Personal: Full access to all personal workspaces
+   - Team: Access to team resources only
+   - Can create projects, manage workspaces
+
+3. **Token Generation**
+   - Personal/Team tokens: https://railway.com/account/tokens
+   - Project tokens: Project Settings → Tokens page
+   - Only one token type active at a time (RAILWAY_TOKEN has precedence)
+
+### Essential CLI Commands
+
+#### Project & Service Management
+```bash
+railway init                        # Create new project
+railway link                        # Link to existing project
+railway link <projectId>            # Link to specific project
+railway service                     # Link to a service
+railway list                        # List all projects
+railway status                      # Show current project info
+railway open                        # Open project dashboard
+```
+
+#### Deployment & Logs
+```bash
+railway up                          # Deploy with build logs
+railway up --detach                 # Deploy without waiting
+railway logs                        # View latest deployment logs
+railway logs -d                     # View deployment logs
+railway logs -b                     # View build logs
+railway logs <deployment_id>        # Logs from specific deployment
+railway down                        # Remove latest deployment
+railway redeploy                    # Redeploy latest deployment
+```
+
+#### Environment Variables
+```bash
+railway variables                   # Show all variables
+railway run <command>               # Run command with Railway vars
+railway shell                       # Open shell with Railway vars
+railway environment                 # Switch/create environments
+```
+
+#### Service Operations
+```bash
+railway add                         # Add database service
+railway ssh                         # SSH into running service
+railway connect                     # Connect to database shell
+railway volume                      # Manage volumes
+railway scale                       # Scale service resources
+```
+
+### DeFarm Project Services
+
+Expected services in DeFarm Railway project:
+1. **defarm-engines-api** - Main API service
+   - URL: https://defarm-engines-api-production.up.railway.app
+   - Health: /health endpoint
+   - Ports: 3000 (internal), 443 (external)
+
+2. **ipcm-event-listener** - Blockchain event listener
+   - Monitors Stellar blockchain events
+   - Updates IPCM contract state
+
+3. **postgres** - PostgreSQL database
+   - Connection via DATABASE_URL
+   - Persistent volume attached
+
+4. **redis** - Redis cache (if configured)
+   - Session and cache storage
+
+### Como Acessar os Serviços DeFarm
+
+#### Passo 1: Obter Token
+1. Acesse: https://railway.com/account/tokens
+2. Crie um Project Token para o projeto DeFarm
+3. Copie o token gerado
+
+#### Passo 2: Configurar Token
+```bash
+export RAILWAY_TOKEN="seu-token-aqui"
+```
+
+#### Passo 3: Comandos Essenciais
+```bash
+# Ver logs da API
+RAILWAY_TOKEN=$RAILWAY_TOKEN railway logs --service defarm-engines-api
+
+# Ver status do projeto
+RAILWAY_TOKEN=$RAILWAY_TOKEN railway status
+
+# Listar variáveis
+RAILWAY_TOKEN=$RAILWAY_TOKEN railway variables --service defarm-engines-api
+
+# SSH na API
+RAILWAY_TOKEN=$RAILWAY_TOKEN railway ssh --service defarm-engines-api
+
+# Ver logs do event listener
+RAILWAY_TOKEN=$RAILWAY_TOKEN railway logs --service ipcm-event-listener
+
+# Conectar ao PostgreSQL
+RAILWAY_TOKEN=$RAILWAY_TOKEN railway connect --service postgres
+```
+
+### Non-Interactive Usage Examples
+
+```bash
+# Deploy with token
+RAILWAY_TOKEN=xxx railway up --detach
+
+# View logs for specific service
+RAILWAY_TOKEN=xxx railway logs --service defarm-engines-api-production
+
+# Check deployment status
+RAILWAY_TOKEN=xxx railway status
+
+# View environment variables
+RAILWAY_TOKEN=xxx railway variables
+
+# Run migrations
+RAILWAY_TOKEN=xxx railway run npm run migrate
+
+# SSH into service for debugging
+RAILWAY_TOKEN=xxx railway ssh --service defarm-engines-api
+```
+
+### Debugging Railway Deployments
+
+#### Network Connectivity
+1. Check DNS: `dig +short {app}.up.railway.app`
+2. Test TCP: `nc -zv -w 3 {app}.up.railway.app 443`
+3. Test HTTPS: `curl -v -s -m 60 https://{app}.up.railway.app/health`
+4. Check TLS: `openssl s_client -connect {app}.up.railway.app:443`
+
+#### Service Status Indicators
+1. **Hibernated**: TLS handshake OK but HTTP timeout (free tier sleep)
+2. **Crashed**: TCP connection refused
+3. **Building**: Returns 503 Service Unavailable
+4. **Healthy**: Returns 200 OK on health endpoint
+
+### Troubleshooting Common Issues
+
+1. **"Cannot login in non-interactive mode"**
+   - Solution: Use RAILWAY_TOKEN or RAILWAY_API_TOKEN environment variable
+
+2. **Service hibernation on free tier**
+   - Solution: Upgrade to paid plan or setup external monitoring (UptimeRobot)
+
+3. **"Unauthorized. Please login"**
+   - Solution: Token not set or expired, regenerate from dashboard
+
+4. **Deployment fails silently**
+   - Check build logs: `railway logs -b`
+   - Verify Dockerfile/buildpack configuration
+   - Check resource limits and quotas
+
+5. **API Congelada/Timeout (RESOLVIDO)**
+   - **Diagnóstico Completo (2025-11-13)**:
+     - Serviço está configurado com `"sleepApplication": true`
+     - Binário `/app/defarm-api` existe no container
+     - PostgreSQL e Redis funcionando normalmente
+     - Porta 8080 em uso internamente (processo travado)
+   - **Como Verificar Status**:
+     ```bash
+     railway status --json | jq '.services.edges[] | select(.node.name=="defarm-engines-api")'
+     railway ssh -- ls -la /app
+     railway logs --service defarm-engines-api
+     ```
+   - **Serviços Confirmados no Projeto**:
+     - defarm-engines-api (API principal) - HIBERNADO
+     - ipcm-event-listener (Blockchain listener) - SUCCESS
+     - Postgres (Database) - SUCCESS
+     - Redis (2 instâncias) - SUCCESS
+     - defarm-mvp (Worker) - SUCCESS
+
 ## 📋 Important Documentation References
 
 **Production Deployment Plan**: See [PRODUCTION_DEPLOYMENT_PLAN.md](./PRODUCTION_DEPLOYMENT_PLAN.md) for complete production deployment strategy including PostgreSQL implementation, infrastructure setup, and deployment checklist.

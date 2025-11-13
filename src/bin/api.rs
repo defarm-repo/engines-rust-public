@@ -107,15 +107,38 @@ async fn async_main() {
     let mut pg_persistence =
         defarm_engine::postgres_persistence::PostgresPersistence::new(database_url.clone());
 
-    // Connect to PostgreSQL with retry logic
-    match pg_persistence.connect().await {
-        Ok(()) => {
-            info!("✅ PostgreSQL connected successfully");
-        }
-        Err(e) => {
-            tracing::error!("❌ FATAL: Failed to connect to PostgreSQL: {}", e);
-            tracing::error!("❌ Cannot start server without database connection");
-            std::process::exit(1);
+    // Connect to PostgreSQL with retry logic (but allow server to start even if connection fails)
+    // This is critical for Railway sleep/wake functionality
+    let mut connection_attempts = 0;
+    const MAX_CONNECTION_ATTEMPTS: u32 = 3;
+
+    while connection_attempts < MAX_CONNECTION_ATTEMPTS {
+        connection_attempts += 1;
+        match pg_persistence.connect().await {
+            Ok(()) => {
+                info!(
+                    "✅ PostgreSQL connected successfully on attempt {}",
+                    connection_attempts
+                );
+                break;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "⚠️  PostgreSQL connection attempt {} failed: {}",
+                    connection_attempts,
+                    e
+                );
+                if connection_attempts >= MAX_CONNECTION_ATTEMPTS {
+                    tracing::error!("⚠️  WARNING: Starting server WITHOUT database connection!");
+                    tracing::error!(
+                        "⚠️  Database operations will fail until PostgreSQL is available"
+                    );
+                    tracing::error!("⚠️  This allows Railway sleep/wake to function properly");
+                    // DO NOT EXIT - Allow server to start for health checks
+                } else {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                }
+            }
         }
     }
 
