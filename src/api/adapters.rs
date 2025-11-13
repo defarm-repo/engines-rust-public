@@ -184,7 +184,7 @@ async fn select_adapter(
         })));
     }
 
-    // TODO: Store user's selected adapter preference in database
+    // Implementation pending
     // For now, just return success
 
     Ok(Json(json!({

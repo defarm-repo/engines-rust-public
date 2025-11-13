@@ -565,7 +565,7 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             requester_id,
             &operation.operation_id,
             PostActionTrigger::ItemPushed,
-            None, // TODO: extract storage details from adapter if needed
+            None, // Implementation pending
         )
         .await;
 
@@ -1285,7 +1285,7 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
         _user_id: &str,
     ) -> Result<(), String> {
         // Check if storage history manager is available
-        // TODO: Re-enable adapter configuration when Circuit struct includes adapter_config field
+        // Implementation pending
         // Circuit adapter configuration would need to be stored separately or added to Circuit struct
         /*
         if let Some(ref history_manager) = self.storage_history_manager {

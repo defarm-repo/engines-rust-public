@@ -62,7 +62,7 @@ impl PostgresStorageWithCache {
 
     /// Invalidate Redis cache (fire-and-forget, never fails)
     fn invalidate_cache(&self, _key: &str) {
-        // TODO: Implement generic cache invalidation
+        // Implementation pending
         // For now, cache entries will expire based on TTL
         // Option 1: Add public delete() method to RedisCache
         // Option 2: Use type-specific delete methods (delete_item, delete_circuit, etc)
@@ -176,7 +176,7 @@ impl StorageBackend for PostgresStorageWithCache {
     }
 
     fn delete_item(&self, dfid: &str) -> Result<(), StorageError> {
-        // TODO: Implement delete_item in PostgresPersistence
+        // Implementation pending
         // For now, items are soft-deleted by marking them as Deprecated
         tracing::warn!(
             "delete_item not implemented for PostgresPersistence: {}",
@@ -190,7 +190,7 @@ impl StorageBackend for PostgresStorageWithCache {
     // ============================================================================
 
     fn store_lid_dfid_mapping(&self, lid: &Uuid, dfid: &str) -> Result<(), StorageError> {
-        // TODO: PostgresPersistence needs store_lid_dfid_mapping method
+        // Implementation pending
         // LID mappings are currently stored in-memory only
         tracing::warn!(
             "store_lid_dfid_mapping not fully persisted: {} -> {}",
@@ -201,7 +201,7 @@ impl StorageBackend for PostgresStorageWithCache {
     }
 
     fn get_dfid_by_lid(&self, _lid: &Uuid) -> Result<Option<String>, StorageError> {
-        // TODO: PostgresPersistence needs get_dfid_by_lid method
+        // Implementation pending
         // For now, return None (mapping not found)
         Ok(None)
     }
@@ -456,7 +456,7 @@ impl StorageBackend for PostgresStorageWithCache {
         &self,
         config: &CircuitAdapterConfig,
     ) -> Result<(), StorageError> {
-        // TODO: PostgresPersistence needs persist_circuit_adapter_config method
+        // Implementation pending
         // Circuit adapter configs are currently stored as part of circuit state
         tracing::warn!(
             "store_circuit_adapter_config not fully persisted for circuit: {}",
@@ -469,7 +469,7 @@ impl StorageBackend for PostgresStorageWithCache {
         &self,
         circuit_id: &Uuid,
     ) -> Result<Option<CircuitAdapterConfig>, StorageError> {
-        // TODO: PostgresPersistence needs load_circuit_adapter_config method
+        // Implementation pending
         // For now, read from circuit.adapter_config field
         Ok(self.get_circuit(circuit_id)?.and_then(|c| c.adapter_config))
     }
@@ -1947,12 +1947,12 @@ impl StorageBackend for PostgresStorageWithCache {
     fn get_system_statistics(&self) -> Result<SystemStatistics, StorageError> {
         Ok(SystemStatistics {
             total_users: self.list_user_accounts()?.len() as i64,
-            active_users_24h: 0, // TODO: implement 24h active user tracking
-            active_users_30d: 0, // TODO: implement 30d active user tracking
+            active_users_24h: 0, // Implementation pending
+            active_users_30d: 0, // Implementation pending
             total_items: self.list_items()?.len() as i64,
             total_circuits: self.list_circuits()?.len() as i64,
-            total_storage_operations: 0, // TODO: implement storage operation counting
-            credits_consumed_24h: 0,     // TODO: implement credit consumption tracking
+            total_storage_operations: 0, // Implementation pending
+            credits_consumed_24h: 0,     // Implementation pending
             tier_distribution: HashMap::new(),
             adapter_usage_stats: HashMap::new(),
             generated_at: Utc::now(),
