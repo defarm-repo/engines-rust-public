@@ -2193,6 +2193,10 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             .update_public_settings(settings)
             .map_err(CircuitsError::ValidationError)?;
 
+        // Automatically enable public visibility when public settings are configured
+        // This ensures the circuit becomes accessible after configuring public settings
+        circuit.permissions.allow_public_visibility = true;
+
         // Store updated circuit
         self.storage
             .store_circuit(&circuit)
@@ -2204,10 +2208,11 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             .info(
                 "circuits_engine",
                 "public_settings_updated",
-                "Public settings updated successfully",
+                "Public settings updated and public visibility enabled",
             )
             .with_context("circuit_id", circuit_id.to_string())
-            .with_context("updated_by", requester_id.to_string());
+            .with_context("updated_by", requester_id.to_string())
+            .with_context("public_visibility", "true");
 
         Ok(circuit)
     }
