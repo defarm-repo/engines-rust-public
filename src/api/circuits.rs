@@ -2283,28 +2283,50 @@ async fn get_public_circuit(
 
     let engine = lock_circuits_engine(&state).await?;
     match engine.get_public_circuit_info(&circuit_id) {
-        Ok(Some(public_info)) => Ok(Json(json!({
-            "success": true,
-            "data": {
-                "circuit_id": public_info.circuit_id.to_string(),
-                "public_name": public_info.public_name,
-                "public_description": public_info.public_description,
-                "primary_color": public_info.primary_color,
-                "secondary_color": public_info.secondary_color,
-                "logo_url": public_info.logo_url,
-                "tagline": public_info.tagline,
-                "footer_text": public_info.footer_text,
-                "member_count": public_info.member_count,
-                "access_mode": format!("{:?}", public_info.access_mode).to_lowercase(),
-                "requires_password": public_info.requires_password,
-                "is_currently_accessible": public_info.is_currently_accessible,
-                "published_items": public_info.published_items,
-                "auto_publish_pushed_items": public_info.auto_publish_pushed_items,
-                "public_since": public_info.public_since.map(|dt| dt.to_rfc3339()),
-                "created_at": public_info.created_at.to_rfc3339(),
-                "recent_activity": []
-            }
-        }))),
+        Ok(Some(public_info)) => {
+            // Serialize events for each published item
+            let items_with_events: Vec<Value> = public_info
+                .published_items_with_events
+                .iter()
+                .map(|item| {
+                    json!({
+                        "dfid": item.dfid,
+                        "events": item.events.iter().map(|e| json!({
+                            "event_id": e.event_id.to_string(),
+                            "dfid": e.dfid,
+                            "event_type": format!("{:?}", e.event_type),
+                            "source": e.source,
+                            "visibility": format!("{:?}", e.visibility),
+                            "timestamp": e.timestamp.to_rfc3339(),
+                            "metadata": e.metadata
+                        })).collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+
+            Ok(Json(json!({
+                "success": true,
+                "data": {
+                    "circuit_id": public_info.circuit_id.to_string(),
+                    "public_name": public_info.public_name,
+                    "public_description": public_info.public_description,
+                    "primary_color": public_info.primary_color,
+                    "secondary_color": public_info.secondary_color,
+                    "logo_url": public_info.logo_url,
+                    "tagline": public_info.tagline,
+                    "footer_text": public_info.footer_text,
+                    "member_count": public_info.member_count,
+                    "access_mode": format!("{:?}", public_info.access_mode).to_lowercase(),
+                    "requires_password": public_info.requires_password,
+                    "is_currently_accessible": public_info.is_currently_accessible,
+                    "published_items": public_info.published_items,
+                    "published_items_with_events": items_with_events,
+                    "auto_publish_pushed_items": public_info.auto_publish_pushed_items,
+                    "public_since": public_info.public_since.map(|dt| dt.to_rfc3339()),
+                    "created_at": public_info.created_at.to_rfc3339()
+                }
+            })))
+        }
         Ok(None) => Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Circuit not found or not public", "code": "CIRCUIT_NOT_PUBLIC"})),
