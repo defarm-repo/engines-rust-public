@@ -3068,9 +3068,10 @@ impl PostgresPersistence {
             .await
             .map_err(|e| format!("Failed to get database client: {e}"))?;
 
+        // Query uses actual database columns (no source, is_encrypted, content_hash columns)
         let rows = client
             .query(
-                "SELECT event_id, dfid, event_type, timestamp, source, metadata, is_encrypted, visibility, content_hash
+                "SELECT event_id, dfid, event_type, timestamp, visibility, encrypted_data, metadata
                  FROM events
                  ORDER BY timestamp DESC",
                 &[],
@@ -3081,20 +3082,40 @@ impl PostgresPersistence {
         let mut events = Vec::new();
         for row in rows {
             let event_type_str: String = row.get(2);
-            let metadata_json: serde_json::Value = row.get(5);
-            let visibility_str: String = row.get(7);
+            let timestamp_secs: i64 = row.get(3);
+            let visibility_str: String = row.get(4);
+            let encrypted_data: Option<Vec<u8>> = row.get(5);
+            let metadata_json: serde_json::Value = row.get(6);
+
+            // Derive is_encrypted from presence of encrypted_data
+            let is_encrypted = encrypted_data.is_some();
+
+            // Derive content_hash from encrypted_data if present, else empty
+            let content_hash = encrypted_data
+                .as_ref()
+                .map(|d| String::from_utf8_lossy(d).to_string())
+                .unwrap_or_default();
+
+            // Extract source from metadata if present, else use default
+            let source = metadata_json
+                .get("source")
+                .and_then(|v| v.as_str())
+                .unwrap_or("system")
+                .to_string();
 
             events.push(Event {
                 event_id: row.get(0),
                 dfid: row.get(1),
-                event_type: serde_json::from_str(&event_type_str).unwrap_or(EventType::Created),
-                timestamp: row.get(3),
-                source: row.get(4),
+                event_type: serde_json::from_str(&format!("\"{}\"", event_type_str))
+                    .unwrap_or(EventType::Created),
+                timestamp: DateTime::from_timestamp(timestamp_secs, 0)
+                    .unwrap_or_else(|| Utc::now()),
+                source,
                 metadata: serde_json::from_value(metadata_json).unwrap_or_default(),
-                is_encrypted: row.get(6),
-                visibility: serde_json::from_str(&visibility_str)
+                is_encrypted,
+                visibility: serde_json::from_str(&format!("\"{}\"", visibility_str))
                     .unwrap_or(EventVisibility::Private),
-                content_hash: row.get(8),
+                content_hash,
             });
         }
 
