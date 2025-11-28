@@ -992,7 +992,7 @@ async fn initialize_development_data_to_postgres(pg: &PostgresPersistence) -> Re
     // Create hen admin
     println!("🐔 Initializing default admin user 'hen'...");
     let hen_password_hash =
-        hash("demo123", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {e}"))?;
+        hash("[REDACTED]", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {e}"))?;
 
     let hen_admin = UserAccount {
         user_id: "hen-admin-001".to_string(),
@@ -1018,7 +1018,7 @@ async fn initialize_development_data_to_postgres(pg: &PostgresPersistence) -> Re
     // Create sample users
     println!("🌱 Creating sample users...");
     let demo_password_hash =
-        hash("demo123", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {e}"))?;
+        hash("[REDACTED]", DEFAULT_COST).map_err(|e| format!("Failed to hash password: {e}"))?;
 
     let sample_users = vec![
         UserAccount {
@@ -1124,13 +1124,13 @@ async fn initialize_development_data_to_postgres(pg: &PostgresPersistence) -> Re
     }
 
     println!("✅ Development data initialized in PostgreSQL!");
-    println!("📋 Available test accounts (all use password: demo123):");
-    println!("   🐔 Admin:      hen / demo123");
-    println!("   🐣 Pro:        pullet / demo123");
-    println!("   🐓 Enterprise: cock / demo123");
-    println!("   🌱 Basic:      basic_farmer / demo123");
-    println!("   🚀 Pro:        pro_farmer / demo123");
-    println!("   🏢 Enterprise: enterprise_farmer / demo123");
+    println!("📋 Available test accounts (all use password: [REDACTED]):");
+    println!("   🐔 Admin:      hen / [REDACTED]");
+    println!("   🐣 Pro:        pullet / [REDACTED]");
+    println!("   🐓 Enterprise: cock / [REDACTED]");
+    println!("   🌱 Basic:      basic_farmer / [REDACTED]");
+    println!("   🚀 Pro:        pro_farmer / [REDACTED]");
+    println!("   🏢 Enterprise: enterprise_farmer / [REDACTED]");
 
     Ok(())
 }
@@ -1193,7 +1193,7 @@ async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usi
     {
         let testnet_secret = std::env::var("STELLAR_TESTNET_SECRET").ok();
         let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
-            "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+            "STELLAR_WALLET_PLACEHOLDER".to_string()
         });
 
         let mut custom_headers = HashMap::new();
@@ -1253,7 +1253,7 @@ async fn initialize_adapters_to_postgres(pg: &PostgresPersistence) -> Result<usi
         (pinata_api_key, pinata_secret, mainnet_ipcm, mainnet_secret)
     {
         let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
-            "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+            "STELLAR_WALLET_PLACEHOLDER".to_string()
         });
 
         let mut custom_headers = HashMap::new();

@@ -37,11 +37,11 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
             },
             AdapterType::PolygonArweave => StorageLocation::Local {
                 id: storage_id.clone(),
-            }, // TODO: Add Arweave storage location type
+            }, // Implementation pending
             AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                 StorageLocation::Stellar {
                     transaction_id: storage_id.clone(),
-                    contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration
+                    contract_address: "placeholder".to_string(), // Implementation pending
                     asset_id: None,
                 }
             }
@@ -89,11 +89,11 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
             },
             AdapterType::PolygonArweave => StorageLocation::Local {
                 id: storage_id.clone(),
-            }, // TODO: Add Arweave storage location type
+            }, // Implementation pending
             AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                 StorageLocation::Stellar {
                     transaction_id: storage_id.clone(),
-                    contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration
+                    contract_address: "placeholder".to_string(), // Implementation pending
                     asset_id: None,
                 }
             }
@@ -168,7 +168,7 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
 
         // Check if item is already stored in this adapter
         let adapter_type = new_adapter.adapter_type();
-        // TODO: StorageLocation doesn't have adapter_type field - need to implement proper comparison
+        // Implementation pending
         // let already_stored = current_locations.iter().any(|loc| loc.adapter_type == adapter_type);
         let already_stored = false; // Temporarily always migrate
 
@@ -195,7 +195,7 @@ impl<S: StorageBackend> StorageHistoryManager<S> {
                 AdapterType::StellarTestnetIpfs | AdapterType::StellarMainnetIpfs => {
                     StorageLocation::Stellar {
                         transaction_id: format!("migrated_{dfid}"),
-                        contract_address: "placeholder".to_string(), // TODO: Get from adapter configuration
+                        contract_address: "placeholder".to_string(), // Implementation pending
                         asset_id: None,
                     }
                 }

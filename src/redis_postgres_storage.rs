@@ -1130,7 +1130,7 @@ impl StorageBackend for RedisPostgresStorage {
                 .await
                 .map_err(|e| StorageError::WriteError(format!("Failed to persist user: {e}")))?;
 
-            // TODO: Invalidate user cache if we add user caching
+            // Implementation pending
             Ok(())
         })
     }

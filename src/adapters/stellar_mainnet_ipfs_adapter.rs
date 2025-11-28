@@ -69,7 +69,7 @@ impl StellarMainnetIpfsAdapter {
                 .cloned()
                 .unwrap_or_else(|| {
                     std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
-                        "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+                        "STELLAR_WALLET_PLACEHOLDER".to_string()
                     })
                 });
             let source_account_identity = cfg
@@ -98,7 +98,7 @@ impl StellarMainnetIpfsAdapter {
             let secret_key = std::env::var("PINATA_SECRET_KEY").ok();
             let stellar_secret = std::env::var("STELLAR_MAINNET_SECRET").ok();
             let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
-                "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+                "STELLAR_WALLET_PLACEHOLDER".to_string()
             });
             let source_account_identity = "defarm-admin-mainnet".to_string();
 
