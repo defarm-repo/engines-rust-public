@@ -402,6 +402,17 @@ impl StorageBackend for RedisPostgresStorage {
         ))
     }
 
+    fn get_event_by_content_hash(&self, content_hash: &str) -> Result<Option<Event>, StorageError> {
+        let pg = self.get_pg()?;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                pg.load_event_by_content_hash(content_hash)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
+        })
+    }
+
     // ============================================================================
     // CIRCUIT OPERATIONS - WITH REDIS CACHE
     // ============================================================================

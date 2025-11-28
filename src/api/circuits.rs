@@ -363,6 +363,35 @@ pub struct PushLocalItemData {
     pub local_id: String,
 }
 
+/// Request for pushing local events to a circuit
+#[derive(Debug, Deserialize)]
+pub struct PushEventsRequest {
+    /// List of local_event_ids to push
+    pub local_event_ids: Vec<String>,
+    /// DFID to associate events with (events will be linked to this item)
+    pub dfid: String,
+}
+
+/// Response for single pushed event
+#[derive(Debug, Serialize)]
+pub struct PushedEventInfo {
+    pub local_event_id: String,
+    pub event_id: String,
+    pub dfid: String,
+    pub was_deduplicated: bool,
+    pub original_event_id: Option<String>,
+}
+
+/// Response for push events operation
+#[derive(Debug, Serialize)]
+pub struct PushEventsResponse {
+    pub success: bool,
+    pub circuit_id: String,
+    pub events_pushed: usize,
+    pub events_deduplicated: usize,
+    pub events: Vec<PushedEventInfo>,
+}
+
 // Removed redundant persistence functions - CircuitsEngine handles persistence through PostgresStorageWithCache
 
 #[derive(Debug, Serialize)]
@@ -471,6 +500,7 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/members", post(add_member))
         .route("/:id/push/:dfid", post(push_item))
         .route("/:id/push-local", post(push_local_item))
+        .route("/:id/push-events", post(push_events_to_circuit))
         .route("/:id/pull/:dfid", post(pull_item))
         .route("/:id/operations", get(get_circuit_operations))
         .route("/:id/operations/pending", get(get_pending_operations))
@@ -1407,6 +1437,106 @@ async fn push_local_item(
             operation_id: result.operation_id.to_string(),
             local_id: result.local_id.to_string(),
         },
+    }))
+}
+
+/// Push local events to a circuit, associating them with a DFID
+async fn push_events_to_circuit(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
+    Json(payload): Json<PushEventsRequest>,
+) -> Result<Json<PushEventsResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
+
+    // Verify user has permission to push to this circuit
+    {
+        let engine = lock_circuits_engine(&state).await?;
+        let circuit = engine.get_circuit(&circuit_id).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+            )
+        })?;
+
+        match circuit {
+            Some(c) => {
+                if !c.has_permission(&requester_id, &crate::types::Permission::Push) {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(
+                            json!({"error": "Permission denied: you do not have push permission on this circuit"}),
+                        ),
+                    ));
+                }
+            }
+            None => {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Circuit not found"})),
+                ));
+            }
+        }
+    }
+
+    let mut pushed_events = Vec::new();
+    let mut events_pushed = 0;
+    let mut events_deduplicated = 0;
+
+    // Push each local event to the circuit
+    for local_event_id_str in &payload.local_event_ids {
+        let local_event_id = match Uuid::parse_str(local_event_id_str) {
+            Ok(id) => id,
+            Err(_) => {
+                tracing::warn!("Invalid local_event_id format: {}", local_event_id_str);
+                continue;
+            }
+        };
+
+        let mut events_engine = state.events_engine.write().await;
+        match events_engine.push_local_event_to_circuit(
+            &local_event_id,
+            circuit_id,
+            payload.dfid.clone(),
+        ) {
+            Ok(result) => {
+                if result.was_deduplicated {
+                    events_deduplicated += 1;
+                } else {
+                    events_pushed += 1;
+                }
+
+                pushed_events.push(PushedEventInfo {
+                    local_event_id: local_event_id.to_string(),
+                    event_id: result.event.event_id.to_string(),
+                    dfid: result.event.dfid.clone(),
+                    was_deduplicated: result.was_deduplicated,
+                    original_event_id: result.original_event_id.map(|id| id.to_string()),
+                });
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to push local event {} to circuit {}: {}",
+                    local_event_id,
+                    circuit_id,
+                    e
+                );
+                // Continue with other events
+            }
+        }
+    }
+
+    Ok(Json(PushEventsResponse {
+        success: true,
+        circuit_id: circuit_id.to_string(),
+        events_pushed,
+        events_deduplicated,
+        events: pushed_events,
     }))
 }
 

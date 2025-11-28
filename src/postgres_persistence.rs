@@ -1793,15 +1793,17 @@ impl PostgresPersistence {
         };
 
         client.execute(
-            "INSERT INTO events (event_id, event_type, dfid, timestamp, visibility, encrypted_data, metadata)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "INSERT INTO events (event_id, event_type, dfid, timestamp, visibility, encrypted_data, metadata, content_hash, source)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              ON CONFLICT (event_id) DO UPDATE SET
                 event_type = EXCLUDED.event_type,
                 dfid = EXCLUDED.dfid,
                 timestamp = EXCLUDED.timestamp,
                 visibility = EXCLUDED.visibility,
                 encrypted_data = EXCLUDED.encrypted_data,
-                metadata = EXCLUDED.metadata",
+                metadata = EXCLUDED.metadata,
+                content_hash = EXCLUDED.content_hash,
+                source = EXCLUDED.source",
             &[
                 &event.event_id,
                 &format!("{:?}", event.event_type),
@@ -1810,6 +1812,8 @@ impl PostgresPersistence {
                 &format!("{:?}", event.visibility),
                 &encrypted_data,
                 &serde_json::to_value(&event.metadata).unwrap_or(serde_json::Value::Null),
+                &event.content_hash,
+                &event.source,
             ],
         ).await
         .map_err(|e| format!("Failed to persist event: {e}"))?;
@@ -3116,11 +3120,78 @@ impl PostgresPersistence {
                 visibility: serde_json::from_str(&format!("\"{}\"", visibility_str))
                     .unwrap_or(EventVisibility::Private),
                 content_hash,
+                local_event_id: None,
+                is_local: false,
+                pushed_to_circuit: None,
             });
         }
 
         tracing::debug!("✅ Loaded {} events from PostgreSQL", events.len());
         Ok(events)
+    }
+
+    /// Load event by content hash for deduplication
+    pub async fn load_event_by_content_hash(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<Event>, String> {
+        let client = self
+            .get_client()
+            .await
+            .map_err(|e| format!("Failed to get database client: {e}"))?;
+
+        let row = client
+            .query_opt(
+                "SELECT event_id, dfid, event_type, timestamp, visibility, encrypted_data, metadata, content_hash, source
+                 FROM events
+                 WHERE content_hash = $1
+                 LIMIT 1",
+                &[&content_hash],
+            )
+            .await
+            .map_err(|e| format!("Failed to query event by content_hash: {e}"))?;
+
+        match row {
+            Some(row) => {
+                let event_type_str: String = row.get(2);
+                let timestamp_secs: i64 = row.get(3);
+                let visibility_str: String = row.get(4);
+                let encrypted_data: Option<Vec<u8>> = row.get(5);
+                let metadata_json: serde_json::Value = row.get(6);
+                let db_content_hash: Option<String> = row.get(7);
+                let db_source: Option<String> = row.get(8);
+
+                let is_encrypted = encrypted_data.is_some();
+                let final_content_hash =
+                    db_content_hash.unwrap_or_else(|| content_hash.to_string());
+                let source = db_source.unwrap_or_else(|| {
+                    metadata_json
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("system")
+                        .to_string()
+                });
+
+                Ok(Some(Event {
+                    event_id: row.get(0),
+                    dfid: row.get(1),
+                    event_type: serde_json::from_str(&format!("\"{}\"", event_type_str))
+                        .unwrap_or(EventType::Created),
+                    timestamp: DateTime::from_timestamp(timestamp_secs, 0)
+                        .unwrap_or_else(|| Utc::now()),
+                    source,
+                    metadata: serde_json::from_value(metadata_json).unwrap_or_default(),
+                    is_encrypted,
+                    visibility: serde_json::from_str(&format!("\"{}\"", visibility_str))
+                        .unwrap_or(EventVisibility::Private),
+                    content_hash: final_content_hash,
+                    local_event_id: None,
+                    is_local: false,
+                    pushed_to_circuit: None,
+                }))
+            }
+            None => Ok(None),
+        }
     }
 
     /// Persist audit event to PostgreSQL

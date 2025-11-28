@@ -12,7 +12,12 @@ Start here: **[API_GUIDE.md](./API_GUIDE.md)** - Complete bilingual guide (Engli
 - Step-by-step tutorials
 
 ### For Client-Specific Documentation
-- **[GERBOV_API.md](./GERBOV_API.md)** - Complete documentation in Portuguese for Gerbov client
+- **[GERBOV_INTEGRATION.md](./GERBOV_INTEGRATION.md)** - Complete integration guide for Gerbov client (Portuguese)
+
+### For API Testing
+- **[Postman Collection](./defarm-api-collection.json)** - Import into Postman for testing all endpoints
+- **[Environment Files](./defarm-api-environments.json)** - Pre-configured environments (Production, Development, Gerbov Test)
+- **[API Analysis Report](./API_ANALYSIS_REPORT.md)** - Latest API analysis with test results
 
 ## 📄 Documentation Files
 
@@ -32,9 +37,9 @@ Complete bilingual documentation (English and Portuguese) covering:
 - Frontend/mobile app developers
 - Third-party integrators
 
-### **GERBOV_API.md** - Client-Specific Documentation
-100% Portuguese documentation for Gerbov client including:
-- Credenciais de acesso e circuito de trabalho
+### **GERBOV_INTEGRATION.md** - Client Integration Guide
+Consolidated Portuguese documentation for Gerbov client including:
+- Credenciais de acesso e autenticação
 - Fluxo completo de autenticação JWT
 - Gerenciamento de chaves de API
 - Criação e tokenização de itens
@@ -42,6 +47,27 @@ Complete bilingual documentation (English and Portuguese) covering:
 - Histórico e rastreabilidade
 - Códigos de erro com soluções
 - Scripts bash completos
+- Tier limitations documentation
+
+### **defarm-api-collection.json** - Postman Collection
+Ready-to-import Postman collection with:
+- 80+ API requests organized by module
+- Pre-request scripts for token management
+- Test scripts for response validation
+- Environment variable integration
+
+### **defarm-api-environments.json** - Postman Environments
+Three pre-configured environments:
+- Production (connect.defarm.net)
+- Development (localhost:3000)
+- Gerbov Test (with test credentials)
+
+### **API_ANALYSIS_REPORT.md** - API Analysis Report
+Comprehensive analysis including:
+- Live testing results
+- Documentation accuracy audit
+- Issues found and recommendations
+- Test tokens and data generated
 
 ### **openapi.yaml** - OpenAPI 3.0 Specification
 The authoritative API contract between frontend and backend.
@@ -177,7 +203,21 @@ const circuits = await fetch('https://connect.defarm.net/api/circuits', {
 
 ### 3. Create a Circuit
 ```javascript
+// Simple circuit (no blockchain)
 const circuit = await fetch('https://connect.defarm.net/api/circuits', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'My Supply Chain',
+    description: 'Track organic products'
+  })
+});
+
+// Or with blockchain adapter (requires appropriate tier)
+const circuitWithAdapter = await fetch('https://connect.defarm.net/api/circuits', {
   method: 'POST',
   headers: {
     'Authorization': `Bearer ${token}`,
@@ -187,8 +227,9 @@ const circuit = await fetch('https://connect.defarm.net/api/circuits', {
     name: 'My Supply Chain',
     description: 'Track organic products',
     adapter_config: {
-      adapter_type: 'StellarMainnetIpfs',
-      requires_approval: false,
+      adapter_type: 'StellarTestnetIpfs',  // or 'StellarMainnetIpfs' for Enterprise tier
+      requires_approval: false,             // REQUIRED field
+      auto_migrate_existing: false,         // REQUIRED field
       sponsor_adapter_access: true
     }
   })

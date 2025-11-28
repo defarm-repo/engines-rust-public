@@ -1,0 +1,1404 @@
+{
+  "info": {
+    "_postman_id": "defarm-engines-api-2025",
+    "name": "DeFarm Engines API",
+    "description": "Complete collection for DeFarm Engines API - Agricultural Supply Chain Traceability Platform\n\n## Authentication\nThis API supports two authentication methods:\n1. **JWT Bearer Token**: Obtained via `/api/auth/login`\n2. **API Key**: Created via `/api/api-keys` (format: `dfm_xxxx`)\n\n## Quick Start\n1. Run the \"Login\" request to get a JWT token (auto-saved to environment)\n2. All other requests will use the token automatically\n3. Or create an API key for long-lived access\n\n## Base URLs\n- Production: `https://connect.defarm.net`\n- Development: `http://localhost:3000`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://connect.defarm.net"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "description": "User authentication and JWT token management",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.environment.set('jwt_token', jsonData.token);",
+                  "    pm.environment.set('user_id', jsonData.user_id);",
+                  "    pm.environment.set('workspace_id', jsonData.workspace_id);",
+                  "    pm.test('Login successful', function() {",
+                  "        pm.expect(jsonData.token).to.be.a('string');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Authenticate user and receive JWT token. Token is automatically saved to environment."
+          },
+          "response": [
+            {
+              "name": "Successful Login",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"token\": \"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...\",\n  \"user_id\": \"user-xxx\",\n  \"workspace_id\": \"workspace-xxx\",\n  \"expires_at\": 1764339762\n}"
+            }
+          ]
+        },
+        {
+          "name": "Register",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"newuser\",\n  \"password\": \"SecurePass123!\",\n  \"email\": \"newuser@example.com\",\n  \"workspace_name\": \"My Farm\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Register a new user account. Password must be 8+ chars with uppercase, lowercase, digit, and special character."
+          }
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "profile"]
+            },
+            "description": "Get the authenticated user's profile information."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "refresh"]
+            },
+            "description": "Refresh the JWT token before expiration."
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/forgot-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "forgot-password"]
+            }
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"reset-token-from-email\",\n  \"new_password\": \"NewSecurePass123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/reset-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "reset-password"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Items",
+      "description": "Item creation, tokenization, and management. Items are the core data entities tracked by DeFarm.",
+      "item": [
+        {
+          "name": "Create Local Item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.data && jsonData.data.local_id) {",
+                  "        pm.environment.set('local_id', jsonData.data.local_id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifiers\": [\n    {\n      \"namespace\": \"bovino\",\n      \"key\": \"sisbov\",\n      \"value\": \"BR12345678901234\",\n      \"id_type\": \"Canonical\",\n      \"verified\": false\n    }\n  ],\n  \"enriched_data\": {\n    \"weight_kg\": \"500\",\n    \"breed\": \"Nelore\",\n    \"birth_date\": \"2024-01-15\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/items/local",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "local"]
+            },
+            "description": "Create a local item with a Local ID (LID). The item doesn't have a DFID until it's pushed to a circuit."
+          },
+          "response": [
+            {
+              "name": "Item Created",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"local_id\": \"bb257aa2-52a9-45de-9531-4bf1eb73dc03\",\n    \"status\": \"LocalOnly\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Item by DFID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/items/{{dfid}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "{{dfid}}"]
+            },
+            "description": "Get item details by DFID."
+          }
+        },
+        {
+          "name": "List Items",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/items",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items"]
+            },
+            "description": "List all items accessible to the authenticated user."
+          }
+        },
+        {
+          "name": "Get Storage History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/items/{{dfid}}/storage-history",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "{{dfid}}", "storage-history"]
+            },
+            "description": "Get all storage locations for an item (IPFS CIDs, blockchain transactions, etc.)."
+          }
+        },
+        {
+          "name": "Get Item Timeline",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/items/{{dfid}}/timeline",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "{{dfid}}", "timeline"]
+            },
+            "description": "Get the complete timeline of an item including all blockchain events."
+          }
+        },
+        {
+          "name": "Get LID-DFID Mapping",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/items/mapping/{{local_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "mapping", "{{local_id}}"]
+            },
+            "description": "Get the DFID assigned to a local item by its Local ID."
+          }
+        },
+        {
+          "name": "Search Items",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/items/search?q={{search_term}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "search"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{search_term}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Find Duplicate Items",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/items/local/duplicates",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "local", "duplicates"]
+            },
+            "description": "Find potential duplicate items based on identifiers."
+          }
+        },
+        {
+          "name": "Update Item",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enriched_data\": {\n    \"weight_kg\": \"520\",\n    \"last_vaccination\": \"2025-01-15\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/items/{{dfid}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "{{dfid}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Item",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/items/{{dfid}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "{{dfid}}"]
+            }
+          }
+        },
+        {
+          "name": "Merge Items",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source_dfid\": \"{{source_dfid}}\",\n  \"reason\": \"Duplicate records identified\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/items/{{dfid}}/merge",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "{{dfid}}", "merge"]
+            }
+          }
+        },
+        {
+          "name": "Split Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Item needs to be separated\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/items/{{dfid}}/split",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "{{dfid}}", "split"]
+            }
+          }
+        },
+        {
+          "name": "Deprecate Item",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/items/{{dfid}}/deprecate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "items", "{{dfid}}", "deprecate"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Circuits",
+      "description": "Circuit management - permission-controlled repositories for sharing and tokenizing items.",
+      "item": [
+        {
+          "name": "Create Circuit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.circuit_id) {",
+                  "        pm.environment.set('circuit_id', jsonData.circuit_id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Traceability Circuit\",\n  \"description\": \"Circuit for tracking agricultural products\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/circuits",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits"]
+            },
+            "description": "Create a new circuit. Adapter config is optional."
+          },
+          "response": [
+            {
+              "name": "Circuit Created",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"circuit_id\": \"a96387f1-1cc8-4f95-ac59-2fa6649f954f\",\n  \"name\": \"My Traceability Circuit\",\n  \"owner_id\": \"user-xxx\",\n  \"status\": \"Active\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Circuit with Adapter",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Blockchain Circuit\",\n  \"description\": \"Circuit with Stellar + IPFS storage\",\n  \"adapter_config\": {\n    \"adapter_type\": \"StellarTestnetIpfs\",\n    \"requires_approval\": false,\n    \"auto_migrate_existing\": false,\n    \"sponsor_adapter_access\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/circuits",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits"]
+            },
+            "description": "Create circuit with blockchain adapter. Note: requires_approval and auto_migrate_existing are REQUIRED fields."
+          }
+        },
+        {
+          "name": "List Circuits",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/circuits",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits"]
+            }
+          }
+        },
+        {
+          "name": "Get Circuit Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Push Local Item to Circuit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.data && jsonData.data.dfid) {",
+                  "        pm.environment.set('dfid', jsonData.data.dfid);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"local_id\": \"{{local_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/push-local",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "push-local"]
+            },
+            "description": "Push a local item to a circuit for tokenization. This generates a permanent DFID."
+          }
+        },
+        {
+          "name": "Push Item by DFID",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/push/{{dfid}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "push", "{{dfid}}"]
+            }
+          }
+        },
+        {
+          "name": "Pull Item from Circuit",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/pull/{{dfid}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "pull", "{{dfid}}"]
+            }
+          }
+        },
+        {
+          "name": "List Circuit Items",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/items",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "items"]
+            }
+          }
+        },
+        {
+          "name": "Add Member to Circuit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{member_user_id}}\",\n  \"role\": \"Member\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/members",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "members"]
+            }
+          }
+        },
+        {
+          "name": "Update Circuit",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Circuit Name\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Circuit Adapter Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/adapter",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "adapter"]
+            }
+          }
+        },
+        {
+          "name": "Set Circuit Adapter Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"adapter_type\": \"StellarTestnetIpfs\",\n  \"requires_approval\": false,\n  \"auto_migrate_existing\": false,\n  \"sponsor_adapter_access\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/adapter",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "adapter"]
+            }
+          }
+        },
+        {
+          "name": "Get Circuit Operations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/operations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "operations"]
+            }
+          }
+        },
+        {
+          "name": "Update Public Settings",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_public\": true,\n  \"access_mode\": \"public\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/public-settings",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "public-settings"]
+            }
+          }
+        },
+        {
+          "name": "Deactivate Circuit",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/circuits/{{circuit_id}}/deactivate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits", "{{circuit_id}}", "deactivate"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "API Keys",
+      "description": "API key management for programmatic access",
+      "item": [
+        {
+          "name": "Create API Key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.api_key) {",
+                  "        pm.environment.set('api_key', jsonData.api_key);",
+                  "        pm.environment.set('api_key_id', jsonData.metadata.id);",
+                  "        console.log('WARNING: Save this API key securely. It cannot be retrieved again!');",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Integration Key\",\n  \"organization_type\": \"Producer\",\n  \"permissions\": {\n    \"read\": true,\n    \"write\": true,\n    \"admin\": false,\n    \"custom\": {}\n  },\n  \"rate_limit_per_hour\": 1000,\n  \"expires_in_days\": 90\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/api-keys",
+              "host": ["{{base_url}}"],
+              "path": ["api", "api-keys"]
+            },
+            "description": "Create a new API key. The key is only shown ONCE - save it securely!"
+          },
+          "response": [
+            {
+              "name": "API Key Created",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"api_key\": \"dfm_hvvlLiRyyBfbnWfdk5IHWfS0KrmwiyZc\",\n  \"metadata\": {\n    \"id\": \"d9846ddc-150c-4672-a77e-ecc0fd03050c\",\n    \"name\": \"My Integration Key\",\n    \"key_prefix\": \"dfm_9VvJ\"\n  },\n  \"warning\": \"Save this API key securely. You won't be able to see it again.\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "List API Keys",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/api-keys",
+              "host": ["{{base_url}}"],
+              "path": ["api", "api-keys"]
+            }
+          }
+        },
+        {
+          "name": "Get API Key Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/api-keys/{{api_key_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "api-keys", "{{api_key_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update API Key",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Key Name\",\n  \"rate_limit_per_hour\": 2000\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/api-keys/{{api_key_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "api-keys", "{{api_key_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Revoke API Key",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/api-keys/{{api_key_id}}/revoke",
+              "host": ["{{base_url}}"],
+              "path": ["api", "api-keys", "{{api_key_id}}", "revoke"]
+            }
+          }
+        },
+        {
+          "name": "Delete API Key",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/api-keys/{{api_key_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "api-keys", "{{api_key_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Get API Key Usage",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/api-keys/{{api_key_id}}/usage",
+              "host": ["{{base_url}}"],
+              "path": ["api", "api-keys", "{{api_key_id}}", "usage"]
+            }
+          }
+        },
+        {
+          "name": "Test API Key Auth (X-API-Key header)",
+          "request": {
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "value",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                },
+                {
+                  "key": "key",
+                  "value": "X-API-Key",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/circuits",
+              "host": ["{{base_url}}"],
+              "path": ["api", "circuits"]
+            },
+            "description": "Test API key authentication using X-API-Key header"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events",
+      "description": "Event tracking and history for items",
+      "item": [
+        {
+          "name": "Create Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dfid\": \"{{dfid}}\",\n  \"event_type\": \"Custom\",\n  \"description\": \"Animal vaccinated\",\n  \"metadata\": {\n    \"vaccine\": \"Aftosa Premium\",\n    \"veterinarian\": \"Dr. Silva\"\n  },\n  \"visibility\": \"Public\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/events",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events"]
+            }
+          }
+        },
+        {
+          "name": "Get Events by Item",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/events/item/{{dfid}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "item", "{{dfid}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Events Timeline",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/events/timeline",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "timeline"]
+            }
+          }
+        },
+        {
+          "name": "Get Events by Type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/events/type/Created",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "type", "Created"]
+            }
+          }
+        },
+        {
+          "name": "Get Public Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/events/public",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "public"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "description": "User notifications management",
+      "item": [
+        {
+          "name": "Get Notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications"]
+            }
+          }
+        },
+        {
+          "name": "Get Unread Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/unread-count",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "unread-count"]
+            }
+          }
+        },
+        {
+          "name": "Mark Notification as Read",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/{{notification_id}}/read",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "{{notification_id}}", "read"]
+            }
+          }
+        },
+        {
+          "name": "Mark All as Read",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/mark-all-read",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "mark-all-read"]
+            }
+          }
+        },
+        {
+          "name": "Delete Notification",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/{{notification_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "{{notification_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User & Credits",
+      "description": "User profile and credit management",
+      "item": [
+        {
+          "name": "Get User Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/me/profile",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Get Credit Balance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/me/credits/balance",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "credits", "balance"]
+            }
+          }
+        },
+        {
+          "name": "Get Credit History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/me/credits/history",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "credits", "history"]
+            }
+          }
+        },
+        {
+          "name": "Get Operation Costs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/me/credits/costs",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "credits", "costs"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Adapters",
+      "description": "Storage adapter management",
+      "item": [
+        {
+          "name": "List Available Adapters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/adapters",
+              "host": ["{{base_url}}"],
+              "path": ["api", "adapters"]
+            }
+          }
+        },
+        {
+          "name": "Get Adapter Templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/adapters/templates",
+              "host": ["{{base_url}}"],
+              "path": ["api", "adapters", "templates"]
+            }
+          }
+        },
+        {
+          "name": "Get Adapter Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/adapters/StellarTestnetIpfs/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "adapters", "StellarTestnetIpfs", "status"]
+            }
+          }
+        },
+        {
+          "name": "Adapter Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/adapters/StellarTestnetIpfs/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "adapters", "StellarTestnetIpfs", "health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "description": "System health checks",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "Database Health",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/db",
+              "host": ["{{base_url}}"],
+              "path": ["health", "db"]
+            }
+          }
+        },
+        {
+          "name": "Root Info",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": ["{{base_url}}"],
+              "path": [""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "description": "Administrative operations (requires admin privileges)",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "users"]
+            }
+          }
+        },
+        {
+          "name": "Get Dashboard Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/dashboard/stats",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "dashboard", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"newadminuser\",\n  \"password\": \"SecurePass123!\",\n  \"email\": \"admin@example.com\",\n  \"is_admin\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "users"]
+            }
+          }
+        },
+        {
+          "name": "Freeze User Account",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/users/{{target_user_id}}/freeze",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "users", "{{target_user_id}}", "freeze"]
+            }
+          }
+        },
+        {
+          "name": "Unfreeze User Account",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/users/{{target_user_id}}/unfreeze",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "users", "{{target_user_id}}", "unfreeze"]
+            }
+          }
+        },
+        {
+          "name": "Adjust User Credits",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100,\n  \"reason\": \"Bonus credits\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/users/{{target_user_id}}/credits",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "users", "{{target_user_id}}", "credits"]
+            }
+          }
+        },
+        {
+          "name": "List Adapter Configs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/adapters",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "adapters"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workspaces",
+      "description": "Workspace management",
+      "item": [
+        {
+          "name": "Create Workspace",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Workspace\",\n  \"description\": \"Workspace for my farm\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/workspaces",
+              "host": ["{{base_url}}"],
+              "path": ["api", "workspaces"]
+            }
+          }
+        },
+        {
+          "name": "List Workspaces",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/workspaces",
+              "host": ["{{base_url}}"],
+              "path": ["api", "workspaces"]
+            }
+          }
+        },
+        {
+          "name": "Get Workspace",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/workspaces/{{workspace_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "workspaces", "{{workspace_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Receipts",
+      "description": "Receipt management for data reception",
+      "item": [
+        {
+          "name": "Create Receipt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": \"sample data to receipt\",\n  \"identifiers\": {\n    \"type\": \"test\",\n    \"value\": \"123\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/receipts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "receipts"]
+            }
+          }
+        },
+        {
+          "name": "Get Receipt",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/receipts/{{receipt_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "receipts", "{{receipt_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Verify Receipt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"original_data\": \"sample data to receipt\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/receipts/{{receipt_id}}/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "receipts", "{{receipt_id}}", "verify"]
+            }
+          }
+        },
+        {
+          "name": "List Receipts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/receipts/list",
+              "host": ["{{base_url}}"],
+              "path": ["api", "receipts", "list"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

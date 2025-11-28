@@ -1,0 +1,220 @@
+{
+  "environments": [
+    {
+      "id": "production",
+      "name": "DeFarm Production",
+      "values": [
+        {
+          "key": "base_url",
+          "value": "https://connect.defarm.net",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "username",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "password",
+          "value": "",
+          "type": "secret",
+          "enabled": true
+        },
+        {
+          "key": "jwt_token",
+          "value": "",
+          "type": "secret",
+          "enabled": true
+        },
+        {
+          "key": "api_key",
+          "value": "",
+          "type": "secret",
+          "enabled": true
+        },
+        {
+          "key": "user_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "workspace_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "circuit_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "local_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "dfid",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "api_key_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "development",
+      "name": "DeFarm Development (Local)",
+      "values": [
+        {
+          "key": "base_url",
+          "value": "http://localhost:3000",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "username",
+          "value": "hen",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "password",
+          "value": "demo123",
+          "type": "secret",
+          "enabled": true
+        },
+        {
+          "key": "jwt_token",
+          "value": "",
+          "type": "secret",
+          "enabled": true
+        },
+        {
+          "key": "api_key",
+          "value": "",
+          "type": "secret",
+          "enabled": true
+        },
+        {
+          "key": "user_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "workspace_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "circuit_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "local_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "dfid",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "api_key_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "gerbov-test",
+      "name": "DeFarm Gerbov Test Account",
+      "values": [
+        {
+          "key": "base_url",
+          "value": "https://connect.defarm.net",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "username",
+          "value": "gerbov",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "password",
+          "value": "Gerbov2024!Test",
+          "type": "secret",
+          "enabled": true
+        },
+        {
+          "key": "jwt_token",
+          "value": "",
+          "type": "secret",
+          "enabled": true
+        },
+        {
+          "key": "api_key",
+          "value": "",
+          "type": "secret",
+          "enabled": true
+        },
+        {
+          "key": "user_id",
+          "value": "user-2da9af70-c4c3-4b13-9180-dc1c7094b27c",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "workspace_id",
+          "value": "Gerbov Workspace-workspace",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "circuit_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "local_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "dfid",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        },
+        {
+          "key": "api_key_id",
+          "value": "",
+          "type": "default",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

@@ -953,14 +953,22 @@ impl StorageBackend for PostgresStorage {
             let metadata = serde_json::from_value(metadata_json)
                 .map_err(|e| StorageError::SerializationError(e.to_string()))?;
 
+            let encrypted_data: Option<Vec<u8>> = row.get("encrypted_data");
+            let is_encrypted = encrypted_data.is_some();
+
             Ok(Some(Event {
                 event_id: row.get("event_id"),
-                event_type,
                 dfid: row.get("dfid"),
+                event_type,
                 timestamp: row.get("timestamp"),
-                visibility,
-                encrypted_data: row.get("encrypted_data"),
+                source: "system".to_string(),
                 metadata,
+                is_encrypted,
+                visibility,
+                content_hash: String::new(),
+                local_event_id: None,
+                is_local: false,
+                pushed_to_circuit: None,
             }))
         })
     }
@@ -1003,14 +1011,22 @@ impl StorageBackend for PostgresStorage {
                 let metadata = serde_json::from_value(metadata_json)
                     .map_err(|e| StorageError::SerializationError(e.to_string()))?;
 
+                let encrypted_data: Option<Vec<u8>> = row.get("encrypted_data");
+                let is_encrypted = encrypted_data.is_some();
+
                 events.push(Event {
                     event_id: row.get("event_id"),
-                    event_type,
                     dfid: row.get("dfid"),
+                    event_type,
                     timestamp: row.get("timestamp"),
-                    visibility,
-                    encrypted_data: row.get("encrypted_data"),
+                    source: "system".to_string(),
                     metadata,
+                    is_encrypted,
+                    visibility,
+                    content_hash: String::new(),
+                    local_event_id: None,
+                    is_local: false,
+                    pushed_to_circuit: None,
                 });
             }
 
@@ -1052,14 +1068,22 @@ impl StorageBackend for PostgresStorage {
                 let metadata = serde_json::from_value(metadata_json)
                     .map_err(|e| StorageError::SerializationError(e.to_string()))?;
 
+                let encrypted_data: Option<Vec<u8>> = row.get("encrypted_data");
+                let is_encrypted = encrypted_data.is_some();
+
                 events.push(Event {
                     event_id: row.get("event_id"),
-                    event_type,
                     dfid: row.get("dfid"),
+                    event_type,
                     timestamp: row.get("timestamp"),
-                    visibility,
-                    encrypted_data: row.get("encrypted_data"),
+                    source: "system".to_string(),
                     metadata,
+                    is_encrypted,
+                    visibility,
+                    content_hash: String::new(),
+                    local_event_id: None,
+                    is_local: false,
+                    pushed_to_circuit: None,
                 });
             }
 
@@ -1094,14 +1118,22 @@ impl StorageBackend for PostgresStorage {
                 let metadata = serde_json::from_value(metadata_json)
                     .map_err(|e| StorageError::SerializationError(e.to_string()))?;
 
+                let encrypted_data: Option<Vec<u8>> = row.get("encrypted_data");
+                let is_encrypted = encrypted_data.is_some();
+
                 events.push(Event {
                     event_id: row.get("event_id"),
-                    event_type: event_type.clone(),
                     dfid: row.get("dfid"),
+                    event_type: event_type.clone(),
                     timestamp: row.get("timestamp"),
-                    visibility,
-                    encrypted_data: row.get("encrypted_data"),
+                    source: "system".to_string(),
                     metadata,
+                    is_encrypted,
+                    visibility,
+                    content_hash: String::new(),
+                    local_event_id: None,
+                    is_local: false,
+                    pushed_to_circuit: None,
                 });
             }
 
@@ -1136,14 +1168,22 @@ impl StorageBackend for PostgresStorage {
                 let metadata = serde_json::from_value(metadata_json)
                     .map_err(|e| StorageError::SerializationError(e.to_string()))?;
 
+                let encrypted_data: Option<Vec<u8>> = row.get("encrypted_data");
+                let is_encrypted = encrypted_data.is_some();
+
                 events.push(Event {
                     event_id: row.get("event_id"),
-                    event_type,
                     dfid: row.get("dfid"),
+                    event_type,
                     timestamp: row.get("timestamp"),
-                    visibility: visibility.clone(),
-                    encrypted_data: row.get("encrypted_data"),
+                    source: "system".to_string(),
                     metadata,
+                    is_encrypted,
+                    visibility: visibility.clone(),
+                    content_hash: String::new(),
+                    local_event_id: None,
+                    is_local: false,
+                    pushed_to_circuit: None,
                 });
             }
 
@@ -1188,14 +1228,22 @@ impl StorageBackend for PostgresStorage {
                 let metadata = serde_json::from_value(metadata_json)
                     .map_err(|e| StorageError::SerializationError(e.to_string()))?;
 
+                let encrypted_data: Option<Vec<u8>> = row.get("encrypted_data");
+                let is_encrypted = encrypted_data.is_some();
+
                 events.push(Event {
                     event_id: row.get("event_id"),
-                    event_type,
                     dfid: row.get("dfid"),
+                    event_type,
                     timestamp: row.get("timestamp"),
-                    visibility,
-                    encrypted_data: row.get("encrypted_data"),
+                    source: "system".to_string(),
                     metadata,
+                    is_encrypted,
+                    visibility,
+                    content_hash: String::new(),
+                    local_event_id: None,
+                    is_local: false,
+                    pushed_to_circuit: None,
                 });
             }
 

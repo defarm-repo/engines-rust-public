@@ -194,29 +194,34 @@ components:
 
     AdapterConfig:
       type: object
+      required:
+        - adapter_type
+        - requires_approval
+        - auto_migrate_existing
       properties:
         adapter_type:
           type: string
           description: |
-            Storage adapter type (hyphenated format for API requests):
-            - "none" - No blockchain storage
-            - "ipfs-ipfs" - IPFS storage only
-            - "stellar_testnet-ipfs" - Stellar testnet + IPFS
-            - "stellar_mainnet-ipfs" - Stellar mainnet + IPFS (production)
+            Storage adapter type. Available adapters depend on user tier:
+            - "none" - No blockchain storage (all tiers)
+            - "StellarTestnetIpfs" - Stellar testnet + IPFS (Professional+)
+            - "StellarMainnetIpfs" - Stellar mainnet + IPFS (Enterprise only)
+
+            Note: API accepts both hyphenated format (stellar_testnet-ipfs) and
+            CamelCase format (StellarTestnetIpfs).
           enum:
             - none
-            - ipfs-ipfs
-            - stellar_testnet-ipfs
-            - stellar_mainnet-ipfs
-          example: "stellar_mainnet-ipfs"
+            - StellarTestnetIpfs
+            - StellarMainnetIpfs
+          example: "StellarTestnetIpfs"
         requires_approval:
           type: boolean
-          default: false
-          description: Whether adapter migrations require approval (future use)
+          description: Whether push operations require approval. **REQUIRED field.**
+          example: false
         auto_migrate_existing:
           type: boolean
-          default: false
-          description: Auto-migrate existing items when adapter changes
+          description: Auto-migrate existing items when adapter changes. **REQUIRED field.**
+          example: false
         sponsor_adapter_access:
           type: boolean
           default: false
@@ -236,15 +241,13 @@ components:
       type: string
       enum:
         - none
-        - ipfs-ipfs
-        - stellar_testnet-ipfs
-        - stellar_mainnet-ipfs
+        - StellarTestnetIpfs
+        - StellarMainnetIpfs
       description: |
-        Storage adapter types (hyphenated format):
-        - none: No blockchain storage
-        - ipfs-ipfs: IPFS storage only
-        - stellar_testnet-ipfs: Stellar testnet + IPFS
-        - stellar_mainnet-ipfs: Stellar mainnet + IPFS (production)
+        Storage adapter types. Available adapters depend on user tier:
+        - none: No blockchain storage (all tiers)
+        - StellarTestnetIpfs: Stellar testnet + IPFS (Professional+)
+        - StellarMainnetIpfs: Stellar mainnet + IPFS (Enterprise only)
 
     CircuitAliasConfig:
       type: object

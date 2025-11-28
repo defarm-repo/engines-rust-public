@@ -1,7 +1,7 @@
 use crate::logging::LoggingEngine;
 use crate::postgres_persistence::PostgresPersistence;
 use crate::storage::StorageBackend;
-use crate::types::{Event, EventType, EventVisibility};
+use crate::types::{Event, EventCreationResult, EventType, EventVisibility};
 use chrono::{DateTime, Utc};
 use serde_json;
 use std::collections::HashMap;
@@ -51,6 +51,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
         self
     }
 
+    /// Create event without metadata (backward compatible)
     pub fn create_event(
         &mut self,
         dfid: String,
@@ -58,12 +59,24 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
         source: String,
         visibility: EventVisibility,
     ) -> Result<Event, EventsError> {
-        let mut event = Event::new(
-            dfid.clone(),
-            event_type.clone(),
-            source.clone(),
-            visibility.clone(),
-        );
+        // Delegate to create_event_with_metadata with empty metadata
+        let result =
+            self.create_event_with_metadata(dfid, event_type, source, visibility, HashMap::new())?;
+        Ok(result.event)
+    }
+
+    /// Create event with metadata and automatic deduplication
+    /// Returns EventCreationResult with deduplication info
+    pub fn create_event_with_metadata(
+        &mut self,
+        dfid: String,
+        event_type: EventType,
+        source: String,
+        visibility: EventVisibility,
+        metadata: HashMap<String, serde_json::Value>,
+    ) -> Result<EventCreationResult, EventsError> {
+        // Calculate dedup hash BEFORE creating the event
+        let dedup_hash = Event::calculate_dedup_hash(&dfid, &event_type, &source, &metadata);
 
         self.logger
             .lock()
@@ -75,7 +88,39 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
             )
             .with_context("dfid", dfid.clone())
             .with_context("event_type", format!("{event_type:?}"))
-            .with_context("source", source.clone());
+            .with_context("source", source.clone())
+            .with_context("dedup_hash", dedup_hash.clone());
+
+        // Check for existing event with same content hash (deduplication)
+        if let Ok(Some(existing_event)) = self.storage.get_event_by_content_hash(&dedup_hash) {
+            self.logger
+                .lock()
+                .unwrap()
+                .info(
+                    "events_engine",
+                    "event_deduplicated",
+                    format!("Event deduplicated for DFID: {dfid}"),
+                )
+                .with_context("existing_event_id", existing_event.event_id.to_string())
+                .with_context("content_hash", dedup_hash);
+
+            return Ok(EventCreationResult {
+                event: existing_event.clone(),
+                was_deduplicated: true,
+                original_event_id: Some(existing_event.event_id),
+                was_merged: false,
+                merged_keys: vec![],
+            });
+        }
+
+        // No duplicate found, create new event
+        let mut event = Event::new_with_metadata(
+            dfid.clone(),
+            event_type.clone(),
+            source.clone(),
+            visibility.clone(),
+            metadata,
+        );
 
         if matches!(visibility, EventVisibility::Private) {
             event.encrypt();
@@ -104,7 +149,8 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
                 "Event created successfully",
             )
             .with_context("event_id", event.event_id.to_string())
-            .with_context("dfid", dfid.clone());
+            .with_context("dfid", dfid.clone())
+            .with_context("was_deduplicated", "false".to_string());
 
         // Write-through cache: Persist to PostgreSQL asynchronously (non-blocking)
         if let Some(pg_ref) = &self.postgres {
@@ -121,7 +167,222 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
             });
         }
 
-        Ok(event)
+        Ok(EventCreationResult {
+            event,
+            was_deduplicated: false,
+            original_event_id: None,
+            was_merged: false,
+            merged_keys: vec![],
+        })
+    }
+
+    /// Create a local event (without DFID yet)
+    /// Local events are stored with a temporary DFID until pushed to a circuit
+    pub fn create_local_event(
+        &mut self,
+        event_type: EventType,
+        source: String,
+        visibility: EventVisibility,
+        metadata: HashMap<String, serde_json::Value>,
+    ) -> Result<EventCreationResult, EventsError> {
+        let event = Event::new_local(event_type.clone(), source.clone(), visibility, metadata);
+
+        self.logger
+            .lock()
+            .unwrap()
+            .info(
+                "events_engine",
+                "local_event_created",
+                format!("Creating local event (no DFID yet)"),
+            )
+            .with_context("local_event_id", event.local_event_id.unwrap().to_string())
+            .with_context("event_type", format!("{event_type:?}"))
+            .with_context("source", source);
+
+        // Store in storage
+        self.storage
+            .store_event(&event)
+            .map_err(|e| EventsError::StorageError(e.to_string()))?;
+
+        // Write-through cache: Persist to PostgreSQL asynchronously
+        if let Some(pg_ref) = &self.postgres {
+            let pg = Arc::clone(pg_ref);
+            let event_clone = event.clone();
+            tokio::spawn(async move {
+                let pg_guard = pg.read().await;
+                if let Some(pg_persistence) = &*pg_guard {
+                    if let Err(e) = pg_persistence.persist_event(&event_clone).await {
+                        tracing::warn!("Failed to persist local event to PostgreSQL: {}", e);
+                    }
+                }
+            });
+        }
+
+        Ok(EventCreationResult {
+            event,
+            was_deduplicated: false,
+            original_event_id: None,
+            was_merged: false,
+            merged_keys: vec![],
+        })
+    }
+
+    /// Get a local event by its local_event_id
+    pub fn get_local_event(&self, local_event_id: &Uuid) -> Result<Option<Event>, EventsError> {
+        // Local events use the format LOCAL-EVENT-{uuid} as their DFID
+        let temp_dfid = format!("LOCAL-EVENT-{}", local_event_id);
+        let events = self
+            .storage
+            .get_events_by_dfid(&temp_dfid)
+            .map_err(|e| EventsError::StorageError(e.to_string()))?;
+
+        // Return the first (should be only) event with this local_event_id
+        Ok(events
+            .into_iter()
+            .find(|e| e.local_event_id == Some(*local_event_id)))
+    }
+
+    /// Push a local event to a circuit, assigning it a real DFID
+    /// Returns the updated event with the new DFID
+    pub fn push_local_event_to_circuit(
+        &mut self,
+        local_event_id: &Uuid,
+        circuit_id: Uuid,
+        new_dfid: String,
+    ) -> Result<EventCreationResult, EventsError> {
+        // Get the local event
+        let mut event = self
+            .get_local_event(local_event_id)?
+            .ok_or_else(|| EventsError::NotFound)?;
+
+        // Validate it's a local event
+        if !event.is_local {
+            return Err(EventsError::ValidationError(
+                "Event is not a local event".to_string(),
+            ));
+        }
+
+        // Calculate dedup hash with the new DFID to check for duplicates
+        let dedup_hash = Event::calculate_dedup_hash(
+            &new_dfid,
+            &event.event_type,
+            &event.source,
+            &event.metadata,
+        );
+
+        // Check for existing event with same content (deduplication)
+        if let Ok(Some(mut existing_event)) = self.storage.get_event_by_content_hash(&dedup_hash) {
+            // Auto-merge: merge new metadata into existing event
+            let merged_keys = existing_event.merge_metadata(event.metadata.clone());
+
+            if !merged_keys.is_empty() {
+                // Update the existing event with merged metadata
+                self.storage
+                    .update_event(&existing_event)
+                    .map_err(|e| EventsError::StorageError(e.to_string()))?;
+
+                self.logger
+                    .lock()
+                    .unwrap()
+                    .info(
+                        "events_engine",
+                        "local_event_merged",
+                        format!("Local event auto-merged during push"),
+                    )
+                    .with_context("local_event_id", local_event_id.to_string())
+                    .with_context("existing_event_id", existing_event.event_id.to_string())
+                    .with_context("dfid", new_dfid.clone())
+                    .with_context("merged_keys", merged_keys.join(", "));
+
+                // Persist merged event to PostgreSQL
+                if let Some(pg_ref) = &self.postgres {
+                    let pg = Arc::clone(pg_ref);
+                    let event_clone = existing_event.clone();
+                    tokio::spawn(async move {
+                        let pg_guard = pg.read().await;
+                        if let Some(pg_persistence) = &*pg_guard {
+                            if let Err(e) = pg_persistence.persist_event(&event_clone).await {
+                                tracing::warn!(
+                                    "Failed to persist merged event to PostgreSQL: {}",
+                                    e
+                                );
+                            }
+                        }
+                    });
+                }
+
+                return Ok(EventCreationResult {
+                    event: existing_event.clone(),
+                    was_deduplicated: true,
+                    original_event_id: Some(existing_event.event_id),
+                    was_merged: true,
+                    merged_keys,
+                });
+            } else {
+                // No new metadata to merge, just return existing event
+                self.logger
+                    .lock()
+                    .unwrap()
+                    .info(
+                        "events_engine",
+                        "local_event_deduplicated",
+                        format!("Local event deduplicated during push (no merge needed)"),
+                    )
+                    .with_context("local_event_id", local_event_id.to_string())
+                    .with_context("existing_event_id", existing_event.event_id.to_string())
+                    .with_context("dfid", new_dfid);
+
+                return Ok(EventCreationResult {
+                    event: existing_event.clone(),
+                    was_deduplicated: true,
+                    original_event_id: Some(existing_event.event_id),
+                    was_merged: false,
+                    merged_keys: vec![],
+                });
+            }
+        }
+
+        // Push to circuit (updates DFID and marks as non-local)
+        event.push_to_circuit(circuit_id, new_dfid.clone());
+
+        self.logger
+            .lock()
+            .unwrap()
+            .info(
+                "events_engine",
+                "local_event_pushed",
+                format!("Local event pushed to circuit"),
+            )
+            .with_context("local_event_id", local_event_id.to_string())
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("new_dfid", new_dfid);
+
+        // Update in storage
+        self.storage
+            .update_event(&event)
+            .map_err(|e| EventsError::StorageError(e.to_string()))?;
+
+        // Persist to PostgreSQL
+        if let Some(pg_ref) = &self.postgres {
+            let pg = Arc::clone(pg_ref);
+            let event_clone = event.clone();
+            tokio::spawn(async move {
+                let pg_guard = pg.read().await;
+                if let Some(pg_persistence) = &*pg_guard {
+                    if let Err(e) = pg_persistence.persist_event(&event_clone).await {
+                        tracing::warn!("Failed to persist pushed event to PostgreSQL: {}", e);
+                    }
+                }
+            });
+        }
+
+        Ok(EventCreationResult {
+            event,
+            was_deduplicated: false,
+            original_event_id: None,
+            was_merged: false,
+            merged_keys: vec![],
+        })
     }
 
     pub fn add_event_metadata(

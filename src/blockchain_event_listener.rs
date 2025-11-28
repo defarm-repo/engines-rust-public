@@ -69,6 +69,8 @@ const MAINNET_RPC_ENDPOINTS: &[&str] = &[
     "https://mainnet.sorobanrpc.com",
 ];
 
+const DEFAULT_INITIAL_LEDGER_LOOKBACK: i64 = 5_000;
+
 impl EventListenerConfig {
     /// Returns a curated list of RPC endpoints for a network, ordered by preference.
     pub fn recommended_rpc_urls(network: &StellarNetwork) -> Vec<String> {
@@ -165,8 +167,21 @@ impl BlockchainEventListener {
                 }
             });
 
-        let start_ledger = progress.last_indexed_ledger + 1;
-        let end_ledger = start_ledger + self.config.batch_size as i64;
+        let mut start_ledger = if progress.last_indexed_ledger <= 0 {
+            let bootstrap_ledger = self
+                .soroban_client
+                .suggest_start_ledger(self.config.batch_size)
+                .await?;
+            tracing::info!(
+                "🧭 No prior indexing progress for {}. Bootstrapping from ledger {}",
+                network_name,
+                bootstrap_ledger
+            );
+            bootstrap_ledger
+        } else {
+            progress.last_indexed_ledger + 1
+        };
+        let mut end_ledger = start_ledger + self.config.batch_size as i64;
 
         tracing::debug!(
             "📊 Querying ledgers {} to {} on {}",
@@ -176,10 +191,37 @@ impl BlockchainEventListener {
         );
 
         // Query events from blockchain
-        let events = self
+        let mut events_result = self
             .soroban_client
             .get_ipcm_events(&self.config.ipcm_contract_address, start_ledger, end_ledger)
-            .await?;
+            .await;
+
+        if let Err(err) = &events_result {
+            if Self::start_ledger_before_oldest(err) {
+                tracing::warn!(
+                    "📉 {} indexing window {:?}-{:?} is too old ({err}). Determining safe restart ledger...",
+                    network_name,
+                    start_ledger,
+                    end_ledger
+                );
+                start_ledger = self
+                    .soroban_client
+                    .suggest_start_ledger(self.config.batch_size)
+                    .await?;
+                end_ledger = start_ledger + self.config.batch_size as i64;
+                tracing::warn!(
+                    "🔁 Restarting {} event sync from ledger {}",
+                    network_name,
+                    start_ledger
+                );
+                events_result = self
+                    .soroban_client
+                    .get_ipcm_events(&self.config.ipcm_contract_address, start_ledger, end_ledger)
+                    .await;
+            }
+        }
+
+        let events = events_result?;
 
         if !events.is_empty() {
             tracing::info!("📦 Found {} IPCM events to process", events.len());
@@ -205,6 +247,16 @@ impl BlockchainEventListener {
         }
 
         Ok(())
+    }
+
+    fn start_ledger_before_oldest(err: &str) -> bool {
+        let lower = err.to_ascii_lowercase();
+        (lower.contains("startledger") || lower.contains("start ledger"))
+            && (lower.contains("oldest")
+                || lower.contains("too low")
+                || lower.contains("before")
+                || lower.contains("range")
+                || lower.contains("within"))
     }
 
     /// Process a single IPCM event
@@ -237,6 +289,32 @@ impl BlockchainEventListener {
 pub struct SorobanRpcClient {
     rpc_urls: Vec<String>,
     client: reqwest::Client,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LedgerWindow {
+    latest_ledger: i64,
+    oldest_ledger: Option<i64>,
+}
+
+impl LedgerWindow {
+    fn safe_start(&self, lookback: i64) -> i64 {
+        let mut start = self
+            .latest_ledger
+            .saturating_sub(std::cmp::max(lookback, 1));
+        if let Some(oldest) = self.oldest_ledger {
+            if start < oldest {
+                start = oldest;
+            }
+        }
+
+        // Soroban ledgers are 1-indexed
+        if start < 1 {
+            1
+        } else {
+            start
+        }
+    }
 }
 
 impl SorobanRpcClient {
@@ -349,8 +427,90 @@ impl SorobanRpcClient {
             .await
             .map_err(|e| format!("Failed to parse RPC response: {e}"))?;
 
+        if let Some(err_obj) = response_json.get("error") {
+            return Err(Self::format_rpc_error(err_obj));
+        }
+
         // Parse events from response
         self.parse_events_response(response_json)
+    }
+
+    pub async fn suggest_start_ledger(&self, batch_size: u32) -> Result<i64, String> {
+        let window = self.get_latest_ledger_window().await?;
+        let lookback = std::cmp::max(DEFAULT_INITIAL_LEDGER_LOOKBACK, batch_size as i64);
+        Ok(window.safe_start(lookback))
+    }
+
+    async fn get_latest_ledger_window(&self) -> Result<LedgerWindow, String> {
+        let mut last_error = None;
+
+        for rpc_url in &self.rpc_urls {
+            match self.fetch_latest_ledger_from_endpoint(rpc_url).await {
+                Ok(window) => return Ok(window),
+                Err(err) => {
+                    tracing::warn!(
+                        "⚠️  Soroban RPC endpoint {} failed to provide latest ledger: {}",
+                        rpc_url,
+                        err
+                    );
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            "All Soroban RPC endpoints failed for getLatestLedger request".to_string()
+        }))
+    }
+
+    async fn fetch_latest_ledger_from_endpoint(
+        &self,
+        rpc_url: &str,
+    ) -> Result<LedgerWindow, String> {
+        let request_body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getLatestLedger",
+        });
+
+        let response = self
+            .client
+            .post(rpc_url)
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to query Soroban RPC: {e}"))?;
+
+        if !response.status().is_success() {
+            return Err(format!(
+                "Soroban RPC error while fetching latest ledger: HTTP {}",
+                response.status()
+            ));
+        }
+
+        let response_json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse latest ledger response: {e}"))?;
+
+        if let Some(err_obj) = response_json.get("error") {
+            return Err(Self::format_rpc_error(err_obj));
+        }
+
+        let result = response_json
+            .get("result")
+            .ok_or("No result in getLatestLedger response")?;
+
+        let sequence = result
+            .get("sequence")
+            .and_then(|v| v.as_i64())
+            .ok_or("Missing sequence in getLatestLedger response")?;
+        let oldest = result.get("oldestLedger").and_then(|v| v.as_i64());
+
+        Ok(LedgerWindow {
+            latest_ledger: sequence,
+            oldest_ledger: oldest,
+        })
     }
 
     /// Parse Soroban RPC events response into IpcmEvent structs
@@ -482,6 +642,29 @@ impl SorobanRpcClient {
         Err(format!(
             "Failed to extract CID from value element: {cid_value}"
         ))
+    }
+
+    fn format_rpc_error(error_obj: &serde_json::Value) -> String {
+        let code = error_obj.get("code").and_then(|c| c.as_i64());
+        let message = error_obj
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Unknown RPC error")
+            .to_string();
+        let data = error_obj.get("data");
+        let mut formatted = if let Some(code) = code {
+            format!("RPC error {code}: {message}")
+        } else {
+            format!("RPC error: {message}")
+        };
+
+        if let Some(data) = data {
+            if !data.is_null() {
+                formatted.push_str(&format!(" ({})", data));
+            }
+        }
+
+        formatted
     }
 }
 

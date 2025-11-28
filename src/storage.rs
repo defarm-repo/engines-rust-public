@@ -158,6 +158,9 @@ pub trait StorageBackend: Send + Sync {
         end: DateTime<Utc>,
     ) -> Result<Vec<Event>, StorageError>;
 
+    /// Get event by content hash for deduplication
+    fn get_event_by_content_hash(&self, content_hash: &str) -> Result<Option<Event>, StorageError>;
+
     // Circuit operations
     fn store_circuit(&self, circuit: &Circuit) -> Result<(), StorageError>;
     fn get_circuit(&self, circuit_id: &Uuid) -> Result<Option<Circuit>, StorageError>;
@@ -852,6 +855,15 @@ impl StorageBackend for InMemoryStorage {
                 .filter(|event| event.timestamp >= start && event.timestamp <= end)
                 .cloned()
                 .collect()
+        }))
+    }
+
+    fn get_event_by_content_hash(&self, content_hash: &str) -> Result<Option<Event>, StorageError> {
+        Ok(self.with_state(|s| {
+            s.events
+                .values()
+                .find(|event| event.content_hash == content_hash)
+                .cloned()
         }))
     }
 
@@ -2862,6 +2874,11 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         guard.get_events_in_time_range(start, end)
     }
 
+    fn get_event_by_content_hash(&self, content_hash: &str) -> Result<Option<Event>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_event_by_content_hash(content_hash)
+    }
+
     fn store_circuit(&self, circuit: &Circuit) -> Result<(), StorageError> {
         let guard = self.lock().unwrap();
         guard.store_circuit(circuit)
@@ -4031,6 +4048,14 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(Vec::new())
     }
 
+    fn get_event_by_content_hash(
+        &self,
+        _content_hash: &str,
+    ) -> Result<Option<Event>, StorageError> {
+        // EncryptedFileStorage doesn't implement event storage, return None
+        Ok(None)
+    }
+
     // Circuit operations - placeholder implementations
     fn store_circuit(&self, _circuit: &Circuit) -> Result<(), StorageError> {
         Err(StorageError::IoError(
@@ -5123,6 +5148,11 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
     ) -> Result<Vec<Event>, StorageError> {
         let guard = self.lock().unwrap();
         guard.get_events_in_time_range(start, end)
+    }
+
+    fn get_event_by_content_hash(&self, content_hash: &str) -> Result<Option<Event>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_event_by_content_hash(content_hash)
     }
 
     fn store_circuit(&self, circuit: &Circuit) -> Result<(), StorageError> {

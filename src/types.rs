@@ -253,6 +253,15 @@ pub struct Event {
     pub is_encrypted: bool,
     pub visibility: EventVisibility,
     pub content_hash: String,
+    /// Local event ID (before push to circuit) - None if created with DFID directly
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_event_id: Option<Uuid>,
+    /// True if event is still local (not pushed to any circuit)
+    #[serde(default)]
+    pub is_local: bool,
+    /// Circuit ID where this event was pushed (None if local or created directly)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pushed_to_circuit: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -786,6 +795,20 @@ pub enum OperationStatus {
     Failed,
 }
 
+/// Result of event creation with deduplication info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventCreationResult {
+    pub event: Event,
+    pub was_deduplicated: bool,
+    pub original_event_id: Option<Uuid>,
+    /// True if metadata was merged into an existing event
+    #[serde(default)]
+    pub was_merged: bool,
+    /// Keys that were merged (if was_merged is true)
+    #[serde(default)]
+    pub merged_keys: Vec<String>,
+}
+
 impl Event {
     pub fn new(
         dfid: String,
@@ -793,10 +816,21 @@ impl Event {
         source: String,
         visibility: EventVisibility,
     ) -> Self {
+        Self::new_with_metadata(dfid, event_type, source, visibility, HashMap::new())
+    }
+
+    /// Create a new event with metadata included from the start
+    /// This is important for proper deduplication hash calculation
+    pub fn new_with_metadata(
+        dfid: String,
+        event_type: EventType,
+        source: String,
+        visibility: EventVisibility,
+        metadata: HashMap<String, serde_json::Value>,
+    ) -> Self {
         let timestamp = Utc::now();
-        let metadata = HashMap::new();
-        let content_hash =
-            Self::calculate_content_hash(&event_type, &source, &timestamp, &metadata);
+        // Use dedup hash (without timestamp) for content_hash to enable deduplication
+        let content_hash = Self::calculate_dedup_hash(&dfid, &event_type, &source, &metadata);
 
         Self {
             event_id: Uuid::new_v4(),
@@ -808,25 +842,89 @@ impl Event {
             is_encrypted: false,
             visibility,
             content_hash,
+            local_event_id: None,
+            is_local: false,
+            pushed_to_circuit: None,
         }
+    }
+
+    /// Create a new LOCAL event (without DFID yet)
+    /// Local events are stored with a temporary DFID until pushed to a circuit
+    pub fn new_local(
+        event_type: EventType,
+        source: String,
+        visibility: EventVisibility,
+        metadata: HashMap<String, serde_json::Value>,
+    ) -> Self {
+        let timestamp = Utc::now();
+        let local_event_id = Uuid::new_v4();
+        // Use temporary DFID format for local events
+        let dfid = format!("LOCAL-EVENT-{}", local_event_id);
+        let content_hash = Self::calculate_dedup_hash(&dfid, &event_type, &source, &metadata);
+
+        Self {
+            event_id: Uuid::new_v4(),
+            dfid,
+            event_type,
+            timestamp,
+            source,
+            metadata,
+            is_encrypted: false,
+            visibility,
+            content_hash,
+            local_event_id: Some(local_event_id),
+            is_local: true,
+            pushed_to_circuit: None,
+        }
+    }
+
+    /// Mark event as pushed to a circuit and update its DFID
+    pub fn push_to_circuit(&mut self, circuit_id: Uuid, new_dfid: String) {
+        self.dfid = new_dfid.clone();
+        self.is_local = false;
+        self.pushed_to_circuit = Some(circuit_id);
+        // Recalculate content hash with the new DFID
+        self.content_hash =
+            Self::calculate_dedup_hash(&self.dfid, &self.event_type, &self.source, &self.metadata);
     }
 
     pub fn add_metadata(&mut self, key: String, value: serde_json::Value) {
         self.metadata.insert(key, value);
-        // Recalculate hash when metadata changes
-        self.content_hash = Self::calculate_content_hash(
-            &self.event_type,
-            &self.source,
-            &self.timestamp,
-            &self.metadata,
-        );
+        // Recalculate dedup hash when metadata changes
+        self.content_hash =
+            Self::calculate_dedup_hash(&self.dfid, &self.event_type, &self.source, &self.metadata);
+    }
+
+    /// Merge metadata from another source, returning the list of keys that were merged
+    /// Only merges keys that don't already exist (non-destructive merge)
+    pub fn merge_metadata(
+        &mut self,
+        new_metadata: HashMap<String, serde_json::Value>,
+    ) -> Vec<String> {
+        let mut merged_keys = Vec::new();
+        for (key, value) in new_metadata {
+            if !self.metadata.contains_key(&key) {
+                self.metadata.insert(key.clone(), value);
+                merged_keys.push(key);
+            }
+        }
+        if !merged_keys.is_empty() {
+            // Recalculate dedup hash after merge
+            self.content_hash = Self::calculate_dedup_hash(
+                &self.dfid,
+                &self.event_type,
+                &self.source,
+                &self.metadata,
+            );
+        }
+        merged_keys
     }
 
     pub fn encrypt(&mut self) {
         self.is_encrypted = true;
     }
 
-    /// Calculate content hash using BLAKE3 for event deduplication
+    /// Calculate content hash using BLAKE3 for event integrity/audit trail
     /// Hash includes: event_type + source + timestamp + metadata
     fn calculate_content_hash(
         event_type: &EventType,
@@ -847,6 +945,35 @@ impl Event {
 
         // Add metadata to hash (sorted keys for deterministic hashing)
         let metadata_json = serde_json::to_string(metadata).unwrap_or_default();
+        hasher.update(metadata_json.as_bytes());
+
+        hasher.finalize().to_hex().to_string()
+    }
+
+    /// Calculate deduplication hash using BLAKE3
+    /// Hash includes: dfid + event_type + source + sorted metadata (NO timestamp)
+    /// This allows detecting duplicate events regardless of when they were created
+    pub fn calculate_dedup_hash(
+        dfid: &str,
+        event_type: &EventType,
+        source: &str,
+        metadata: &HashMap<String, serde_json::Value>,
+    ) -> String {
+        let mut hasher = blake3::Hasher::new();
+
+        // Add dfid to hash (which item this event belongs to)
+        hasher.update(dfid.as_bytes());
+
+        // Add event_type to hash
+        hasher.update(format!("{event_type:?}").as_bytes());
+
+        // Add source to hash
+        hasher.update(source.as_bytes());
+
+        // Add metadata to hash (sorted keys for deterministic hashing)
+        // Use a BTreeMap to ensure consistent ordering
+        let sorted_metadata: std::collections::BTreeMap<_, _> = metadata.iter().collect();
+        let metadata_json = serde_json::to_string(&sorted_metadata).unwrap_or_default();
         hasher.update(metadata_json.as_bytes());
 
         hasher.finalize().to_hex().to_string()

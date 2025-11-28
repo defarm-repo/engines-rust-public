@@ -716,6 +716,18 @@ impl StorageBackend for PostgresStorageWithCache {
             .collect())
     }
 
+    fn get_event_by_content_hash(&self, content_hash: &str) -> Result<Option<Event>, StorageError> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let pg = self.get_postgres().await?;
+
+                pg.load_event_by_content_hash(content_hash)
+                    .await
+                    .map_err(|e| StorageError::ReadError(e.to_string()))
+            })
+        })
+    }
+
     fn get_event_count_by_time_range(
         &self,
         start: DateTime<Utc>,
