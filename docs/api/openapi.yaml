@@ -753,6 +753,73 @@ components:
         is_encrypted:
           type: boolean
 
+    LocalEventResponse:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        local_event_id:
+          type: string
+          format: uuid
+          description: The local event ID for tracking before push
+        event_type:
+          type: string
+          enum: [Created, Enriched, Transferred, Merged, Split, Circuit, Published, Verified, Custom]
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix epoch timestamp
+        source:
+          type: string
+          description: User ID who created the event
+        metadata:
+          type: object
+          additionalProperties: true
+        visibility:
+          type: string
+          enum: [Public, Private, CircuitOnly]
+        is_local:
+          type: boolean
+          description: True if event has not been pushed to a circuit
+
+    PushEventsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        circuit_id:
+          type: string
+          format: uuid
+        events_pushed:
+          type: integer
+          description: Number of events successfully pushed
+        events_deduplicated:
+          type: integer
+          description: Number of events that were deduplicated
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              event_id:
+                type: string
+                format: uuid
+              local_event_id:
+                type: string
+                format: uuid
+              dfid:
+                type: string
+              was_deduplicated:
+                type: boolean
+              was_merged:
+                type: boolean
+              merged_keys:
+                type: array
+                items:
+                  type: string
+                description: Keys that were merged from new metadata
+
     Activity:
       type: object
       properties:
@@ -2147,6 +2214,62 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /circuits/{circuit_id}/push-events:
+    post:
+      tags:
+        - Circuits
+      summary: Push events to circuit
+      description: |
+        Push local events to a circuit, associating them with a specific DFID.
+        Events are deduplicated using content hash. If a duplicate is found,
+        metadata is auto-merged (only new keys are added).
+        Supports both JWT and API key authentication.
+      operationId: pushEventsToCircuit
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - local_event_ids
+                - dfid
+              properties:
+                local_event_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Array of local event IDs to push
+                  example: ["550e8400-e29b-41d4-a716-446655440000"]
+                dfid:
+                  type: string
+                  description: The DFID to associate events with
+                  example: "DFID-20251128-000001-XXXX"
+      responses:
+        '200':
+          description: Events pushed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushEventsResponse'
+        '400':
+          description: Invalid request (missing fields, invalid IDs)
+        '403':
+          description: Permission denied (no push access to circuit)
+        '404':
+          description: Circuit or local event not found
+
   /circuits/{circuit_id}/adapter:
     get:
       tags:
@@ -3143,6 +3266,85 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Event'
+
+  /events/local:
+    post:
+      tags:
+        - Events
+      summary: Create local event
+      description: |
+        Create a local event that is not yet associated with a DFID.
+        Local events can be pushed to a circuit later to associate them with items.
+        Supports both JWT and API key authentication.
+      operationId: createLocalEvent
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - event_type
+                - visibility
+              properties:
+                event_type:
+                  type: string
+                  description: Type of event
+                  enum: [Created, Enriched, Transferred, Merged, Split, Circuit, Published, Verified, Custom]
+                  example: Created
+                visibility:
+                  type: string
+                  description: Event visibility
+                  enum: [Public, Private, CircuitOnly]
+                  example: Public
+                metadata:
+                  type: object
+                  additionalProperties: true
+                  description: Additional metadata for the event
+                  example:
+                    action: initial_registration
+                    location: Farm A
+      responses:
+        '200':
+          description: Local event created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalEventResponse'
+        '401':
+          description: Authentication required
+        '400':
+          description: Invalid event type or visibility
+
+  /events/local/{local_event_id}:
+    get:
+      tags:
+        - Events
+      summary: Get local event
+      description: Retrieve a local event by its local_event_id
+      operationId: getLocalEvent
+      parameters:
+        - name: local_event_id
+          in: path
+          required: true
+          description: The local event UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Local event found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalEventResponse'
+        '404':
+          description: Local event not found
+        '400':
+          description: Invalid local_event_id format
 
   /activities:
     get:
