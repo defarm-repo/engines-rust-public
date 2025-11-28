@@ -2304,6 +2304,17 @@ async fn get_public_circuit(
                 })
                 .collect();
 
+            // Calculate total events count
+            let total_events: usize = items_with_events
+                .iter()
+                .map(|item| {
+                    item.get("events")
+                        .and_then(|e| e.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0)
+                })
+                .sum();
+
             Ok(Json(json!({
                 "success": true,
                 "data": {
@@ -2316,6 +2327,8 @@ async fn get_public_circuit(
                     "tagline": public_info.tagline,
                     "footer_text": public_info.footer_text,
                     "member_count": public_info.member_count,
+                    "items_count": public_info.published_items.len(),
+                    "events_count": total_events,
                     "access_mode": format!("{:?}", public_info.access_mode).to_lowercase(),
                     "requires_password": public_info.requires_password,
                     "is_currently_accessible": public_info.is_currently_accessible,
@@ -2323,7 +2336,8 @@ async fn get_public_circuit(
                     "published_items_with_events": items_with_events,
                     "auto_publish_pushed_items": public_info.auto_publish_pushed_items,
                     "public_since": public_info.public_since.map(|dt| dt.to_rfc3339()),
-                    "created_at": public_info.created_at.to_rfc3339()
+                    "created_at": public_info.created_at.to_rfc3339(),
+                    "recent_activity": []
                 }
             })))
         }
