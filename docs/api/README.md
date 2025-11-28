@@ -280,6 +280,49 @@ const { data: { dfid } } = await tokenized.json();
 console.log('Item tokenized with DFID:', dfid);
 ```
 
+### 5. Create and Push Events (NEW)
+```javascript
+// Step 1: Create a local event (before associating with a DFID)
+const localEvent = await fetch('https://connect.defarm.net/api/events/local', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,  // or 'X-API-Key': 'dfm_xxx'
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    event_type: 'Created',        // Created, Enriched, Transferred, etc.
+    visibility: 'Public',         // Public, Private, or CircuitOnly
+    metadata: {
+      action: 'initial_registration',
+      location: 'Farm A'
+    }
+  })
+});
+
+const { local_event_id } = await localEvent.json();
+
+// Step 2: Push local events to a circuit (associates them with a DFID)
+const pushEvents = await fetch(`https://connect.defarm.net/api/circuits/${circuitId}/push-events`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,  // or 'X-API-Key': 'dfm_xxx'
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    local_event_ids: [local_event_id],
+    dfid: 'DFID-20251128-000001-XXXX'
+  })
+});
+
+const result = await pushEvents.json();
+console.log(`Pushed ${result.events_pushed} events, ${result.events_deduplicated} deduplicated`);
+```
+
+**Event Deduplication:**
+- Events are automatically deduplicated using BLAKE3 content hashes
+- When pushing an event that already exists, metadata is auto-merged
+- Response includes `was_deduplicated` and `merged_keys` for transparency
+
 ---
 
 ## 📚 API Modules

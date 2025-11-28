@@ -379,6 +379,27 @@ Every new feature or update must be documented by updating existing principles o
 3. Time-range queries enable historical analysis of item changes
 4. Event visibility controls access to sensitive operations
 
+### Event Deduplication (2025-11-28)
+1. Events are deduplicated using BLAKE3 content hash of (dfid, event_type, source, metadata)
+2. Content hash excludes timestamp to enable proper deduplication across time
+3. Duplicate events return the existing event instead of creating a new one
+4. EventCreationResult includes was_deduplicated and original_event_id fields
+5. get_event_by_content_hash() enables O(1) deduplication lookup
+
+### Local Event Storage
+1. Events can be created locally without a DFID via POST /api/events/local
+2. Local events use temporary DFID format "LOCAL-EVENT-{uuid}" for storage
+3. Local events have is_local=true and a unique local_event_id (UUID)
+4. Local events remain workspace-private until pushed to a circuit
+5. GET /api/events/local/:local_event_id retrieves a local event by its local_event_id
+
+### Event Push to Circuit
+1. POST /api/circuits/:id/push-events pushes local events to a circuit
+2. Push operation assigns a real DFID to the event, replacing LOCAL-EVENT-* prefix
+3. Events are deduplicated on push using content hash
+4. Auto-merge: When duplicate detected, metadata is non-destructively merged (only adds new keys)
+5. Response includes events_pushed, events_deduplicated, and merged_keys for each event
+
 ## Circuits Engine Principles
 
 ### Circuit Management
