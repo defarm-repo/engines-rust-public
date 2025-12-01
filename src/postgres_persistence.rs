@@ -3048,21 +3048,28 @@ impl PostgresPersistence {
             .await
             .map_err(|e| format!("Failed to get database client: {e}"))?;
 
+        // Parse notification ID as UUID
+        let notification_id = Uuid::parse_str(&notification.id)
+            .map_err(|e| format!("Invalid notification ID: {e}"))?;
+
+        // Convert timestamp to Unix epoch (i64)
+        let created_at_ts = notification.timestamp.timestamp();
+
         client
             .execute(
-                "INSERT INTO notifications (id, user_id, notification_type, title, message, read, timestamp, data)
+                "INSERT INTO notifications (notification_id, user_id, notification_type, title, message, is_read, created_at_ts, data)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                 ON CONFLICT (id) DO UPDATE SET
-                    read = EXCLUDED.read,
+                 ON CONFLICT (notification_id) DO UPDATE SET
+                    is_read = EXCLUDED.is_read,
                     data = EXCLUDED.data",
                 &[
-                    &notification.id,
+                    &notification_id,
                     &notification.user_id,
                     &serde_json::to_string(&notification.notification_type).unwrap_or_default(),
                     &notification.title,
                     &notification.message,
                     &notification.read,
-                    &notification.timestamp,
+                    &created_at_ts,
                     &notification.data,
                 ],
             )
