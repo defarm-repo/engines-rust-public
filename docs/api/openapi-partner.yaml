@@ -7,6 +7,7 @@ info:
 
     ## Funcionalidades Principais
     - **Autenticação JWT** - Login seguro com token
+    - **API Keys** - Gerar chaves de API para integração server-to-server
     - **Circuitos** - Repositórios de dados com permissões
     - **Itens** - Criação e tokenização de itens (DFID)
     - **Eventos** - Registro de eventos e histórico
@@ -33,6 +34,8 @@ servers:
 tags:
   - name: Authentication
     description: Autenticação e gerenciamento de tokens JWT
+  - name: API Keys
+    description: Gerenciamento de chaves de API para integração
   - name: Circuits
     description: Gerenciamento de circuitos e operações (push/pull)
   - name: Items
@@ -95,6 +98,94 @@ components:
         expires_at:
           type: integer
           format: int64
+
+    # ============================================================================
+    # API Key Schemas
+    # ============================================================================
+
+    CreateApiKeyRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Nome descritivo da chave
+          example: "Integração CowPro Produção"
+        permissions:
+          type: object
+          properties:
+            read:
+              type: boolean
+              default: true
+            write:
+              type: boolean
+              default: true
+          description: Permissões da chave
+        expires_at:
+          type: string
+          format: date-time
+          description: Data de expiração (opcional)
+        ip_restrictions:
+          type: array
+          items:
+            type: string
+          description: Lista de IPs permitidos (opcional)
+          example: ["192.168.1.0/24", "10.0.0.1"]
+
+    ApiKeyResponse:
+      type: object
+      properties:
+        key_id:
+          type: string
+          format: uuid
+        key:
+          type: string
+          description: |
+            Chave de API completa (mostrada apenas uma vez!)
+            Formato: dfm_<32-caracteres>
+          example: "dfm_abc123def456ghi789jkl012mno345pq"
+        name:
+          type: string
+        prefix:
+          type: string
+          description: Prefixo da chave para identificação
+          example: "dfm_abc1"
+        permissions:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+
+    ApiKeyListItem:
+      type: object
+      properties:
+        key_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          description: Apenas o prefixo (chave completa não é armazenada)
+        permissions:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+        last_used_at:
+          type: string
+          format: date-time
 
     # ============================================================================
     # Item Schemas
@@ -419,6 +510,127 @@ paths:
                 $ref: '#/components/schemas/LoginResponse'
         '401':
           description: Credenciais inválidas
+
+  # ============================================================================
+  # API Keys Endpoints
+  # ============================================================================
+
+  /api-keys:
+    get:
+      tags:
+        - API Keys
+      summary: Listar minhas chaves de API
+      description: Retorna todas as chaves de API do usuário autenticado
+      operationId: listApiKeys
+      responses:
+        '200':
+          description: Lista de chaves
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  api_keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKeyListItem'
+
+    post:
+      tags:
+        - API Keys
+      summary: Criar nova chave de API
+      description: |
+        Cria uma nova chave de API para integração server-to-server.
+
+        **IMPORTANTE:** A chave completa é mostrada apenas UMA VEZ na resposta.
+        Guarde-a em local seguro pois não será possível recuperá-la depois.
+
+        **Uso da chave:**
+        ```
+        X-API-Key: dfm_sua_chave_aqui
+        ```
+
+        Ou no header Authorization:
+        ```
+        Authorization: Bearer dfm_sua_chave_aqui
+        ```
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+            example:
+              name: "Integração CowPro Produção"
+              permissions:
+                read: true
+                write: true
+      responses:
+        '200':
+          description: Chave criada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyResponse'
+        '400':
+          description: Dados inválidos
+
+  /api-keys/{key_id}:
+    get:
+      tags:
+        - API Keys
+      summary: Detalhes da chave
+      description: Retorna detalhes de uma chave específica (sem a chave completa)
+      operationId: getApiKey
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Detalhes da chave
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyListItem'
+        '404':
+          description: Chave não encontrada
+
+    delete:
+      tags:
+        - API Keys
+      summary: Revogar chave de API
+      description: |
+        Revoga (desativa) permanentemente uma chave de API.
+        A chave não poderá mais ser usada para autenticação.
+      operationId: revokeApiKey
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chave revogada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '404':
+          description: Chave não encontrada
 
   # ============================================================================
   # Items Endpoints
