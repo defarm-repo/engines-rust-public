@@ -516,10 +516,9 @@ async fn update_user(
         }
     })?;
 
-    // PostgreSQL persistence happens asynchronously in background
-    let pg = app_state.postgres_persistence.clone();
-    tokio::spawn(async move {
-        let pg_lock = pg.read().await;
+    // PostgreSQL persistence - synchronous for read-after-write consistency
+    {
+        let pg_lock = app_state.postgres_persistence.read().await;
         if let Some(pg_instance) = &*pg_lock {
             if let Err(e) = pg_instance.persist_user(&user_clone).await {
                 tracing::warn!("Failed to persist user update to PostgreSQL: {}", e);
@@ -530,7 +529,7 @@ async fn update_user(
                 );
             }
         }
-    });
+    }
 
     // Phase 2: Async operations (notifications, etc.) - no storage lock needed
     {
@@ -648,10 +647,9 @@ async fn freeze_user(
         }
     })?;
 
-    // PostgreSQL persistence happens asynchronously in background
-    let pg = app_state.postgres_persistence.clone();
-    tokio::spawn(async move {
-        let pg_lock = pg.read().await;
+    // PostgreSQL persistence - synchronous for read-after-write consistency
+    {
+        let pg_lock = app_state.postgres_persistence.read().await;
         if let Some(pg_instance) = &*pg_lock {
             if let Err(e) = pg_instance.persist_user(&user_clone).await {
                 tracing::warn!("Failed to persist frozen user to PostgreSQL: {}", e);
@@ -662,7 +660,7 @@ async fn freeze_user(
                 );
             }
         }
-    });
+    }
 
     // Send notification to affected user AFTER freezing
     {
@@ -779,10 +777,9 @@ async fn unfreeze_user(
         }
     })?;
 
-    // PostgreSQL persistence happens asynchronously in background
-    let pg = app_state.postgres_persistence.clone();
-    tokio::spawn(async move {
-        let pg_lock = pg.read().await;
+    // PostgreSQL persistence - synchronous for read-after-write consistency
+    {
+        let pg_lock = app_state.postgres_persistence.read().await;
         if let Some(pg_instance) = &*pg_lock {
             if let Err(e) = pg_instance.persist_user(&user_clone).await {
                 tracing::warn!("Failed to persist unfrozen user to PostgreSQL: {}", e);
@@ -793,7 +790,7 @@ async fn unfreeze_user(
                 );
             }
         }
-    });
+    }
 
     // Send notification to affected user
     {
