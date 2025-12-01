@@ -254,6 +254,14 @@ impl PostgresPersistence {
                 "V7__create_robot_tables",
                 include_str!("../config/migrations/V7__create_robot_tables.sql"),
             ),
+            (
+                "V8__add_events_content_hash",
+                include_str!("../config/migrations/V8__add_events_content_hash.sql"),
+            ),
+            (
+                "V9__create_audit_events",
+                include_str!("../config/migrations/V9__create_audit_events.sql"),
+            ),
         ];
 
         for (name, migration_sql) in migrations {
