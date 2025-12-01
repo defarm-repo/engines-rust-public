@@ -222,9 +222,9 @@
     <script src="https://unpkg.com/swagger-ui-dist@5.10.3/swagger-ui-standalone-preset.js"></script>
     <script>
         window.onload = function() {
-            // Use absolute path from domain root for OpenAPI spec
-            // This works regardless of how the page is accessed
-            const specUrl = '/docs/api/openapi.yaml';
+            // Use partner-specific OpenAPI spec (simplified)
+            // Includes only: Auth, Circuits, Items, Events, Storage History, Adapters
+            const specUrl = '/docs/api/openapi-partner.yaml';
 
             console.log('Loading OpenAPI spec from:', specUrl);
 
