@@ -2986,11 +2986,7 @@ impl Notification {
         data: serde_json::Value,
     ) -> Self {
         Self {
-            id: format!(
-                "NOTIF-{}-{}",
-                Utc::now().format("%Y%m%d%H%M%S"),
-                Uuid::new_v4().to_string()[..8].to_uppercase()
-            ),
+            id: Uuid::new_v4().to_string(),
             user_id,
             notification_type,
             title,
