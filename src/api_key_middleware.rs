@@ -19,6 +19,9 @@ use crate::rate_limiter::{RateLimitConfig, RateLimiter};
 pub struct ApiKeyContext {
     pub api_key_id: Uuid,
     pub user_id: Uuid,
+    /// Original user_id string from JWT (e.g., "user-04c00d74-...")
+    /// Use this for authorization checks against circuit owners and members
+    pub original_user_id: String,
     pub organization_type: OrganizationType,
     pub permissions: ApiKeyPermissions,
     pub rate_limit_per_hour: u32,
@@ -297,6 +300,7 @@ pub async fn api_key_auth_middleware<S: ApiKeyStorage + 'static>(
     let context = ApiKeyContext {
         api_key_id: stored_key.id,
         user_id: stored_key.created_by,
+        original_user_id: stored_key.original_user_id.clone(),
         organization_type: stored_key.organization_type,
         permissions: stored_key.permissions,
         rate_limit_per_hour: stored_key.rate_limit_per_hour,
@@ -405,6 +409,7 @@ mod tests {
         let request = CreateApiKeyRequest {
             name: "Test Key".to_string(),
             created_by: user_id,
+            original_user_id: format!("user-{}", user_id),
             organization_type: OrganizationType::Producer,
             organization_id: None,
             permissions: Some(ApiKeyPermissions::read_write()),

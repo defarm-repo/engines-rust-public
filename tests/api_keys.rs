@@ -23,6 +23,7 @@ async fn api_key_end_to_end_smoke() {
     let request = CreateApiKeyRequest {
         name: "integration-key".into(),
         created_by: user_id,
+        original_user_id: format!("user-{}", user_id),
         organization_type: OrganizationType::Producer,
         organization_id: None,
         permissions: Some(ApiKeyPermissions::read_write()),

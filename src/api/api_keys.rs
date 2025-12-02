@@ -174,6 +174,7 @@ pub async fn create_api_key(
     let request = CreateApiKeyRequest {
         name: payload.name,
         created_by: user_uuid,
+        original_user_id: auth.user_id.clone(),
         organization_type: payload.organization_type,
         organization_id: payload.organization_id,
         permissions: payload.permissions,

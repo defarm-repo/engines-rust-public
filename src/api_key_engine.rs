@@ -124,6 +124,9 @@ pub struct ApiKey {
     pub key_hash: String,
     pub key_prefix: String,
     pub created_by: Uuid,
+    /// Original user_id string from JWT (e.g., "user-04c00d74-f519-49cc-b01e-c6106426d5ed")
+    /// Used for authorization checks against circuit owners and members
+    pub original_user_id: String,
     pub organization_type: OrganizationType,
     pub organization_id: Option<Uuid>,
     pub permissions: ApiKeyPermissions,
@@ -181,6 +184,8 @@ pub struct GeneratedApiKey {
 pub struct CreateApiKeyRequest {
     pub name: String,
     pub created_by: Uuid,
+    /// Original user_id string from JWT for authorization checks
+    pub original_user_id: String,
     pub organization_type: OrganizationType,
     pub organization_id: Option<Uuid>,
     pub permissions: Option<ApiKeyPermissions>,
@@ -259,6 +264,7 @@ impl ApiKeyEngine {
             key_hash,
             key_prefix,
             created_by: request.created_by,
+            original_user_id: request.original_user_id,
             organization_type: request.organization_type.clone(),
             organization_id: request.organization_id,
             permissions: request.permissions.unwrap_or_default(),
@@ -361,9 +367,11 @@ mod tests {
     #[test]
     fn test_create_api_key() {
         let engine = create_test_engine();
+        let user_id = Uuid::new_v4();
         let request = CreateApiKeyRequest {
             name: "Test Key".to_string(),
-            created_by: Uuid::new_v4(),
+            created_by: user_id,
+            original_user_id: format!("user-{}", user_id),
             organization_type: OrganizationType::Producer,
             organization_id: None,
             permissions: Some(ApiKeyPermissions::read_write()),
@@ -387,10 +395,12 @@ mod tests {
     fn test_validate_key() {
         let engine = create_test_engine();
         let (key, _, _) = engine.generate_key();
+        let user_id = Uuid::new_v4();
 
         let request = CreateApiKeyRequest {
             name: "Test Key".to_string(),
-            created_by: Uuid::new_v4(),
+            created_by: user_id,
+            original_user_id: format!("user-{}", user_id),
             organization_type: OrganizationType::Producer,
             organization_id: None,
             permissions: None,
@@ -426,10 +436,12 @@ mod tests {
         let engine = create_test_engine();
         let allowed_ip: IpAddr = "192.168.1.100".parse().unwrap();
         let blocked_ip: IpAddr = "192.168.1.200".parse().unwrap();
+        let user_id = Uuid::new_v4();
 
         let request = CreateApiKeyRequest {
             name: "Test Key".to_string(),
-            created_by: Uuid::new_v4(),
+            created_by: user_id,
+            original_user_id: format!("user-{}", user_id),
             organization_type: OrganizationType::Producer,
             organization_id: None,
             permissions: None,

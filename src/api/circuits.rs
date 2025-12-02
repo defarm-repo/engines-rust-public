@@ -2892,7 +2892,8 @@ async fn set_circuit_adapter_config(
     let user_id = if let Some(Extension(claims)) = claims {
         claims.user_id.clone()
     } else if let Some(Extension(ctx)) = api_key_ctx {
-        ctx.user_id.to_string()
+        // Use original_user_id for authorization checks (matches circuit owner/member IDs)
+        ctx.original_user_id.clone()
     } else {
         return Err((
             StatusCode::UNAUTHORIZED,

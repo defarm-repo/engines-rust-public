@@ -374,6 +374,7 @@ mod tests {
         let request = CreateApiKeyRequest {
             name: "Test Key".to_string(),
             created_by,
+            original_user_id: format!("user-{}", created_by),
             organization_type: OrganizationType::Producer,
             organization_id: None,
             permissions: Some(ApiKeyPermissions::read_write()),
