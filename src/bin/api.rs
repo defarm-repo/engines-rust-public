@@ -9,9 +9,9 @@ use tracing::{info, Level};
 use defarm_engine::api::{
     activity_routes, adapter_routes, admin_routes, api_key_routes, audit_routes, auth_routes,
     circuit_routes, event_routes, get_indexing_progress, get_item_timeline, get_timeline_entry,
-    item_routes, notifications_rest_routes, notifications_ws_route, receipt_routes,
-    shared_state::AppState, storage_history_routes, test_blockchain_routes, user_activity_routes,
-    user_credits_routes, workspace_routes, zk_proof_routes, TimelineState,
+    item_routes, notifications_rest_routes, notifications_ws_route, public_storage_history_routes,
+    receipt_routes, shared_state::AppState, storage_history_routes, test_blockchain_routes,
+    user_activity_routes, user_credits_routes, workspace_routes, zk_proof_routes, TimelineState,
 };
 use defarm_engine::api_key_middleware::ApiKeyMiddlewareState;
 use defarm_engine::api_key_storage::InMemoryApiKeyStorage;
@@ -284,6 +284,11 @@ async fn async_main() {
         .nest(
             "/api/notifications",
             notifications_ws_route(app_state.notification_tx.clone()).with_state(app_state.clone()),
+        )
+        // Public storage history endpoint (for items in public circuits - no auth required)
+        .nest(
+            "/api/public/storage-history",
+            public_storage_history_routes(app_state.clone()),
         );
 
     // Timeline routes (requires PostgreSQL - will return error if not available)

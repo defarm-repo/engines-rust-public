@@ -29,7 +29,7 @@ pub use events::event_routes;
 pub use items::item_routes;
 pub use notifications::{notifications_rest_routes, notifications_ws_route};
 pub use receipts::receipt_routes;
-pub use storage_history::storage_history_routes;
+pub use storage_history::{public_storage_history_routes, storage_history_routes};
 pub use test_blockchain::test_blockchain_routes;
 pub use timeline::{get_indexing_progress, get_item_timeline, get_timeline_entry, TimelineState};
 pub use user_activity::user_activity_routes;

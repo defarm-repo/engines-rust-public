@@ -33,6 +33,10 @@ pub struct StorageRecordResponse {
     pub user_id: String,
     pub operation_type: String,
     pub is_primary: bool,
+    /// Blockchain transaction metadata (tx_hash, ipfs_cid, nft_mint_tx, network, etc.)
+    pub metadata: std::collections::HashMap<String, serde_json::Value>,
+    /// Adapter type used for this storage
+    pub adapter_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,6 +73,8 @@ impl From<ItemStorageHistory> for StorageHistoryResponse {
                     user_id: record.triggered_by_id.unwrap_or_default(),
                     operation_type: record.triggered_by,
                     is_primary: record.is_active,
+                    metadata: record.metadata, // Blockchain data: tx_hash, ipfs_cid, nft_mint_tx, network
+                    adapter_type: record.adapter_type.to_string(),
                 })
                 .collect(),
             current_primary: history.current_primary,
@@ -231,6 +237,75 @@ async fn get_storage_statistics(
     })))
 }
 
+/// PUBLIC endpoint for storage history - no authentication required
+/// Returns storage history for items that belong to public circuits
+async fn get_public_item_storage_history(
+    Path(dfid): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> Result<Json<Value>, StatusCode> {
+    // First, verify the item belongs to a public circuit
+    let is_public = {
+        let engine_guard = app_state.circuits_engine.read().await;
+        let circuits = match engine_guard.list_circuits() {
+            Ok(c) => c,
+            Err(_) => {
+                return Ok(Json(json!({
+                    "success": false,
+                    "error": "Failed to load circuits"
+                })))
+            }
+        };
+
+        // Check if this DFID is published in any public circuit
+        circuits.iter().any(|circuit| {
+            // Check if circuit is publicly accessible
+            if !circuit.is_publicly_accessible() {
+                return false;
+            }
+
+            // Check if this DFID is in the circuit's published items
+            circuit
+                .public_settings
+                .as_ref()
+                .map(|ps| ps.published_items.contains(&dfid))
+                .unwrap_or(false)
+        })
+    };
+
+    if !is_public {
+        return Ok(Json(json!({
+            "success": false,
+            "error": "Item not found in any public circuit",
+            "code": "ITEM_NOT_PUBLIC"
+        })));
+    }
+
+    // Item is in a public circuit, return its storage history
+    match app_state
+        .storage_history_reader
+        .get_item_storage_history(&dfid)
+        .await
+    {
+        Ok(Some(history)) => {
+            let response = StorageHistoryResponse::from(history);
+            Ok(Json(json!({
+                "success": true,
+                "data": response
+            })))
+        }
+        Ok(None) => Ok(Json(json!({
+            "success": false,
+            "error": "Storage history not found for this item",
+            "dfid": dfid
+        }))),
+        Err(e) => Ok(Json(json!({
+            "success": false,
+            "error": format!("Failed to get storage history: {}", e),
+            "dfid": dfid
+        }))),
+    }
+}
+
 pub fn storage_history_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/:dfid", get(get_item_storage_history))
@@ -238,5 +313,12 @@ pub fn storage_history_routes(app_state: Arc<AppState>) -> Router {
         .route("/:dfid/migrate", post(migrate_item_storage))
         .route("/:dfid/primary", post(set_primary_storage))
         .route("/statistics", get(get_storage_statistics))
+        .with_state(app_state)
+}
+
+/// Public routes for storage history (no authentication required)
+pub fn public_storage_history_routes(app_state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/:dfid", get(get_public_item_storage_history))
         .with_state(app_state)
 }
