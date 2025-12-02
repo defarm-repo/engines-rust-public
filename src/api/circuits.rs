@@ -422,8 +422,11 @@ pub struct GetAdapterConfigResponse {
 #[derive(Debug, Deserialize)]
 pub struct SetAdapterConfigRequest {
     pub adapter_type: Option<String>,
+    #[serde(default)]
     pub auto_migrate_existing: bool,
+    #[serde(default)]
     pub requires_approval: bool,
+    #[serde(default)]
     pub sponsor_adapter_access: bool,
 }
 
