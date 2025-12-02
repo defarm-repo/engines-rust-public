@@ -61,12 +61,32 @@ impl PostgresStorageWithCache {
     }
 
     /// Invalidate Redis cache (fire-and-forget, never fails)
-    fn invalidate_cache(&self, _key: &str) {
-        // TODO: Implement generic cache invalidation
-        // For now, cache entries will expire based on TTL
-        // Option 1: Add public delete() method to RedisCache
-        // Option 2: Use type-specific delete methods (delete_item, delete_circuit, etc)
-        // Option 3: Accept TTL-based expiration (current approach)
+    fn invalidate_cache(&self, key: &str) {
+        if let Some(redis) = &self.redis {
+            let redis_clone = redis.clone();
+            let key = key.to_string();
+
+            // Fire-and-forget async cache invalidation
+            tokio::spawn(async move {
+                // Parse key format: "type:id"
+                if let Some((entity_type, id)) = key.split_once(':') {
+                    let result = match entity_type {
+                        "circuit" => redis_clone.delete_circuit(id).await,
+                        "item" => redis_clone.delete_item(id).await,
+                        _ => {
+                            tracing::debug!("Unknown cache key type: {}", entity_type);
+                            Ok(())
+                        }
+                    };
+
+                    if let Err(e) = result {
+                        tracing::warn!("Cache invalidation failed for {}: {}", key, e);
+                    } else {
+                        tracing::debug!("🗑️ Cache invalidated: {}", key);
+                    }
+                }
+            });
+        }
     }
 }
 
@@ -272,11 +292,26 @@ impl StorageBackend for PostgresStorageWithCache {
                     }
                 }
 
-                // Invalidate cache after successful write
-                self.invalidate_cache(&format!("circuit:{}", circuit.circuit_id));
+                // Invalidate cache SYNCHRONOUSLY after successful write
+                // This ensures read-after-write consistency
+                if let Some(redis) = &self.redis {
+                    let circuit_id_str = circuit.circuit_id.to_string();
+                    if let Err(e) = redis.delete_circuit(&circuit_id_str).await {
+                        tracing::warn!(
+                            "Cache invalidation failed for circuit {}: {}",
+                            circuit.circuit_id,
+                            e
+                        );
+                    } else {
+                        tracing::info!(
+                            "🗑️ Cache invalidated synchronously: circuit:{}",
+                            circuit.circuit_id
+                        );
+                    }
+                }
 
                 tracing::debug!(
-                    "✅ Circuit stored: {} (PostgreSQL confirmed)",
+                    "✅ Circuit stored: {} (PostgreSQL confirmed, cache invalidated)",
                     circuit.circuit_id
                 );
                 Ok(())
