@@ -1675,13 +1675,24 @@ async fn deactivate_circuit(
 async fn list_circuits(
     State(state): State<Arc<AppState>>,
     Query(params): Query<CircuitListQuery>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
 ) -> Result<Json<Vec<CircuitResponse>>, (StatusCode, Json<Value>)> {
     let engine = lock_circuits_engine(&state).await?;
+
+    // Get user_id from JWT, API key, or query parameter (in that order of priority)
+    let effective_user_id = if let Some(Extension(claims)) = claims {
+        Some(claims.user_id.clone())
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        Some(ctx.original_user_id.clone())
+    } else {
+        params.user_id.clone()
+    };
 
     match engine.list_circuits() {
         Ok(mut circuits) => {
             // Apply permission-based filtering
-            if let Some(user_id) = &params.user_id {
+            if let Some(user_id) = &effective_user_id {
                 circuits.retain(|circuit| {
                     // Include circuits where user is a member
                     let is_member = circuit.is_member(user_id);
