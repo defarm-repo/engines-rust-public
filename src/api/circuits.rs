@@ -2884,9 +2884,22 @@ fn adapter_type_to_string(adapter: &AdapterType) -> String {
 async fn set_circuit_adapter_config(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
+    api_key_ctx: Option<Extension<crate::api_key_middleware::ApiKeyContext>>,
     Json(payload): Json<SetAdapterConfigRequest>,
 ) -> Result<Json<GetAdapterConfigResponse>, (StatusCode, Json<Value>)> {
+    // Extract user_id from JWT claims or API key context
+    let user_id = if let Some(Extension(claims)) = claims {
+        claims.user_id.clone()
+    } else if let Some(Extension(ctx)) = api_key_ctx {
+        ctx.user_id.to_string()
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required. Use JWT token or API key."})),
+        ));
+    };
+
     let circuit_id = Uuid::parse_str(&id).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
@@ -2911,7 +2924,7 @@ async fn set_circuit_adapter_config(
     match engine
         .set_circuit_adapter_config(
             &circuit_id,
-            &claims.user_id,
+            &user_id,
             adapter_type,
             payload.auto_migrate_existing,
             payload.requires_approval,
