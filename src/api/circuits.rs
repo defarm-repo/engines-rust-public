@@ -2951,8 +2951,52 @@ async fn set_circuit_adapter_config(
         .await
     {
         Ok(adapter_config) => {
-            // Circuit persistence is handled by the engine
-            // No need for redundant persistence here
+            // Get the updated circuit for PostgreSQL persistence
+            let circuit_clone = match with_storage(
+                &state.shared_storage,
+                "circuits::set_adapter_config::get_circuit",
+                |storage| {
+                    storage
+                        .get_circuit(&circuit_id)
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+                },
+            ) {
+                Ok(Some(circuit)) => Some(circuit),
+                Ok(None) => {
+                    tracing::warn!(
+                        "Circuit {} not found after adapter config update",
+                        circuit_id
+                    );
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to get circuit {} for persistence: {:?}",
+                        circuit_id,
+                        e
+                    );
+                    None
+                }
+            };
+
+            // PostgreSQL persistence - AWAIT before returning for read-after-write consistency
+            if let Some(circuit) = circuit_clone {
+                let pg_lock = state.postgres_persistence.read().await;
+                if let Some(pg_instance) = &*pg_lock {
+                    if let Err(e) = pg_instance.persist_circuit(&circuit).await {
+                        tracing::warn!(
+                            "Failed to persist circuit adapter config to PostgreSQL: {}",
+                            e
+                        );
+                    } else {
+                        tracing::info!(
+                            "Circuit {} adapter config persisted to PostgreSQL",
+                            circuit_id
+                        );
+                    }
+                }
+                drop(pg_lock);
+            }
 
             // Convert AdapterType enum to hyphenated string format
             let adapter_type_str = adapter_config
