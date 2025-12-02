@@ -244,6 +244,13 @@ impl StorageBackend for PostgresStorageWithCache {
             tokio::runtime::Handle::current().block_on(async {
                 let pg = self.get_postgres().await?;
 
+                // Log what we're about to persist
+                tracing::info!(
+                    "📝 PostgresStorageWithCache.store_circuit({}) with adapter_config: {:?}",
+                    circuit.circuit_id,
+                    circuit.adapter_config
+                );
+
                 // PostgreSQL first - with detailed error logging
                 match pg.persist_circuit(circuit).await {
                     Ok(()) => {
@@ -297,6 +304,15 @@ impl StorageBackend for PostgresStorageWithCache {
                     .map_err(|e| StorageError::ReadError(e.to_string()))?;
 
                 let circuit = circuits.into_iter().find(|c| &c.circuit_id == circuit_id);
+
+                // Log what we loaded for debugging
+                if let Some(ref c) = circuit {
+                    tracing::info!(
+                        "📖 PostgresStorageWithCache.get_circuit({}) loaded adapter_config: {:?}",
+                        circuit_id,
+                        c.adapter_config
+                    );
+                }
 
                 // Populate cache
                 if let Some(ref circuit) = circuit {

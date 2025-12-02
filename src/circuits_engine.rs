@@ -1915,9 +1915,20 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
         circuit.adapter_config = Some(adapter_config.clone());
         circuit.last_modified = chrono::Utc::now();
 
+        tracing::info!(
+            "🔧 Setting circuit {} adapter_config: {:?}",
+            circuit_id,
+            circuit.adapter_config
+        );
+
         self.storage
             .update_circuit(&circuit)
             .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        tracing::info!(
+            "✅ Circuit {} adapter config persisted via storage.update_circuit()",
+            circuit_id
+        );
 
         // Send notifications to all circuit members
         for member in &circuit.members {

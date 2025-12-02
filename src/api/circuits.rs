@@ -2853,6 +2853,11 @@ async fn get_circuit_adapter_config(
 
     match engine.get_circuit(&circuit_id) {
         Ok(Some(circuit)) => {
+            tracing::info!(
+                "📖 GET /adapter - Circuit {} adapter_config: {:?}",
+                circuit_id,
+                circuit.adapter_config
+            );
             if let Some(adapter_config) = circuit.adapter_config {
                 // Convert AdapterType enum to hyphenated string format
                 // If adapter_type is None, return "none"
