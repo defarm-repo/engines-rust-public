@@ -31,8 +31,11 @@ type SharedStorage = Arc<Mutex<PostgresStorageWithCache>>;
 #[derive(Debug, Deserialize)]
 pub struct CreateCircuitAdapterConfigRequest {
     pub adapter_type: Option<AdapterType>,
+    #[serde(default)]
     pub requires_approval: bool,
+    #[serde(default)]
     pub auto_migrate_existing: bool,
+    #[serde(default)]
     pub sponsor_adapter_access: bool,
 }
 
