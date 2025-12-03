@@ -1280,46 +1280,217 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
 
     async fn handle_storage_migration(
         &self,
-        _dfid: &str,
-        _circuit: &Circuit,
-        _user_id: &str,
+        dfid: &str,
+        circuit: &Circuit,
+        user_id: &str,
     ) -> Result<(), String> {
-        // Check if storage history manager is available
-        // TODO: Re-enable adapter configuration when Circuit struct includes adapter_config field
-        // Circuit adapter configuration would need to be stored separately or added to Circuit struct
-        /*
-        if let Some(ref history_manager) = self.storage_history_manager {
-            // Check if circuit has adapter configuration
-            if let Some(ref adapter_config) = circuit.adapter_config {
-                self.logger.lock().unwrap().info("circuits_engine", "storage_migration_start", "Starting storage migration for item")
-                    .with_context("dfid", dfid.to_string())
-                    .with_context("circuit_id", circuit.circuit_id.to_string())
-                    .with_context("target_adapter", format!("{:?}", adapter_config.adapter_type));
-
-                // Use the storage history manager to handle migration
-                let adapter_instance = create_adapter_instance(&adapter_config.adapter_type)
-                    .map_err(|e| format!("Failed to create adapter instance: {}", e))?;
-                history_manager.migrate_to_circuit_adapter(
-                    dfid,
-                    &adapter_instance,
-                    circuit.circuit_id,
-                    user_id,
-                ).await.map_err(|e| e.to_string())?;
-
-                self.logger.lock().unwrap().info("circuits_engine", "storage_migration_complete", "Storage migration completed successfully")
+        // Check if circuit has adapter configuration
+        let adapter_config = match &circuit.adapter_config {
+            Some(config) => config,
+            None => {
+                self.logger
+                    .lock()
+                    .unwrap()
+                    .info(
+                        "circuits_engine",
+                        "storage_migration_skipped",
+                        "No adapter configuration found for circuit",
+                    )
                     .with_context("dfid", dfid.to_string())
                     .with_context("circuit_id", circuit.circuit_id.to_string());
-            } else {
-                self.logger.lock().unwrap().info("circuits_engine", "storage_migration_skipped", "No adapter configuration found for circuit")
-                    .with_context("dfid", dfid.to_string())
-                    .with_context("circuit_id", circuit.circuit_id.to_string());
+                return Ok(());
             }
-        } else {
-            self.logger.lock().unwrap().warn("circuits_engine", "storage_migration_unavailable", "Storage history manager not available for migration")
-                .with_context("dfid", dfid.to_string())
-                .with_context("circuit_id", circuit.circuit_id.to_string());
+        };
+
+        let adapter_type = match &adapter_config.adapter_type {
+            Some(t) => t.clone(),
+            None => {
+                self.logger
+                    .lock()
+                    .unwrap()
+                    .info(
+                        "circuits_engine",
+                        "storage_migration_skipped",
+                        "No adapter type configured",
+                    )
+                    .with_context("dfid", dfid.to_string());
+                return Ok(());
+            }
+        };
+
+        // Skip migration for None adapter type
+        if matches!(adapter_type, AdapterType::None) {
+            return Ok(());
         }
-        */
+
+        self.logger
+            .lock()
+            .unwrap()
+            .info(
+                "circuits_engine",
+                "storage_migration_start",
+                format!("Starting storage migration for existing item {dfid}"),
+            )
+            .with_context("dfid", dfid.to_string())
+            .with_context("circuit_id", circuit.circuit_id.to_string())
+            .with_context("adapter_type", format!("{adapter_type:?}"));
+
+        // Get the item from storage
+        let item = self
+            .storage
+            .get_item_by_dfid(dfid)
+            .map_err(|e| format!("Failed to get item: {e}"))?
+            .ok_or_else(|| format!("Item {dfid} not found"))?;
+
+        // Get full adapter config
+        let adapter_configs = self
+            .storage
+            .get_adapter_configs_by_type(&adapter_type)
+            .map_err(|e| format!("Failed to get adapter configs: {e}"))?;
+        let full_adapter_config = adapter_configs.into_iter().find(|c| c.is_active);
+
+        // IMPORTANT: is_new_dfid = false for migration (no NFT minting, just IPCM update)
+        let is_new_dfid = false;
+
+        // Create adapter and upload item
+        let upload_result = match adapter_type {
+            AdapterType::None => return Ok(()),
+            AdapterType::IpfsIpfs => {
+                let adapter = IpfsIpfsAdapter::new()
+                    .map_err(|e| format!("Failed to create IPFS adapter: {e}"))?;
+                adapter
+                    .store_new_item(&item, is_new_dfid, user_id)
+                    .await
+                    .map_err(|e| format!("Failed to upload to IPFS: {e}"))?
+            }
+            AdapterType::StellarTestnetIpfs => {
+                let adapter =
+                    StellarTestnetIpfsAdapter::new_with_config(full_adapter_config.as_ref())
+                        .map_err(|e| format!("Failed to create Stellar Testnet adapter: {e}"))?;
+                adapter
+                    .store_new_item(&item, is_new_dfid, user_id)
+                    .await
+                    .map_err(|e| format!("Failed to upload to Stellar Testnet: {e}"))?
+            }
+            AdapterType::StellarMainnetIpfs => {
+                let adapter =
+                    StellarMainnetIpfsAdapter::new_with_config(full_adapter_config.as_ref())
+                        .map_err(|e| format!("Failed to create Stellar Mainnet adapter: {e}"))?;
+                adapter
+                    .store_new_item(&item, is_new_dfid, user_id)
+                    .await
+                    .map_err(|e| format!("Failed to upload to Stellar Mainnet: {e}"))?
+            }
+            _ => {
+                return Err(format!(
+                    "Unsupported adapter type for migration: {adapter_type:?}"
+                ));
+            }
+        };
+
+        // Extract storage location and metadata
+        let storage_location = upload_result.metadata.item_location.clone();
+
+        let mut transaction_metadata = HashMap::new();
+        transaction_metadata.insert(
+            "network".to_string(),
+            serde_json::json!(match adapter_type {
+                AdapterType::StellarTestnetIpfs => "stellar-testnet",
+                AdapterType::StellarMainnetIpfs => "stellar-mainnet",
+                _ => "unknown",
+            }),
+        );
+
+        // Extract IPCM update transaction from item_location
+        if let StorageLocation::Stellar {
+            transaction_id,
+            asset_id,
+            ..
+        } = &storage_location
+        {
+            transaction_metadata.insert(
+                "ipcm_update_tx".to_string(),
+                serde_json::json!(transaction_id),
+            );
+            if let Some(cid) = asset_id {
+                transaction_metadata.insert("ipfs_cid".to_string(), serde_json::json!(cid));
+            }
+        }
+
+        // Process event_locations for additional metadata
+        for location in &upload_result.metadata.event_locations {
+            match location {
+                StorageLocation::IPFS { cid, pinned } => {
+                    transaction_metadata.insert("ipfs_cid".to_string(), serde_json::json!(cid));
+                    transaction_metadata
+                        .insert("ipfs_pinned".to_string(), serde_json::json!(pinned));
+                }
+                _ => {}
+            }
+        }
+
+        // Create and save storage record
+        let storage_record = crate::types::StorageRecord {
+            adapter_type: adapter_type.clone(),
+            storage_location: storage_location.clone(),
+            stored_at: Utc::now(),
+            triggered_by: "circuit_migration".to_string(),
+            triggered_by_id: Some(circuit.circuit_id.to_string()),
+            events_range: None,
+            is_active: true,
+            metadata: transaction_metadata.clone(),
+        };
+
+        self.storage
+            .add_storage_record(dfid, storage_record)
+            .map_err(|e| format!("Failed to save storage record: {e}"))?;
+
+        // Add to CID timeline
+        if let (Some(cid), Some(ipcm_tx)) = (
+            transaction_metadata
+                .get("ipfs_cid")
+                .and_then(|v| v.as_str()),
+            transaction_metadata
+                .get("ipcm_update_tx")
+                .and_then(|v| v.as_str()),
+        ) {
+            let network = transaction_metadata
+                .get("network")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            let blockchain_timestamp = Utc::now().timestamp();
+
+            if let Err(e) =
+                self.storage
+                    .add_cid_to_timeline(dfid, cid, ipcm_tx, blockchain_timestamp, network)
+            {
+                tracing::warn!(
+                    "⚠️  Failed to add CID to timeline during migration (non-fatal): {} -> {} ({})",
+                    dfid,
+                    cid,
+                    e
+                );
+            } else {
+                tracing::info!(
+                    "✅ Migration: Added CID to timeline: {} -> {} (TX: {})",
+                    dfid,
+                    cid,
+                    ipcm_tx
+                );
+            }
+        }
+
+        self.logger
+            .lock()
+            .unwrap()
+            .info(
+                "circuits_engine",
+                "storage_migration_complete",
+                format!("Storage migration completed for item {dfid}"),
+            )
+            .with_context("dfid", dfid.to_string())
+            .with_context("circuit_id", circuit.circuit_id.to_string());
 
         Ok(())
     }
