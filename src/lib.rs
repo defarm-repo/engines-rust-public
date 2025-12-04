@@ -13,7 +13,11 @@ pub mod identifier_types;
 pub mod ipfs_client;
 pub mod items_engine;
 pub mod logging;
+pub mod merkle_engine;
+pub mod merkle_tree;
 pub mod receipt_engine;
+pub mod snapshot_engine;
+pub mod snapshot_types;
 pub mod stellar_client;
 pub mod storage;
 pub mod storage_helpers;
@@ -64,10 +68,16 @@ pub use error_handling::*;
 pub use events_engine::*;
 pub use items_engine::*;
 pub use logging::*;
+pub use merkle_engine::{
+    hash_event, CircuitMerkleRootResponse, ItemMerkleRootResponse, MerkleEngine, SyncComparison,
+};
+pub use merkle_tree::*;
 pub use notification_engine::*;
 pub use postgres_storage_with_cache::PostgresStorageWithCache;
 pub use rate_limiter::*;
 pub use receipt_engine::*;
+pub use snapshot_engine::*;
+pub use snapshot_types::*;
 pub use storage::*;
 pub use storage_history_manager::*; // Deprecated - use storage_history_reader
 pub use storage_history_reader::*;
