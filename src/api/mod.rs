@@ -29,7 +29,7 @@ pub use auth::auth_routes;
 pub use circuits::circuit_routes;
 pub use events::event_routes;
 pub use items::item_routes;
-pub use merkle::merkle_routes;
+pub use merkle::{merkle_routes, public_merkle_routes};
 pub use notifications::{notifications_rest_routes, notifications_ws_route};
 pub use receipts::receipt_routes;
 pub use snapshots::{create_public_snapshot_routes, create_snapshot_routes};

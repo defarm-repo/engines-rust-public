@@ -10,7 +10,8 @@ use defarm_engine::api::{
     activity_routes, adapter_routes, admin_routes, api_key_routes, audit_routes, auth_routes,
     circuit_routes, create_public_snapshot_routes, create_snapshot_routes, event_routes,
     get_indexing_progress, get_item_timeline, get_timeline_entry, item_routes, merkle_routes,
-    notifications_rest_routes, notifications_ws_route, public_storage_history_routes,
+    notifications_rest_routes, notifications_ws_route, public_merkle_routes,
+    public_storage_history_routes,
     receipt_routes, shared_state::AppState, storage_history_routes, test_blockchain_routes,
     user_activity_routes, user_credits_routes, workspace_routes, zk_proof_routes, TimelineState,
 };
@@ -295,6 +296,11 @@ async fn async_main() {
         .nest(
             "/api/public/snapshots",
             create_public_snapshot_routes().with_state(app_state.clone()),
+        )
+        // Public Merkle endpoints (for items in public circuits - no auth required)
+        .nest(
+            "/api/public/merkle",
+            public_merkle_routes().with_state(app_state.clone()),
         );
 
     // Timeline routes (requires PostgreSQL - will return error if not available)
