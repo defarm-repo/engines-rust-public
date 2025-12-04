@@ -183,10 +183,14 @@ impl<S: StorageBackend + Clone + 'static> MerkleEngine<S> {
         dfid: &str,
         event_id: &Uuid,
     ) -> Result<MerkleProof, MerkleError> {
-        // Get all events for the item
+        // Get all events for the item - ONCE
         let events = self.storage.get_events_by_dfid(dfid).map_err(|e| {
             MerkleError::StorageError(format!("Failed to get events for {}: {}", dfid, e))
         })?;
+
+        if events.is_empty() {
+            return Err(MerkleError::EmptyTree);
+        }
 
         // Find the target event
         let target_event = events
@@ -196,8 +200,12 @@ impl<S: StorageBackend + Clone + 'static> MerkleEngine<S> {
                 MerkleError::Other(format!("Event {} not found in item {}", event_id, dfid))
             })?;
 
-        // Build the tree
-        let tree = self.build_item_tree(dfid)?;
+        // Build tree from SAME events (not re-fetching)
+        let leaf_data: Vec<(String, Option<String>)> = events
+            .iter()
+            .map(|e| (hash_event(e), Some(e.event_id.to_string())))
+            .collect();
+        let tree = MerkleTree::from_leaves_with_ids(leaf_data);
 
         // Find and generate proof for the event hash
         let event_hash = hash_event(target_event);
