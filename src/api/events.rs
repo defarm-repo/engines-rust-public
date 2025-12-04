@@ -12,6 +12,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::shared_state::AppState;
+use crate::snapshot_types::{SnapshotEntityType, SnapshotOperation, StateSnapshot};
+use crate::storage::StorageBackend;
 use crate::{Event, EventType, EventVisibility};
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +137,119 @@ fn event_to_response(event: Event) -> EventResponse {
     }
 }
 
+/// Create a state snapshot for an item after an event is created
+fn create_item_snapshot_for_event(
+    storage: &dyn StorageBackend,
+    dfid: &str,
+    event: &Event,
+    all_events: &[Event],
+    user_id: &str,
+) -> Result<StateSnapshot, String> {
+    // Get the previous snapshot to establish parent chain
+    let (parent_hash, version) = match storage.get_latest_snapshot(SnapshotEntityType::Item, dfid) {
+        Ok(Some(prev)) => (Some(prev.snapshot_id.clone()), prev.version + 1),
+        Ok(None) => (None, 1),
+        Err(e) => {
+            tracing::warn!("Failed to get previous snapshot: {}", e);
+            (None, 1)
+        }
+    };
+
+    // Get item details if available
+    let item_data = storage.get_item_by_dfid(dfid).ok().flatten();
+
+    // Build the state payload containing the full item state
+    let state_data = serde_json::json!({
+        "dfid": dfid,
+        "item": item_data.as_ref().map(|item| serde_json::json!({
+            "identifiers": item.identifiers,
+            "enriched_data": item.enriched_data,
+            "status": format!("{:?}", item.status),
+            "created_at": item.creation_timestamp,
+            "last_modified": item.last_modified,
+        })),
+        "trigger_event": {
+            "event_id": event.event_id.to_string(),
+            "event_type": format!("{:?}", event.event_type),
+            "timestamp": event.timestamp,
+            "source": event.source,
+            "metadata": event.metadata,
+        },
+        "events": all_events.iter().map(|e| {
+            serde_json::json!({
+                "event_id": e.event_id.to_string(),
+                "event_type": format!("{:?}", e.event_type),
+                "timestamp": e.timestamp,
+                "source": e.source,
+                "metadata": e.metadata,
+            })
+        }).collect::<Vec<_>>(),
+        "event_count": all_events.len(),
+    });
+
+    // Determine the snapshot operation based on event type
+    let operation = match event.event_type {
+        EventType::Created => SnapshotOperation::ItemCreated,
+        EventType::Enriched => SnapshotOperation::ItemEnriched {
+            fields: event.metadata.keys().cloned().collect(),
+        },
+        EventType::Updated => SnapshotOperation::ItemEnriched {
+            fields: event.metadata.keys().cloned().collect(),
+        },
+        EventType::StatusChanged => SnapshotOperation::ItemEnriched {
+            fields: vec!["status".to_string()],
+        },
+        EventType::Merged => SnapshotOperation::ItemEnriched {
+            fields: vec!["merged".to_string()],
+        },
+        EventType::Split => SnapshotOperation::ItemEnriched {
+            fields: vec!["split".to_string()],
+        },
+        EventType::PushedToCircuit => SnapshotOperation::ItemPushedToCircuit {
+            circuit_id: event
+                .metadata
+                .get("circuit_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+        },
+        EventType::PulledFromCircuit => SnapshotOperation::ItemEnriched {
+            fields: vec!["pulled_from_circuit".to_string()],
+        },
+    };
+
+    // Create the snapshot
+    let mut snapshot = StateSnapshot::new(
+        SnapshotEntityType::Item,
+        dfid.to_string(),
+        version,
+        parent_hash,
+        state_data,
+        operation,
+        user_id.to_string(),
+    );
+
+    // Add metadata
+    snapshot = snapshot
+        .with_metadata(
+            "trigger_event_id".to_string(),
+            serde_json::json!(event.event_id.to_string()),
+        )
+        .with_metadata(
+            "trigger_event_type".to_string(),
+            serde_json::json!(format!("{:?}", event.event_type)),
+        )
+        .with_metadata("triggered_by".to_string(), serde_json::json!(user_id))
+        .with_computed_hash();
+
+    // Store the snapshot
+    storage
+        .store_snapshot(&snapshot)
+        .map_err(|e| format!("Failed to store snapshot: {}", e))?;
+
+    Ok(snapshot)
+}
+
 async fn create_event(
     State(state): State<Arc<AppState>>,
     claims: Option<Extension<crate::api::auth::Claims>>,
@@ -159,6 +274,9 @@ async fn create_event(
         ));
     };
 
+    let user_id = source.clone(); // Keep user_id for snapshot creation
+    let dfid_for_snapshot = payload.dfid.clone(); // Keep dfid for snapshot
+
     let mut engine = state.events_engine.write().await;
 
     // Use create_event_with_metadata for automatic deduplication
@@ -169,7 +287,7 @@ async fn create_event(
         Ok(result) => {
             let event = result.event.clone();
 
-            // Only persist to PostgreSQL if this is a NEW event (not deduplicated)
+            // Only persist to PostgreSQL and create snapshot if this is a NEW event (not deduplicated)
             if !result.was_deduplicated {
                 drop(engine);
 
@@ -187,6 +305,37 @@ async fn create_event(
                         }
                     }
                 });
+
+                // Create state snapshot for the item after event creation
+                let storage = state.shared_storage.lock().unwrap();
+                let all_events = storage
+                    .get_events_by_dfid(&dfid_for_snapshot)
+                    .unwrap_or_default();
+
+                match create_item_snapshot_for_event(
+                    &*storage,
+                    &dfid_for_snapshot,
+                    &event,
+                    &all_events,
+                    &user_id,
+                ) {
+                    Ok(snapshot) => {
+                        tracing::info!(
+                            "📸 Created snapshot {} for item {} after event {} ({})",
+                            snapshot.snapshot_id,
+                            dfid_for_snapshot,
+                            event.event_id,
+                            format!("{:?}", event.event_type)
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to create snapshot for item {} after event: {}. Event was still created.",
+                            dfid_for_snapshot,
+                            e
+                        );
+                    }
+                }
             } else {
                 drop(engine);
                 tracing::info!(

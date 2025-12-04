@@ -3138,6 +3138,8 @@ impl PostgresPersistence {
                 local_event_id: None,
                 is_local: false,
                 pushed_to_circuit: None,
+                snapshot_id: None,
+                snapshot_cid: None,
             });
         }
 
@@ -3203,6 +3205,8 @@ impl PostgresPersistence {
                     local_event_id: None,
                     is_local: false,
                     pushed_to_circuit: None,
+                    snapshot_id: None,
+                    snapshot_cid: None,
                 }))
             }
             None => Ok(None),

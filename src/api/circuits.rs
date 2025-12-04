@@ -16,15 +16,17 @@ use crate::api::auth::Claims;
 use crate::api::items::{build_identifiers, IdentifierRequest};
 use crate::identifier_types::CircuitAliasConfig;
 use crate::postgres_storage_with_cache::PostgresStorageWithCache;
+use crate::snapshot_types::{SnapshotEntityType, SnapshotOperation, StateSnapshot};
 use crate::storage::StorageBackend;
 use crate::storage_helpers::{with_storage, StorageLockError};
 use crate::types::{
     Activity, AdapterType, BatchPushItemResult, BatchPushResult, CircuitItem, CircuitPermissions,
-    CustomRole, Permission, PublicSettings, UserActivity, UserActivityCategory, UserActivityType,
-    UserResourceType,
+    CustomRole, Item, Permission, PublicSettings, UserActivity, UserActivityCategory,
+    UserActivityType, UserResourceType,
 };
 use crate::webhook_engine::WebhookEngine;
 use crate::{Circuit, CircuitOperation, CircuitsEngine, ItemsEngine, MemberRole};
+use std::collections::HashMap;
 
 type SharedStorage = Arc<Mutex<PostgresStorageWithCache>>;
 
@@ -617,6 +619,85 @@ fn parse_access_mode(value: &str) -> Option<crate::types::PublicAccessMode> {
         "scheduled" => Some(crate::types::PublicAccessMode::Scheduled),
         _ => None,
     }
+}
+
+/// Create a state snapshot for an item after a push operation
+///
+/// This function creates a Git-like snapshot of the item's current state,
+/// including all its events. The snapshot is stored in the storage backend
+/// and includes a hash of the previous snapshot for chain verification.
+fn create_item_snapshot(
+    storage: &dyn StorageBackend,
+    item: &Item,
+    events: &[crate::types::Event],
+    operation: SnapshotOperation,
+    user_id: &str,
+    circuit_id: Option<&Uuid>,
+) -> Result<StateSnapshot, String> {
+    // Get the previous snapshot to establish parent chain
+    let (parent_hash, version) =
+        match storage.get_latest_snapshot(SnapshotEntityType::Item, &item.dfid) {
+            Ok(Some(prev)) => (Some(prev.snapshot_id.clone()), prev.version + 1),
+            Ok(None) => (None, 1),
+            Err(e) => {
+                tracing::warn!("Failed to get previous snapshot: {}", e);
+                (None, 1)
+            }
+        };
+
+    // Build the state payload containing the full item state
+    let state_data = serde_json::json!({
+        "dfid": item.dfid,
+        "identifiers": item.identifiers,
+        "enriched_data": item.enriched_data,
+        "status": format!("{:?}", item.status),
+        "created_at": item.creation_timestamp,
+        "last_modified": item.last_modified,
+        "events": events.iter().map(|e| {
+            serde_json::json!({
+                "event_id": e.event_id.to_string(),
+                "event_type": format!("{:?}", e.event_type),
+                "timestamp": e.timestamp,
+                "source": e.source,
+                "metadata": e.metadata,
+            })
+        }).collect::<Vec<_>>(),
+        "event_count": events.len(),
+    });
+
+    // Create the snapshot with operation metadata
+    let mut snapshot = StateSnapshot::new(
+        SnapshotEntityType::Item,
+        item.dfid.clone(),
+        version,
+        parent_hash,
+        state_data,
+        operation.clone(),
+        user_id.to_string(),
+    );
+
+    // Add operation metadata using with_metadata
+    if let Some(cid) = circuit_id {
+        snapshot =
+            snapshot.with_metadata("circuit_id".to_string(), serde_json::json!(cid.to_string()));
+    }
+    snapshot = snapshot.with_metadata("triggered_by".to_string(), serde_json::json!(user_id));
+    snapshot = snapshot.with_computed_hash();
+
+    // Store the snapshot
+    storage
+        .store_snapshot(&snapshot)
+        .map_err(|e| format!("Failed to store snapshot: {}", e))?;
+
+    tracing::info!(
+        "Created snapshot {} for item {} (version {}, operation {:?})",
+        snapshot.snapshot_id,
+        item.dfid,
+        version,
+        operation
+    );
+
+    Ok(snapshot)
 }
 
 fn build_public_settings_from_request(
@@ -1428,6 +1509,68 @@ async fn push_local_item(
         } // End of else block (PostgreSQL is connected)
     } // End of if let Some(pg)
     drop(pg_lock);
+
+    // Create a state snapshot for the item after push
+    // This creates a Git-like versioned history of the item state
+    if let Some(item) = &item_to_persist {
+        // Get events for the item to include in snapshot
+        let events = with_storage(
+            &state.shared_storage,
+            "circuits::push_local::get_events_for_snapshot",
+            |storage| {
+                storage
+                    .get_events_by_dfid(&item.dfid)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            },
+        )
+        .unwrap_or_else(|e| {
+            tracing::warn!("Failed to get events for snapshot: {}", e);
+            Vec::new()
+        });
+
+        // Determine operation type based on push status
+        // For push operations, we use ItemPushedToCircuit to track the circuit relationship
+        let operation = SnapshotOperation::ItemPushedToCircuit {
+            circuit_id: circuit_id.to_string(),
+        };
+
+        // Create and store the snapshot
+        match with_storage(
+            &state.shared_storage,
+            "circuits::push_local::create_snapshot",
+            |storage| {
+                create_item_snapshot(
+                    storage,
+                    item,
+                    &events,
+                    operation.clone(),
+                    &requester_id,
+                    Some(&circuit_id),
+                )
+                .map_err(|e| {
+                    Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                        as Box<dyn std::error::Error>
+                })
+            },
+        ) {
+            Ok(snapshot) => {
+                tracing::info!(
+                    "📸 Created snapshot {} for item {} after push to circuit {}",
+                    snapshot.snapshot_id,
+                    item.dfid,
+                    circuit_id
+                );
+            }
+            Err(e) => {
+                // Snapshot creation failure is non-blocking - log and continue
+                tracing::warn!(
+                    "Failed to create snapshot for item {} after push: {}. Push operation still succeeded.",
+                    item.dfid,
+                    e
+                );
+            }
+        }
+    }
 
     let status_str = match result.status {
         crate::circuits_engine::PushStatus::NewItemCreated => "NewItemCreated",

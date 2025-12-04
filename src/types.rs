@@ -262,6 +262,12 @@ pub struct Event {
     /// Circuit ID where this event was pushed (None if local or created directly)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pushed_to_circuit: Option<Uuid>,
+    /// Snapshot ID (BLAKE3 hash) if this event triggered a state snapshot
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<String>,
+    /// IPFS CID of the snapshot (populated after IPFS upload)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_cid: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -845,6 +851,8 @@ impl Event {
             local_event_id: None,
             is_local: false,
             pushed_to_circuit: None,
+            snapshot_id: None,
+            snapshot_cid: None,
         }
     }
 
@@ -875,6 +883,8 @@ impl Event {
             local_event_id: Some(local_event_id),
             is_local: true,
             pushed_to_circuit: None,
+            snapshot_id: None,
+            snapshot_cid: None,
         }
     }
 

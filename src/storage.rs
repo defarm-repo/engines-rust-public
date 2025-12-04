@@ -513,6 +513,35 @@ pub trait StorageBackend: Send + Sync {
     fn store_user_activity(&self, activity: &UserActivity) -> Result<(), StorageError>;
     fn list_user_activities(&self) -> Result<Vec<UserActivity>, StorageError>;
     fn clear_user_activities(&self) -> Result<(), StorageError>;
+
+    // State Snapshot operations
+    fn store_snapshot(
+        &self,
+        snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError>;
+    fn get_snapshot(
+        &self,
+        snapshot_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError>;
+    fn get_snapshots_for_entity(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<Vec<crate::snapshot_types::StateSnapshot>, StorageError>;
+    fn get_latest_snapshot(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError>;
+    fn update_snapshot(
+        &self,
+        snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError>;
+    fn get_snapshot_count(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<u64, StorageError>;
 }
 
 #[derive(Default)]
@@ -565,6 +594,9 @@ struct InMemoryState {
     // Password Reset Tokens
     password_reset_tokens: HashMap<String, PasswordResetToken>, // token_hash -> token
     password_reset_tokens_by_user: HashMap<String, Vec<String>>, // user_id -> token_hashes
+    // State Snapshots
+    snapshots: HashMap<String, crate::snapshot_types::StateSnapshot>, // snapshot_id -> snapshot
+    snapshots_by_entity: HashMap<(String, String), Vec<String>>, // (entity_type, entity_id) -> snapshot_ids
 }
 
 pub struct InMemoryStorage {
@@ -2688,6 +2720,111 @@ impl StorageBackend for InMemoryStorage {
         self.with_state(|s| s.user_activities.clear());
         Ok(())
     }
+
+    // State Snapshot operations
+    fn store_snapshot(
+        &self,
+        snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        use crate::snapshot_types::SnapshotEntityType;
+
+        self.with_state(|s| {
+            // Store snapshot by its ID
+            s.snapshots
+                .insert(snapshot.snapshot_id.clone(), snapshot.clone());
+
+            // Index by entity
+            let entity_type_str = match snapshot.entity_type {
+                SnapshotEntityType::Item => "item".to_string(),
+                SnapshotEntityType::Circuit => "circuit".to_string(),
+            };
+            let key = (entity_type_str, snapshot.entity_id.clone());
+            s.snapshots_by_entity
+                .entry(key)
+                .or_default()
+                .push(snapshot.snapshot_id.clone());
+        });
+        Ok(())
+    }
+
+    fn get_snapshot(
+        &self,
+        snapshot_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        Ok(self.with_state(|s| s.snapshots.get(snapshot_id).cloned()))
+    }
+
+    fn get_snapshots_for_entity(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<Vec<crate::snapshot_types::StateSnapshot>, StorageError> {
+        use crate::snapshot_types::SnapshotEntityType;
+
+        Ok(self.with_state(|s| {
+            let entity_type_str = match entity_type {
+                SnapshotEntityType::Item => "item".to_string(),
+                SnapshotEntityType::Circuit => "circuit".to_string(),
+            };
+            let key = (entity_type_str, entity_id.to_string());
+
+            if let Some(snapshot_ids) = s.snapshots_by_entity.get(&key) {
+                let mut snapshots: Vec<crate::snapshot_types::StateSnapshot> = snapshot_ids
+                    .iter()
+                    .filter_map(|id| s.snapshots.get(id).cloned())
+                    .collect();
+
+                // Sort by version ascending
+                snapshots.sort_by_key(|s| s.version);
+                snapshots
+            } else {
+                vec![]
+            }
+        }))
+    }
+
+    fn get_latest_snapshot(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        let snapshots = self.get_snapshots_for_entity(entity_type, entity_id)?;
+        Ok(snapshots.into_iter().last())
+    }
+
+    fn update_snapshot(
+        &self,
+        snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        self.with_state(|s| {
+            if s.snapshots.contains_key(&snapshot.snapshot_id) {
+                s.snapshots
+                    .insert(snapshot.snapshot_id.clone(), snapshot.clone());
+            }
+        });
+        Ok(())
+    }
+
+    fn get_snapshot_count(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<u64, StorageError> {
+        use crate::snapshot_types::SnapshotEntityType;
+
+        Ok(self.with_state(|s| {
+            let entity_type_str = match entity_type {
+                SnapshotEntityType::Item => "item".to_string(),
+                SnapshotEntityType::Circuit => "circuit".to_string(),
+            };
+            let key = (entity_type_str, entity_id.to_string());
+
+            s.snapshots_by_entity
+                .get(&key)
+                .map(|ids| ids.len() as u64)
+                .unwrap_or(0)
+        }))
+    }
 }
 impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
     fn store_receipt(&self, receipt: &Receipt) -> Result<(), StorageError> {
@@ -3721,6 +3858,58 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
     fn clear_user_activities(&self) -> Result<(), StorageError> {
         let guard = self.lock().unwrap();
         guard.clear_user_activities()
+    }
+
+    // State Snapshot operations
+    fn store_snapshot(
+        &self,
+        snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        let guard = self.lock().unwrap();
+        guard.store_snapshot(snapshot)
+    }
+
+    fn get_snapshot(
+        &self,
+        snapshot_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_snapshot(snapshot_id)
+    }
+
+    fn get_snapshots_for_entity(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<Vec<crate::snapshot_types::StateSnapshot>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_snapshots_for_entity(entity_type, entity_id)
+    }
+
+    fn get_latest_snapshot(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_latest_snapshot(entity_type, entity_id)
+    }
+
+    fn update_snapshot(
+        &self,
+        snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        let guard = self.lock().unwrap();
+        guard.update_snapshot(snapshot)
+    }
+
+    fn get_snapshot_count(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<u64, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_snapshot_count(entity_type, entity_id)
     }
 }
 
@@ -4961,6 +5150,64 @@ impl StorageBackend for EncryptedFileStorage {
             "User activity operations not yet implemented for file storage".to_string(),
         ))
     }
+
+    // State Snapshot operations - not implemented for file storage yet
+    fn store_snapshot(
+        &self,
+        _snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Snapshot operations not yet implemented for file storage".to_string(),
+        ))
+    }
+
+    fn get_snapshot(
+        &self,
+        _snapshot_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Snapshot operations not yet implemented for file storage".to_string(),
+        ))
+    }
+
+    fn get_snapshots_for_entity(
+        &self,
+        _entity_type: crate::snapshot_types::SnapshotEntityType,
+        _entity_id: &str,
+    ) -> Result<Vec<crate::snapshot_types::StateSnapshot>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Snapshot operations not yet implemented for file storage".to_string(),
+        ))
+    }
+
+    fn get_latest_snapshot(
+        &self,
+        _entity_type: crate::snapshot_types::SnapshotEntityType,
+        _entity_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Snapshot operations not yet implemented for file storage".to_string(),
+        ))
+    }
+
+    fn update_snapshot(
+        &self,
+        _snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotImplemented(
+            "Snapshot operations not yet implemented for file storage".to_string(),
+        ))
+    }
+
+    fn get_snapshot_count(
+        &self,
+        _entity_type: crate::snapshot_types::SnapshotEntityType,
+        _entity_id: &str,
+    ) -> Result<u64, StorageError> {
+        Err(StorageError::NotImplemented(
+            "Snapshot operations not yet implemented for file storage".to_string(),
+        ))
+    }
 }
 
 // StorageBackend adapter for Arc<Mutex<PostgresStorageWithCache>>
@@ -5992,6 +6239,58 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
     fn clear_user_activities(&self) -> Result<(), StorageError> {
         let guard = self.lock().unwrap();
         guard.clear_user_activities()
+    }
+
+    // State Snapshot operations
+    fn store_snapshot(
+        &self,
+        snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        let guard = self.lock().unwrap();
+        guard.store_snapshot(snapshot)
+    }
+
+    fn get_snapshot(
+        &self,
+        snapshot_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_snapshot(snapshot_id)
+    }
+
+    fn get_snapshots_for_entity(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<Vec<crate::snapshot_types::StateSnapshot>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_snapshots_for_entity(entity_type, entity_id)
+    }
+
+    fn get_latest_snapshot(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_latest_snapshot(entity_type, entity_id)
+    }
+
+    fn update_snapshot(
+        &self,
+        snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        let guard = self.lock().unwrap();
+        guard.update_snapshot(snapshot)
+    }
+
+    fn get_snapshot_count(
+        &self,
+        entity_type: crate::snapshot_types::SnapshotEntityType,
+        entity_id: &str,
+    ) -> Result<u64, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_snapshot_count(entity_type, entity_id)
     }
 }
 

@@ -969,6 +969,8 @@ impl StorageBackend for PostgresStorage {
                 local_event_id: None,
                 is_local: false,
                 pushed_to_circuit: None,
+                snapshot_id: None,
+                snapshot_cid: None,
             }))
         })
     }
@@ -1027,6 +1029,8 @@ impl StorageBackend for PostgresStorage {
                     local_event_id: None,
                     is_local: false,
                     pushed_to_circuit: None,
+                    snapshot_id: None,
+                    snapshot_cid: None,
                 });
             }
 
@@ -1084,6 +1088,8 @@ impl StorageBackend for PostgresStorage {
                     local_event_id: None,
                     is_local: false,
                     pushed_to_circuit: None,
+                    snapshot_id: None,
+                    snapshot_cid: None,
                 });
             }
 
@@ -1134,6 +1140,8 @@ impl StorageBackend for PostgresStorage {
                     local_event_id: None,
                     is_local: false,
                     pushed_to_circuit: None,
+                    snapshot_id: None,
+                    snapshot_cid: None,
                 });
             }
 
@@ -1184,6 +1192,8 @@ impl StorageBackend for PostgresStorage {
                     local_event_id: None,
                     is_local: false,
                     pushed_to_circuit: None,
+                    snapshot_id: None,
+                    snapshot_cid: None,
                 });
             }
 
@@ -1244,6 +1254,8 @@ impl StorageBackend for PostgresStorage {
                     local_event_id: None,
                     is_local: false,
                     pushed_to_circuit: None,
+                    snapshot_id: None,
+                    snapshot_cid: None,
                 });
             }
 

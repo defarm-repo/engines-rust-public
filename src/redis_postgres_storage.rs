@@ -1607,4 +1607,56 @@ impl StorageBackend for RedisPostgresStorage {
     fn clear_user_activities(&self) -> Result<(), StorageError> {
         Ok(())
     }
+
+    // State Snapshot operations
+    fn store_snapshot(
+        &self,
+        _snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        // TODO: Implement Redis+PostgreSQL storage for snapshots
+        Ok(())
+    }
+
+    fn get_snapshot(
+        &self,
+        _snapshot_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        // TODO: Implement Redis+PostgreSQL retrieval for snapshots
+        Ok(None)
+    }
+
+    fn get_snapshots_for_entity(
+        &self,
+        _entity_type: crate::snapshot_types::SnapshotEntityType,
+        _entity_id: &str,
+    ) -> Result<Vec<crate::snapshot_types::StateSnapshot>, StorageError> {
+        // TODO: Implement Redis+PostgreSQL query for entity snapshots
+        Ok(Vec::new())
+    }
+
+    fn get_latest_snapshot(
+        &self,
+        _entity_type: crate::snapshot_types::SnapshotEntityType,
+        _entity_id: &str,
+    ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
+        // TODO: Implement Redis+PostgreSQL query for latest snapshot
+        Ok(None)
+    }
+
+    fn update_snapshot(
+        &self,
+        _snapshot: &crate::snapshot_types::StateSnapshot,
+    ) -> Result<(), StorageError> {
+        // TODO: Implement Redis+PostgreSQL update for snapshots
+        Ok(())
+    }
+
+    fn get_snapshot_count(
+        &self,
+        _entity_type: crate::snapshot_types::SnapshotEntityType,
+        _entity_id: &str,
+    ) -> Result<u64, StorageError> {
+        // TODO: Implement Redis+PostgreSQL count for entity snapshots
+        Ok(0)
+    }
 }
