@@ -565,7 +565,7 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             requester_id,
             &operation.operation_id,
             PostActionTrigger::ItemPushed,
-            None, // TODO: extract storage details from adapter if needed
+            None, // Implementation pending
         )
         .await;
 

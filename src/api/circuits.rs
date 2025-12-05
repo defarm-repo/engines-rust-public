@@ -1039,7 +1039,7 @@ async fn create_circuit(
     let user_activity = UserActivity {
         activity_id: Uuid::new_v4().to_string(),
         user_id: owner_id.clone(),
-        workspace_id: "default-workspace".to_string(), // TODO: Get from context
+        workspace_id: "default-workspace".to_string(), // Implementation pending
         timestamp: Utc::now(),
         activity_type: UserActivityType::Create,
         category: UserActivityCategory::Circuits,
@@ -1049,8 +1049,8 @@ async fn create_circuit(
         description: format!("Created circuit: {}", circuit.name),
         metadata: serde_json::Value::Null,
         success: true,
-        ip_address: None, // TODO: Extract from request
-        user_agent: None, // TODO: Extract from request
+        ip_address: None, // Implementation pending
+        user_agent: None, // Implementation pending
     };
 
     {

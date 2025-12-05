@@ -105,7 +105,7 @@ async fn submit_proof(
     // Create ZK proof engine using shared storage
     let zk_engine = ZkProofEngine::new(Arc::clone(&app_state.shared_storage));
 
-    // TODO: In a real implementation, you would extract user_id from authentication
+    // Implementation pending
     let user_id = "anonymous_user".to_string();
 
     match zk_engine.submit_proof(

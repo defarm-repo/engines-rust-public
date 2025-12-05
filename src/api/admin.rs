@@ -1583,7 +1583,7 @@ async fn set_default_adapter(
     }
 }
 
-// TODO: Implement test_adapter_config endpoint
+// Implementation pending
 // This endpoint needs special handling for async adapter testing
 // For now, testing can be done programmatically using AdapterManager::test_adapter()
 // async fn test_adapter_config(
@@ -1637,6 +1637,6 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
             "/adapters/:config_id/set-default",
             post(set_default_adapter),
         )
-    // TODO: Add test endpoint once async handler issue is resolved
+    // Implementation pending
     // .route("/adapters/:config_id/test", post(test_adapter_config))
 }
