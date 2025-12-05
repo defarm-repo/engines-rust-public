@@ -26,7 +26,6 @@ use crate::types::{
 };
 use crate::webhook_engine::WebhookEngine;
 use crate::{Circuit, CircuitOperation, CircuitsEngine, ItemsEngine, MemberRole};
-use std::collections::HashMap;
 
 type SharedStorage = Arc<Mutex<PostgresStorageWithCache>>;
 

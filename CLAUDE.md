@@ -663,3 +663,72 @@ Every new feature or update must be documented by updating existing principles o
 6. DELETE /api/circuits/:id/post-actions/webhooks/:webhook_id - Delete webhook
 7. POST /api/circuits/:id/post-actions/webhooks/:webhook_id/test - Test webhook
 8. GET /api/circuits/:id/post-actions/deliveries - View delivery history
+
+## Merkle State Tree Engine (2025-12-05)
+
+### Core Architecture
+1. Three-level Merkle tree hierarchy: Circuit Root → Item Roots → Event Leaves
+2. BLAKE3 cryptographic hashing throughout for consistency with rest of system
+3. Trees computed on-demand from events/items data
+4. Proof generation enables cryptographic verification of data inclusion
+
+### Merkle Tree Structure
+1. **Event Level**: Each event is a leaf node with hash of (event_id, dfid, event_type, source, timestamp, metadata)
+2. **Item Level**: Item root is Merkle root of all its events, proving complete event history
+3. **Circuit Level**: Circuit root is Merkle root of all item roots, proving complete circuit state
+
+### Proof Types
+1. **Event Proof**: Proves specific event exists in item's event history
+2. **Item Proof**: Proves specific item exists in circuit's item set
+3. **Verification**: Any proof can be independently verified using only the proof data and root hash
+
+### API Endpoints (Authenticated)
+1. GET /api/merkle/items/:dfid/merkle-root - Get item's Merkle root (event count included)
+2. GET /api/merkle/items/:dfid/merkle-proof/:event_id - Generate proof event exists in item
+3. GET /api/merkle/circuits/:circuit_id/merkle-root - Get circuit's Merkle root (item count included)
+4. GET /api/merkle/circuits/:circuit_id/merkle-proof/:dfid - Generate proof item exists in circuit
+5. POST /api/merkle/verify-proof - Verify any Merkle proof client-side
+
+### Public API Endpoints (No Auth Required)
+1. GET /api/public/merkle/items/:dfid/merkle-root - Public item Merkle root
+2. GET /api/public/merkle/items/:dfid/merkle-proof/:event_id - Public event proof
+3. GET /api/public/merkle/circuits/:circuit_id/merkle-root - Public circuit Merkle root
+4. GET /api/public/merkle/circuits/:circuit_id/merkle-proof/:dfid - Public item proof
+5. POST /api/public/merkle/verify-proof - Public proof verification
+6. Public endpoints only work for items/circuits with allow_public_visibility=true
+
+### Implementation Files
+1. `src/merkle_engine.rs` - Core Merkle tree computation and proof generation
+2. `src/api/merkle.rs` - REST API handlers for authenticated and public endpoints
+
+### Current Status: DEPLOYED ✅
+- All 10 endpoints live on production (https://connect.defarm.net)
+- Authenticated endpoints at /api/merkle/*
+- Public endpoints at /api/public/merkle/*
+- Proof verification working correctly
+
+### TODO: Future Enhancements
+
+#### Priority 1: Blockchain Anchoring
+1. Periodically commit circuit Merkle roots to Stellar IPCM contract
+2. Creates immutable timestamp proving circuit state at specific moment
+3. Enables third-party verification against on-chain anchors
+4. Suggested interval: configurable per circuit (hourly/daily/on-demand)
+
+#### Priority 2: Root Caching
+1. Store computed Merkle roots in PostgreSQL
+2. Invalidate cache when tree changes (new event/item added)
+3. Reduces computation overhead for frequently accessed circuits
+4. Track last_computed_at timestamp for cache freshness
+
+#### Priority 3: Anchor Events
+1. Create "MerkleRootAnchored" event type when roots committed to blockchain
+2. Event includes: circuit_id, merkle_root, stellar_tx_hash, anchor_timestamp
+3. Links on-chain and off-chain state for complete audit trail
+4. Enables historical proof verification against anchored roots
+
+#### Priority 4: Incremental Updates
+1. Update only affected branches when events added (not rebuild entire tree)
+2. Store intermediate node hashes for faster recomputation
+3. Significantly improves performance for large circuits
+4. Maintain backward compatibility with full tree rebuild
