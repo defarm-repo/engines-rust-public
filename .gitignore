@@ -37,3 +37,13 @@ secrets.json
 # SSL certificates
 config/nginx/ssl/*.pem
 config/nginx/ssl/*.key
+
+# Additional ignores from reorganization
+**/*.rs.bk
+.AppleDouble
+.LSOverride
+test-output/
+docs/_build/
+docs/.doctrees/
+*.bak
+~*

@@ -1,0 +1,51 @@
+{
+  "name": "defarm-cli",
+  "version": "1.0.0",
+  "description": "Official CLI tool for DeFarm Engines API",
+  "bin": {
+    "defarm": "./dist/index.js",
+    "df": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "watch": "tsc --watch",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "defarm",
+    "cli",
+    "traceability",
+    "blockchain",
+    "supply-chain"
+  ],
+  "author": "DeFarm",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/defarm/cli"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "commander": "^11.1.0",
+    "chalk": "^4.1.2",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1",
+    "cli-table3": "^0.6.3",
+    "conf": "^11.0.2",
+    "dotenv": "^16.3.1",
+    "dayjs": "^1.11.10"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/inquirer": "^8.2.10",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
