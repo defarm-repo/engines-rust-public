@@ -1,7 +1,8 @@
+use axum::http::{header, HeaderValue, Method};
 use axum::{http::StatusCode, middleware, response::Json, routing::get, Router};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
@@ -62,6 +63,45 @@ fn allow_in_memory_fallback() -> bool {
         .map(|value| value.trim().to_ascii_lowercase())
         .map(|lower| matches!(lower.as_str(), "1" | "true" | "yes"))
         .unwrap_or(false)
+}
+
+// Helper function to check if an origin is allowed
+fn is_origin_allowed(origin: &str) -> bool {
+    // Allowed domains
+    let allowed_domains = [
+        // DeFarm domains
+        "circuits.defarm.net",
+        "connect.defarm.net",
+        "defarm.net",
+        "www.defarm.net",
+        // Lovable domains (wildcards)
+        ".lovableproject.com",
+        ".lovable.app",
+        ".lovable.dev",
+        // Local development
+        "localhost",
+        "127.0.0.1",
+    ];
+
+    // Check exact matches and wildcard suffixes
+    for domain in &allowed_domains {
+        if let Some(stripped) = domain.strip_prefix('.') {
+            // Wildcard match: *.lovableproject.com
+            if origin.ends_with(domain) || origin.ends_with(stripped) {
+                return true;
+            }
+        } else {
+            // Exact match or with protocol
+            if origin == *domain
+                || origin == format!("https://{domain}")
+                || origin == format!("http://{domain}")
+            {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 fn main() {
@@ -378,13 +418,40 @@ async fn async_main() {
             api_key_middleware_wrapper,
         ));
 
+    // Configure CORS with custom origin validation (supports wildcards)
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(
+            |origin: &HeaderValue, _request_parts| {
+                if let Ok(origin_str) = origin.to_str() {
+                    is_origin_allowed(origin_str)
+                } else {
+                    false
+                }
+            },
+        ))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::PATCH,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            "x-api-key".parse().unwrap(),
+        ])
+        .allow_credentials(true);
+
     // Combine routes and add static file serving for docs
     // Note: nest_service for /docs must come AFTER merging routes to avoid conflicts
     let app = public_routes
         .merge(protected_routes)
         .nest_service("/docs", ServeDir::new("docs"))
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive());
+        .layer(cors);
 
     // Railway provides PORT environment variable, fallback to 3000 for local development
     let port = std::env::var("PORT")
