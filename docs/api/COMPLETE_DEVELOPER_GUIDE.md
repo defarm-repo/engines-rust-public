@@ -92,6 +92,7 @@ curl -s https://connect.defarm.net/api/items \
 | Document | Description | Location |
 |----------|-------------|----------|
 | **API Guide** | Complete API reference with examples | `docs/api/API_GUIDE.md` |
+| **Advanced Concepts** | Identifiers, deduplication, blockchain, events, webhooks | `docs/api/ADVANCED_CONCEPTS.md` |
 | **API Guide Additions** | New sections (Snapshots, Timeline, Merkle, Credits, ZK Proofs) | `docs/api/API_GUIDE_ADDITIONS.md` |
 | **OpenAPI Spec** | Machine-readable API specification | `docs/api/openapi.yaml` |
 | **Client Integration** | Portuguese guide for Gerbov client | `docs/api/GERBOV_INTEGRATION.md` |

@@ -283,9 +283,37 @@ curl -X DELETE "https://connect.defarm.net/api/api-keys/key-uuid-123" \
 **DFID (DeFarm ID):** Globally unique ID assigned when item is tokenized in a circuit
 
 **Item Lifecycle:**
-1. Create local item → Gets LID
-2. Push to circuit → Gets DFID (tokenization)
+1. Create local item → Gets LID (workspace-private)
+2. Push to circuit → Gets DFID (circuit-global identity)
 3. Item is now globally identifiable across the ecosystem
+
+#### LID Persistence After Tokenization
+
+**Important:** The LID does **not** disappear after tokenization. Here's what happens:
+
+**During Local Creation:**
+- User creates item locally → receives a **LID** (UUID)
+- Item stored with temporary DFID format `"LID-{uuid}"`
+- Item remains **workspace-private** at this stage
+
+**After Push to Circuit (Tokenization):**
+- Item pushed to circuit → assigned a **DFID**
+- **LID-DFID mapping permanently stored** in the system
+- Item can be queried by **either LID or DFID**
+- Use `GET /api/items/mapping/{local_id}` to retrieve the mapping
+
+**Visibility Rules:**
+
+| Viewer | Can See LID? | Can See DFID? | Use Case |
+|--------|--------------|---------------|----------|
+| **Original Creator** | ✅ Yes | ✅ Yes | Both work for queries and references |
+| **Other Circuit Members** | ❌ No | ✅ Yes | Only see global circuit identity |
+| **In Circuit Operations** | ❌ No | ✅ Yes | All circuit views show DFID only |
+
+**Summary:**
+- **LID = Internal reference** for the creating workspace (persists forever with mapping)
+- **DFID = Global identity** across all circuits (assigned at tokenization)
+- Same real-world entity gets the **same DFID** across all circuits in the ecosystem
 
 ### Identifiers
 
@@ -772,9 +800,37 @@ curl -X DELETE "https://connect.defarm.net/api/api-keys/key-uuid-123" \
 **DFID (DeFarm ID):** ID globalmente único atribuído quando o item é tokenizado em um circuito
 
 **Ciclo de Vida do Item:**
-1. Criar item local → Obtém LID
-2. Push para circuito → Obtém DFID (tokenização)
+1. Criar item local → Obtém LID (privado no workspace)
+2. Push para circuito → Obtém DFID (identidade global no circuito)
 3. Item agora é globalmente identificável em todo o ecossistema
+
+#### Persistência do LID Após Tokenização
+
+**Importante:** O LID **não** desaparece após a tokenização. Veja o que acontece:
+
+**Durante Criação Local:**
+- Usuário cria item localmente → recebe um **LID** (UUID)
+- Item armazenado com formato temporário de DFID `"LID-{uuid}"`
+- Item permanece **privado no workspace** nesta fase
+
+**Após Push para Circuito (Tokenização):**
+- Item enviado para circuito → recebe um **DFID**
+- **Mapeamento LID-DFID armazenado permanentemente** no sistema
+- Item pode ser consultado por **LID ou DFID**
+- Use `GET /api/items/mapping/{local_id}` para recuperar o mapeamento
+
+**Regras de Visibilidade:**
+
+| Visualizador | Vê o LID? | Vê o DFID? | Caso de Uso |
+|--------------|-----------|------------|-------------|
+| **Criador Original** | ✅ Sim | ✅ Sim | Ambos funcionam para consultas e referências |
+| **Outros Membros do Circuito** | ❌ Não | ✅ Sim | Veem apenas a identidade global do circuito |
+| **Em Operações do Circuito** | ❌ Não | ✅ Sim | Todas visualizações do circuito mostram apenas DFID |
+
+**Resumo:**
+- **LID = Referência interna** do workspace criador (persiste para sempre com mapeamento)
+- **DFID = Identidade global** em todos os circuitos (atribuído na tokenização)
+- Mesma entidade do mundo real recebe o **mesmo DFID** em todos os circuitos do ecossistema
 
 ### Identificadores
 

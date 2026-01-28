@@ -109,13 +109,25 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ## 📚 Documentation
 
+### 🌐 Live Interactive Documentation
+
+**Try the API right now - no installation required:**
+
+- **[Swagger UI (Interactive)](https://connect.defarm.net/docs/api/swagger-ui.html)** - Click "Try it out" on any endpoint
+- **[OpenAPI Spec](https://connect.defarm.net/docs/api/openapi.yaml)** - Import into Postman, Insomnia, etc.
+- **[Advanced Concepts](https://connect.defarm.net/docs/api/ADVANCED_CONCEPTS.md)** - Architecture deep dive
+
+💡 Use demo credentials: `hen` / `demo123` or `chick` / `Demo123!`
+
 ### For Developers
 
 | Document | Description |
 |----------|-------------|
 | **[Complete Developer Guide](docs/api/COMPLETE_DEVELOPER_GUIDE.md)** | Everything you need to get started |
 | **[API Reference](docs/api/API_GUIDE.md)** | Complete API documentation |
-| **[Interactive Docs](docs/api/swagger-ui.html)** | Try the API in your browser |
+| **[Advanced Concepts](docs/api/ADVANCED_CONCEPTS.md)** | Deep dive: identifiers, deduplication, blockchain, events |
+| **[Interactive Docs (Swagger UI)](https://connect.defarm.net/docs/api/swagger-ui.html)** | 🌐 Try the API in your browser |
+| **[OpenAPI Spec](https://connect.defarm.net/docs/api/openapi.yaml)** | Machine-readable API contract |
 | **[SDK Documentation](sdk/)** | TypeScript and Python SDKs |
 | **[CLI Documentation](cli/README.md)** | Command-line tool guide |
 
@@ -125,6 +137,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 |----------|-------------|
 | **[Deployment Guide](docs/deployment/PRODUCTION_DEPLOYMENT.md)** | Production deployment steps |
 | **[Railway Setup](docs/deployment/RAILWAY_DEPLOYMENT.md)** | Deploy to Railway.app |
+| **[Swagger Deployment](docs/deployment/SWAGGER_DEPLOYMENT.md)** | Share API documentation (already live!) |
 | **[Security Checklist](docs/security/SECURITY_CHECKLIST.md)** | Security best practices |
 
 ### For System Architects

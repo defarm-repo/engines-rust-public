@@ -37,6 +37,25 @@ Complete bilingual documentation (English and Portuguese) covering:
 - Frontend/mobile app developers
 - Third-party integrators
 
+### **ADVANCED_CONCEPTS.md** - Advanced Architecture Guide 🔥
+Deep dive into DeFarm's core architecture (bilingual - English/Portuguese):
+- 🔍 **Identifiers & Deduplication** - Canonical vs Contextual IDs, fingerprints
+- 🏷️ **Namespace System** - Preventing collisions across value chains
+- 🔄 **Complete Tokenization Flow** - Step-by-step LID→DFID process
+- ⛓️ **Blockchain Storage & Adapters** - IPFS + Stellar integration
+- 📊 **Events System** - Visibility levels, deduplication, local events
+- ♻️ **Item Lifecycle** - States: Active, Merged, Split, Deprecated
+- 🔐 **Circuit Permissions** - Complete role matrix
+- ⚙️ **Alias Configuration** - Required identifiers, auto-apply namespace
+- 🪝 **Webhooks** - Post-action notifications and integrations
+- 🔗 **External Aliases** - Multi-system identifier tracking
+
+**Perfect for:**
+- Backend developers understanding the system
+- System architects planning integrations
+- Advanced users implementing complex workflows
+- DevOps configuring production circuits
+
 ### **GERBOV_INTEGRATION.md** - Client Integration Guide
 Consolidated Portuguese documentation for Gerbov client including:
 - Credenciais de acesso e autenticação
