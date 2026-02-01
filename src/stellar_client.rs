@@ -1,8 +1,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::time::Duration;
 
 // Soroban client imports
@@ -159,7 +157,7 @@ impl StellarClient {
             .ok_or_else(|| StellarError::NotConfigured("Keypair not configured".to_string()))?;
 
         // Get source account from network
-        let source_account = self
+        let mut source_account = self
             .server
             .get_account(&keypair.public_key())
             .await
@@ -204,7 +202,7 @@ impl StellarClient {
         };
 
         // Build transaction
-        let tx = TransactionBuilder::new(Rc::new(RefCell::new(source_account)), network, None)
+        let tx = TransactionBuilder::new(&mut source_account, network, None)
             .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
             .add_operation(contract.call(
                 "update",
@@ -265,7 +263,7 @@ impl StellarClient {
             .ok_or_else(|| StellarError::NotConfigured("Keypair not configured".to_string()))?;
 
         // Get source account from network
-        let source_account = self
+        let mut source_account = self
             .server
             .get_account(&keypair.public_key())
             .await
@@ -307,7 +305,7 @@ impl StellarClient {
         };
 
         // Build transaction
-        let tx = TransactionBuilder::new(Rc::new(RefCell::new(source_account)), network, None)
+        let tx = TransactionBuilder::new(&mut source_account, network, None)
             .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
             .add_operation(contract.call(
                 "emit_update_event",
@@ -383,7 +381,7 @@ impl StellarClient {
             .ok_or_else(|| StellarError::NotConfigured("Keypair not configured".to_string()))?;
 
         // Get source account from network
-        let source_account = self
+        let mut source_account = self
             .server
             .get_account(&keypair.public_key())
             .await
@@ -466,7 +464,7 @@ impl StellarClient {
         };
 
         // Build transaction
-        let tx = TransactionBuilder::new(Rc::new(RefCell::new(source_account)), network, None)
+        let tx = TransactionBuilder::new(&mut source_account, network, None)
             .fee(1000u32) // Base fee, will be adjusted by prepare_transaction
             .add_operation(contract.call(
                 "mint",
