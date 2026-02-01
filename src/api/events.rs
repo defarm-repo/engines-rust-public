@@ -102,17 +102,8 @@ pub fn event_routes(app_state: Arc<AppState>) -> Router {
 }
 
 fn parse_event_type(event_type_str: &str) -> Result<EventType, String> {
-    match event_type_str.to_lowercase().as_str() {
-        "created" => Ok(EventType::Created),
-        "enriched" => Ok(EventType::Enriched),
-        "merged" => Ok(EventType::Merged),
-        "split" => Ok(EventType::Split),
-        "pushedtocircuit" => Ok(EventType::PushedToCircuit),
-        "pulledfromcircuit" => Ok(EventType::PulledFromCircuit),
-        "updated" => Ok(EventType::Updated),
-        "statuschanged" => Ok(EventType::StatusChanged),
-        _ => Err(format!("Invalid event type: {event_type_str}")),
-    }
+    EventType::from_str(event_type_str)
+        .ok_or_else(|| format!("Invalid event type: {event_type_str}"))
 }
 
 fn parse_event_visibility(visibility_str: &str) -> Result<EventVisibility, String> {
@@ -190,21 +181,24 @@ fn create_item_snapshot_for_event(
     // Determine the snapshot operation based on event type
     let operation = match event.event_type {
         EventType::Created => SnapshotOperation::ItemCreated,
-        EventType::Enriched => SnapshotOperation::ItemEnriched {
+
+        // Domain-specific cattle events
+        EventType::Birth
+        | EventType::EnteredFarm
+        | EventType::WeightMeasurement
+        | EventType::LocationChanged
+        | EventType::BatchAssigned
+        | EventType::CategoryAssigned
+        | EventType::ObservationAdded
+        | EventType::Transfer
+        | EventType::IATF
+        | EventType::Weighing
+        | EventType::Vaccination
+        | EventType::HandlingEvent => SnapshotOperation::ItemEnriched {
             fields: event.metadata.keys().cloned().collect(),
         },
-        EventType::Updated => SnapshotOperation::ItemEnriched {
-            fields: event.metadata.keys().cloned().collect(),
-        },
-        EventType::StatusChanged => SnapshotOperation::ItemEnriched {
-            fields: vec!["status".to_string()],
-        },
-        EventType::Merged => SnapshotOperation::ItemEnriched {
-            fields: vec!["merged".to_string()],
-        },
-        EventType::Split => SnapshotOperation::ItemEnriched {
-            fields: vec!["split".to_string()],
-        },
+
+        // Circuit operations
         EventType::PushedToCircuit => SnapshotOperation::ItemPushedToCircuit {
             circuit_id: event
                 .metadata

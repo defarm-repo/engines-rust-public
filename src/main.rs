@@ -81,14 +81,15 @@ async fn main() {
         .unwrap();
     println!("   Created event: {}", created_event.event_id);
 
-    let enriched_event = events_engine
-        .create_item_enriched_event(
-            demo_dfid.clone(),
-            "enrichment_source".to_string(),
-            vec!["payment_method".to_string(), "amount".to_string()],
-        )
-        .unwrap();
-    println!("   Enriched event: {}", enriched_event.event_id);
+    // DEPRECATED: create_item_enriched_event removed in favor of domain-specific events
+    // let enriched_event = events_engine
+    //     .create_item_enriched_event(
+    //         demo_dfid.clone(),
+    //         "enrichment_source".to_string(),
+    //         vec!["payment_method".to_string(), "amount".to_string()],
+    //     )
+    //     .unwrap();
+    // println!("   Enriched event: {}", enriched_event.event_id);
 
     // Query events for the item
     let item_events = events_engine.get_events_for_item(&demo_dfid).unwrap();

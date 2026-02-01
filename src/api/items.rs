@@ -107,7 +107,17 @@ impl IdentifierRequest {
 pub struct CreateLocalItemRequest {
     #[serde(default)]
     pub identifiers: Vec<IdentifierRequest>,
+
+    // Old format (backward compatible): all data goes into enriched_data
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enriched_data: Option<HashMap<String, serde_json::Value>>,
+
+    // New format: separate static data from events
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub static_data: Option<HashMap<String, serde_json::Value>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events: Option<Vec<crate::types::EventData>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -120,6 +130,8 @@ pub struct CreateLocalItemResponse {
 pub struct LocalItemData {
     pub local_id: String,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events_created: Option<usize>, // Number of events auto-created
 }
 
 #[derive(Debug, Serialize)]
@@ -1508,7 +1520,18 @@ async fn create_local_item(
     let CreateLocalItemRequest {
         identifiers: identifier_requests,
         enriched_data,
+        static_data,
+        events: _events, // TODO: Handle explicit events in future
     } = payload;
+
+    // Determine which data format to use:
+    // - New format: static_data (with optional explicit events)
+    // - Old format: enriched_data (auto-categorization enabled)
+    let data_to_store = if static_data.is_some() {
+        static_data // New format - explicit separation
+    } else {
+        enriched_data // Old format - backward compatible
+    };
 
     // Create item in in-memory storage (must not hold lock across await)
     let item = {
@@ -1525,7 +1548,7 @@ async fn create_local_item(
         let source_entry = Uuid::new_v4();
 
         engine
-            .create_local_item(identifiers, enriched_data.clone(), source_entry)
+            .create_local_item(identifiers, data_to_store, source_entry, _user_id.clone())
             .map_err(|e| {
                 (
                     StatusCode::BAD_REQUEST,
@@ -1533,6 +1556,9 @@ async fn create_local_item(
                 )
             })?
     }; // Lock dropped here
+
+    // Destructure the result (item, events)
+    let (item, events) = item;
 
     // Write-through cache: Also persist to PostgreSQL if available
     let pg_lock = state.postgres_persistence.read().await;
@@ -1589,6 +1615,7 @@ async fn create_local_item(
         data: LocalItemData {
             local_id: local_id.to_string(),
             status: "LocalOnly".to_string(),
+            events_created: Some(events.len()), // Number of events auto-created
         },
     }))
 }

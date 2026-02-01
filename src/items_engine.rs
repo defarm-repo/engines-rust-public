@@ -4,7 +4,7 @@ use crate::events_engine::EventsEngine;
 use crate::logging::{LogEntry, LoggingEngine};
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::{
-    Event, EventType, EventVisibility, Identifier, Item, ItemShare, ItemStatus, MergeStrategy,
+    EventType, EventVisibility, Identifier, Item, ItemShare, ItemStatus, MergeStrategy,
     PendingItem, PendingReason, SharedItemResponse,
 };
 use chrono::Utc;
@@ -239,123 +239,13 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         Ok(item)
     }
 
-    /// Create item and event atomically (Phase 2 - Event Atomicity)
-    /// Ensures both item and event are created together or neither is created
-    /// Implements rollback if event creation fails
-    pub async fn create_item_with_event_atomic(
-        &mut self,
-        identifiers: Vec<Identifier>,
-        source: String,
-        enriched_data: Option<HashMap<String, serde_json::Value>>,
-    ) -> Result<(Item, Event), ItemsError> {
-        // STEP 1: Generate DFID
-        let dfid = self.generate_dfid_internal().await?;
-
-        self.logger
-            .info(
-                "ItemsEngine",
-                "atomic_creation_start",
-                "Starting atomic item+event creation",
-            )
-            .with_context("dfid", dfid.clone())
-            .with_context("source", source.clone());
-
-        // STEP 2: Create item struct (not yet stored)
-        let mut item = Item::new(dfid.clone(), identifiers.clone(), Uuid::new_v4());
-
-        // Add enriched data if provided
-        if let Some(ref data) = enriched_data {
-            item.enrich(data.clone(), Uuid::new_v4());
-        }
-
-        // STEP 3: Create event struct with identifiers in metadata (not yet stored)
-        let mut event_metadata = HashMap::new();
-        event_metadata.insert(
-            "identifiers".to_string(),
-            serde_json::to_value(&identifiers).map_err(|e| {
-                ItemsError::ValidationError(format!("Failed to serialize identifiers: {}", e))
-            })?,
-        );
-
-        // Calculate content hash before creating event
-        let content_hash =
-            Event::calculate_dedup_hash(&dfid, &EventType::Created, &source, &event_metadata);
-
-        let event = Event {
-            event_id: Uuid::new_v4(),
-            dfid: dfid.clone(),
-            event_type: EventType::Created,
-            timestamp: Utc::now(),
-            source: source.clone(),
-            metadata: event_metadata,
-            visibility: EventVisibility::Private,
-            is_encrypted: false,
-            content_hash,
-            is_local: false,
-            local_event_id: None,
-            pushed_to_circuit: None,
-            snapshot_id: None,
-            snapshot_cid: None,
-        };
-
-        // STEP 4: Atomic storage (both or neither)
-        // Store item first
-        if let Err(e) = self.storage.store_item(&item) {
-            self.logger
-                .warn(
-                    "ItemsEngine",
-                    "atomic_creation_failed_item",
-                    "Failed to store item in atomic operation",
-                )
-                .with_context("dfid", dfid.clone())
-                .with_context("error", e.to_string());
-            return Err(ItemsError::StorageError(e));
-        }
-
-        // Store event - if this fails, rollback by deleting the item
-        if let Err(e) = self.storage.store_event(&event) {
-            self.logger
-                .warn(
-                    "ItemsEngine",
-                    "atomic_creation_rollback",
-                    "Event storage failed, rolling back item creation",
-                )
-                .with_context("dfid", dfid.clone())
-                .with_context("error", e.to_string());
-
-            // Rollback: Delete the item we just created
-            if let Err(delete_err) = self.storage.delete_item(&dfid) {
-                self.logger
-                    .error(
-                        "ItemsEngine",
-                        "atomic_rollback_failed",
-                        "CRITICAL: Failed to rollback item after event creation failure",
-                    )
-                    .with_context("dfid", dfid.clone())
-                    .with_context("delete_error", delete_err.to_string());
-            }
-
-            return Err(ItemsError::StorageError(e));
-        }
-
-        self.logger
-            .info(
-                "ItemsEngine",
-                "atomic_creation_success",
-                "Item and event created atomically",
-            )
-            .with_context("dfid", dfid.clone())
-            .with_context("event_id", event.event_id.to_string());
-
-        Ok((item, event))
-    }
-
     pub fn create_local_item(
         &mut self,
         identifiers: Vec<Identifier>,
         enriched_data: Option<HashMap<String, serde_json::Value>>,
         source_entry: Uuid,
-    ) -> Result<Item, ItemsError> {
+        source: String, // For event attribution
+    ) -> Result<(Item, Vec<crate::types::Event>), ItemsError> {
         // Generate a UUID for the local ID
         let local_id = Uuid::new_v4();
 
@@ -363,39 +253,89 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             .info(
                 "ItemsEngine",
                 "local_item_creation",
-                "Creating local item without DFID",
+                "Creating local item with automatic event decomposition",
             )
             .with_context("local_id", local_id.to_string())
             .with_context("identifiers_count", identifiers.len().to_string())
             .with_context("source_entry", source_entry.to_string());
+
+        // Get enriched_data or use empty map
+        let data = enriched_data.unwrap_or_default();
 
         // Create item with local_id and temporary DFID format
         let item = Item {
             dfid: format!("LID-{local_id}"), // Temporary DFID format
             local_id: Some(local_id),
             legacy_mode: false,
-            identifiers,
+            identifiers: identifiers.clone(),
             aliases: vec![],
             fingerprint: None,
-            enriched_data: enriched_data.unwrap_or_default(),
+            enriched_data: data.clone(), // Store ALL data
             creation_timestamp: Utc::now(),
             last_modified: Utc::now(),
             source_entries: vec![source_entry],
             confidence_score: 1.0,
-            status: ItemStatus::Active, // Status will indicate "LocalOnly" through dfid format
+            status: ItemStatus::Active,
         };
 
+        // Store item first
         self.storage.store_item(&item)?;
+
+        // Auto-categorize enriched_data into events
+        let mut created_events = Vec::new();
+
+        // Always create ItemCreated event
+        let mut created_metadata = HashMap::new();
+        created_metadata.insert(
+            "identifiers".to_string(),
+            serde_json::to_value(&identifiers).unwrap_or(serde_json::Value::Null),
+        );
+
+        let created_result = self
+            .events_engine
+            .create_event_with_metadata(
+                item.dfid.clone(),
+                EventType::Created,
+                source.clone(),
+                EventVisibility::Private,
+                created_metadata,
+            )
+            .map_err(|e| ItemsError::ValidationError(e.to_string()))?;
+
+        created_events.push(created_result.event);
+
+        // Auto-categorize each field in enriched_data
+        for (field_name, field_value) in &data {
+            let detected_events = categorize_field(field_name, field_value, &data);
+
+            for (event_type, _timestamp, metadata) in detected_events {
+                // Create event with detected type
+                // Note: timestamp is stored in metadata, event uses current time
+                let event_result = self
+                    .events_engine
+                    .create_event_with_metadata(
+                        item.dfid.clone(),
+                        event_type,
+                        source.clone(),
+                        EventVisibility::Private,
+                        metadata,
+                    )
+                    .map_err(|e| ItemsError::ValidationError(e.to_string()))?;
+
+                created_events.push(event_result.event);
+            }
+        }
 
         self.logger
             .info(
                 "ItemsEngine",
                 "local_item_created",
-                "Local item created successfully",
+                "Local item created with events",
             )
-            .with_context("local_id", local_id.to_string());
+            .with_context("local_id", local_id.to_string())
+            .with_context("events_created", created_events.len().to_string());
 
-        Ok(item)
+        Ok((item, created_events))
     }
 
     pub fn get_item_by_lid(&self, local_id: &Uuid) -> Result<Option<Item>, ItemsError> {
@@ -1208,4 +1148,185 @@ pub struct ItemStatistics {
     pub split_items: usize,
     pub total_identifiers: usize,
     pub average_confidence: f64,
+}
+
+// ============================================================================
+// Auto-Categorization Engine - Portuguese Field Pattern Detection
+// ============================================================================
+
+use chrono::{DateTime, NaiveDate};
+
+/// Parse Brazilian date format (DD/MM/YYYY or DD-MM-YYYY)
+fn parse_brazilian_date(date_str: &str) -> Option<DateTime<Utc>> {
+    // Try DD/MM/YYYY format
+    if let Ok(naive_date) = NaiveDate::parse_from_str(date_str, "%d/%m/%Y") {
+        return Some(naive_date.and_hms_opt(0, 0, 0)?.and_utc());
+    }
+
+    // Try DD-MM-YYYY format
+    if let Ok(naive_date) = NaiveDate::parse_from_str(date_str, "%d-%m-%Y") {
+        return Some(naive_date.and_hms_opt(0, 0, 0)?.and_utc());
+    }
+
+    None
+}
+
+/// Extract timestamp from value (string or existing DateTime)
+fn extract_timestamp(value: &serde_json::Value) -> Option<DateTime<Utc>> {
+    if let Some(date_str) = value.as_str() {
+        parse_brazilian_date(date_str)
+    } else {
+        // Already a timestamp
+        None
+    }
+}
+
+/// Infer event type from Portuguese handling/management field value
+fn infer_handling_type(value: &serde_json::Value) -> EventType {
+    if let Some(text) = value.as_str() {
+        let text_lower = text.to_lowercase();
+        if text_lower.contains("transferência") || text_lower.contains("transfer") {
+            return EventType::Transfer;
+        } else if text_lower.contains("iatf") {
+            return EventType::IATF;
+        } else if text_lower.contains("pesagem") {
+            return EventType::Weighing;
+        } else if text_lower.contains("vacina") {
+            return EventType::Vaccination;
+        }
+    }
+    EventType::HandlingEvent
+}
+
+/// Categorize a field from enriched_data into temporal events
+/// Returns Vec of (EventType, timestamp, metadata) for detected events
+fn categorize_field(
+    field_name: &str,
+    field_value: &serde_json::Value,
+    all_data: &HashMap<String, serde_json::Value>,
+) -> Vec<(EventType, DateTime<Utc>, HashMap<String, serde_json::Value>)> {
+    let mut events = Vec::new();
+    let field_lower = field_name.to_lowercase();
+
+    // Rule 1: Birth date (data_nasc, data_nascimento)
+    if (field_lower.contains("data") && field_lower.contains("nasc")) || field_lower == "birth_date"
+    {
+        if let Some(timestamp) = extract_timestamp(field_value) {
+            let mut metadata = HashMap::new();
+            metadata.insert("birth_date".to_string(), field_value.clone());
+            events.push((EventType::Birth, timestamp, metadata));
+        }
+        return events;
+    }
+
+    // Rule 2: Entry/Arrival date (data_entrada)
+    if (field_lower.contains("data") && field_lower.contains("entrada"))
+        || field_lower == "entry_date"
+    {
+        if let Some(timestamp) = extract_timestamp(field_value) {
+            let mut metadata = HashMap::new();
+            metadata.insert("entry_date".to_string(), field_value.clone());
+            events.push((EventType::EnteredFarm, timestamp, metadata));
+        }
+        return events;
+    }
+
+    // Rule 3: Weight measurement (ultimo_peso + data_ultima_pesagem)
+    if (field_lower.contains("peso") || field_lower.contains("weight"))
+        && !field_lower.contains("data")
+    {
+        // Look for corresponding date field
+        let date_field_candidates = vec![
+            "data_ultima_pesagem",
+            "data_pesagem",
+            "weighing_date",
+            "weight_date",
+        ];
+
+        for date_field in date_field_candidates {
+            if let Some(date_value) = all_data.get(date_field) {
+                if let Some(timestamp) = extract_timestamp(date_value) {
+                    let mut metadata = HashMap::new();
+                    metadata.insert("weight_kg".to_string(), field_value.clone());
+                    metadata.insert("measured_at".to_string(), date_value.clone());
+                    events.push((EventType::WeightMeasurement, timestamp, metadata));
+                    return events;
+                }
+            }
+        }
+
+        // No date found, use current time
+        let mut metadata = HashMap::new();
+        metadata.insert("weight_kg".to_string(), field_value.clone());
+        events.push((EventType::WeightMeasurement, Utc::now(), metadata));
+        return events;
+    }
+
+    // Rule 4: Location (local)
+    if field_lower == "local" || field_lower == "location" {
+        let mut metadata = HashMap::new();
+        metadata.insert("location".to_string(), field_value.clone());
+        events.push((EventType::LocationChanged, Utc::now(), metadata));
+        return events;
+    }
+
+    // Rule 5: Batch assignment (lote)
+    if field_lower == "lote" || field_lower == "batch" {
+        let mut metadata = HashMap::new();
+        metadata.insert("batch".to_string(), field_value.clone());
+        events.push((EventType::BatchAssigned, Utc::now(), metadata));
+        return events;
+    }
+
+    // Rule 6: Category assignment (categoria)
+    if field_lower == "categoria" || field_lower == "category" {
+        let mut metadata = HashMap::new();
+        metadata.insert("category".to_string(), field_value.clone());
+        events.push((EventType::CategoryAssigned, Utc::now(), metadata));
+        return events;
+    }
+
+    // Rule 7: Handling/Management events (ultimo_manejo + data_ultimo_manejo)
+    if (field_lower.contains("manejo") || field_lower.contains("handling"))
+        && !field_lower.contains("data")
+    {
+        // Look for corresponding date field
+        let date_field_candidates = vec![
+            "data_ultimo_manejo",
+            "data_manejo",
+            "handling_date",
+            "management_date",
+        ];
+
+        let mut timestamp = Utc::now();
+        for date_field in date_field_candidates {
+            if let Some(date_value) = all_data.get(date_field) {
+                if let Some(ts) = extract_timestamp(date_value) {
+                    timestamp = ts;
+                    break;
+                }
+            }
+        }
+
+        let event_type = infer_handling_type(field_value);
+        let mut metadata = HashMap::new();
+        metadata.insert("handling_type".to_string(), field_value.clone());
+        events.push((event_type, timestamp, metadata));
+        return events;
+    }
+
+    // Rule 8: Observation (observação)
+    if field_lower.contains("observ") || field_lower == "notes" {
+        if let Some(text) = field_value.as_str() {
+            if !text.is_empty() {
+                let mut metadata = HashMap::new();
+                metadata.insert("observation".to_string(), field_value.clone());
+                events.push((EventType::ObservationAdded, Utc::now(), metadata));
+                return events;
+            }
+        }
+    }
+
+    // No temporal pattern detected - field is static data
+    events
 }

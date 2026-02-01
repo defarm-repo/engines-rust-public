@@ -146,8 +146,9 @@ async fn test_concurrent_item_creation() {
             let mut items = ItemsEngine::new(storage);
             let identifiers = vec![Identifier::contextual("test", "id", format!("item{id}"))];
             items
-                .create_local_item(identifiers, None, Uuid::new_v4())
+                .create_local_item(identifiers, None, Uuid::new_v4(), "test_user".to_string())
                 .expect("Should create item")
+                .0 // Get just the item from tuple
         }
     };
 
@@ -220,7 +221,7 @@ async fn test_no_deadlock_on_timeout() {
     // Create item with timeout
     let item_result = timeout(Duration::from_secs(2), async {
         let identifiers = vec![Identifier::contextual("test", "id", "timeout_test")];
-        items.create_local_item(identifiers, None, Uuid::new_v4())
+        items.create_local_item(identifiers, None, Uuid::new_v4(), "test_user".to_string())
     })
     .await;
 
@@ -268,7 +269,12 @@ async fn test_high_concurrency_stress() {
             tokio::spawn(async move {
                 let mut items = ItemsEngine::new(storage);
                 let identifiers = vec![Identifier::contextual("stress", "id", format!("item{i}"))];
-                let _ = items.create_local_item(identifiers, None, Uuid::new_v4());
+                let _ = items.create_local_item(
+                    identifiers,
+                    None,
+                    Uuid::new_v4(),
+                    "test_user".to_string(),
+                );
             })
         })
         .collect();

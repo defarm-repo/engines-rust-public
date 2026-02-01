@@ -31,8 +31,13 @@ async fn circuits_items_and_events_smoke() {
         .expect("circuit should be created");
 
     let identifiers = vec![Identifier::contextual("generic", "secondary_id", "123")];
-    let item = items_engine
-        .create_local_item(identifiers.clone(), None, Uuid::new_v4())
+    let (item, _events) = items_engine
+        .create_local_item(
+            identifiers.clone(),
+            None,
+            Uuid::new_v4(),
+            "test_user".to_string(),
+        )
         .expect("local item should be created");
     assert!(item.dfid.starts_with("LID-"));
 

@@ -136,8 +136,8 @@ async fn test_create_local_item_workflow() {
     let source_entry = Uuid::new_v4();
 
     // Create local item (no DFID yet)
-    let item = items
-        .create_local_item(identifiers, None, source_entry)
+    let (item, _events) = items
+        .create_local_item(identifiers, None, source_entry, "test_user".to_string())
         .expect("Should create local item");
 
     assert!(item.local_id.is_some(), "Local item should have LID");
@@ -176,8 +176,13 @@ async fn test_full_circuit_push_workflow() {
 
     let identifiers = vec![Identifier::contextual("test", "id", "e2e_001")];
     let source_entry = Uuid::new_v4();
-    let item = items
-        .create_local_item(identifiers.clone(), None, source_entry)
+    let (item, _events) = items
+        .create_local_item(
+            identifiers.clone(),
+            None,
+            source_entry,
+            "test_user".to_string(),
+        )
         .unwrap();
     let local_id = item.local_id.unwrap();
 

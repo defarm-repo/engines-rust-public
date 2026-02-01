@@ -190,36 +190,6 @@ impl Item {
         self.last_modified = Utc::now();
     }
 
-    /// Enrich item with changelog tracking (Phase 2)
-    /// Returns a Vec<ChangelogEntry> with old→new value changes for audit trail
-    pub fn enrich_with_changelog(
-        &mut self,
-        data: HashMap<String, serde_json::Value>,
-        source_entry: Uuid,
-    ) -> Vec<ChangelogEntry> {
-        let mut changes = Vec::new();
-
-        for (key, new_value) in data {
-            let old_value = self.enriched_data.get(&key).cloned();
-
-            // Only record as change if the value actually changed
-            if old_value.as_ref() != Some(&new_value) {
-                changes.push(ChangelogEntry {
-                    field: key.clone(),
-                    old_value,
-                    new_value: new_value.clone(),
-                });
-            }
-
-            self.enriched_data.insert(key, new_value);
-        }
-
-        self.source_entries.push(source_entry);
-        self.last_modified = Utc::now();
-
-        changes
-    }
-
     pub fn add_identifiers(&mut self, identifiers: Vec<Identifier>) {
         for identifier in identifiers {
             if !self.identifiers.contains(&identifier) {
@@ -300,17 +270,72 @@ pub struct Event {
     pub snapshot_cid: Option<String>,
 }
 
+/// EventData - Structured event creation for new format
+/// Allows partners to explicitly provide event information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventData {
+    pub event_type: String, // "vaccination", "weight_measurement", "ownership_transfer"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<DateTime<Utc>>, // Defaults to now if not provided
+    pub data: HashMap<String, serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<EventVisibility>, // Defaults to Private if not provided
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EventType {
+    // Creation and lifecycle events
     Created,
-    Enriched,
-    Merged,
-    Split,
+
+    // Cattle domain events (auto-detected from Portuguese field patterns)
+    Birth,             // From data_nasc
+    EnteredFarm,       // From data_entrada
+    WeightMeasurement, // From ultimo_peso + data_ultima_pesagem
+    LocationChanged,   // From local field
+    BatchAssigned,     // From lote field
+    CategoryAssigned,  // From categoria field
+    ObservationAdded,  // From observação field
+
+    // Handling events (auto-detected from ultimo_manejo)
+    Transfer,      // Transferência
+    IATF,          // IATF (artificial insemination)
+    Weighing,      // Pesagem
+    Vaccination,   // Vacina
+    HandlingEvent, // Generic handling (fallback)
+
+    // Circuit operations (keep existing)
     PushedToCircuit,
     PulledFromCircuit,
     RemovedFromCircuit,
-    Updated,
-    StatusChanged,
+}
+
+impl EventType {
+    /// Parse event type from string (for API requests)
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "created" => Some(EventType::Created),
+            "birth" => Some(EventType::Birth),
+            "entered_farm" | "enteredfarm" => Some(EventType::EnteredFarm),
+            "weight_measurement" | "weightmeasurement" | "peso" => {
+                Some(EventType::WeightMeasurement)
+            }
+            "location_changed" | "locationchanged" | "local" => Some(EventType::LocationChanged),
+            "batch_assigned" | "batchassigned" | "lote" => Some(EventType::BatchAssigned),
+            "category_assigned" | "categoryassigned" | "categoria" => {
+                Some(EventType::CategoryAssigned)
+            }
+            "observation_added" | "observationadded" => Some(EventType::ObservationAdded),
+            "transfer" | "transferência" | "transferencia" => Some(EventType::Transfer),
+            "iatf" => Some(EventType::IATF),
+            "weighing" | "pesagem" => Some(EventType::Weighing),
+            "vaccination" | "vacina" => Some(EventType::Vaccination),
+            "handling_event" | "handlingevent" | "manejo" => Some(EventType::HandlingEvent),
+            "pushed_to_circuit" | "pushedtocircuit" => Some(EventType::PushedToCircuit),
+            "pulled_from_circuit" | "pulledfromcircuit" => Some(EventType::PulledFromCircuit),
+            "removed_from_circuit" | "removedfromcircuit" => Some(EventType::RemovedFromCircuit),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -846,93 +871,6 @@ pub struct EventCreationResult {
     pub merged_keys: Vec<String>,
 }
 
-/// Changelog entry for tracking state transitions (Phase 2)
-/// Records old→new value changes for audit trail
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChangelogEntry {
-    pub field: String,
-    pub old_value: Option<serde_json::Value>,
-    pub new_value: serde_json::Value,
-}
-
-/// Event Schema Registry - Validates metadata structure per event type (Phase 2)
-pub struct EventSchemaRegistry;
-
-impl EventSchemaRegistry {
-    /// Validate that event metadata conforms to required schema for the event type
-    /// Returns Ok(()) if valid, Err with description if invalid
-    pub fn validate_metadata(
-        event_type: &EventType,
-        metadata: &HashMap<String, serde_json::Value>,
-    ) -> Result<(), String> {
-        match event_type {
-            EventType::Created => {
-                // Required: identifiers array
-                if !metadata.contains_key("identifiers") {
-                    return Err("Created event requires 'identifiers' in metadata".to_string());
-                }
-                if !metadata["identifiers"].is_array() {
-                    return Err("'identifiers' must be an array".to_string());
-                }
-                Ok(())
-            }
-            EventType::Enriched => {
-                // Required: enriched_keys array
-                if !metadata.contains_key("enriched_keys") {
-                    return Err("Enriched event requires 'enriched_keys' in metadata".to_string());
-                }
-                if !metadata["enriched_keys"].is_array() {
-                    return Err("'enriched_keys' must be an array".to_string());
-                }
-                Ok(())
-            }
-            EventType::PushedToCircuit
-            | EventType::PulledFromCircuit
-            | EventType::RemovedFromCircuit => {
-                // Required: circuit_id, requester_id, operation
-                let required = ["circuit_id", "requester_id", "operation"];
-                for key in required {
-                    if !metadata.contains_key(key) {
-                        return Err(format!("Circuit event requires '{}' in metadata", key));
-                    }
-                }
-                Ok(())
-            }
-            EventType::Merged => {
-                // Required: merged_from
-                if !metadata.contains_key("merged_from") {
-                    return Err("Merged event requires 'merged_from' in metadata".to_string());
-                }
-                Ok(())
-            }
-            EventType::Split => {
-                // Required: split_into array
-                if !metadata.contains_key("split_into") {
-                    return Err("Split event requires 'split_into' in metadata".to_string());
-                }
-                if !metadata["split_into"].is_array() {
-                    return Err("'split_into' must be an array".to_string());
-                }
-                Ok(())
-            }
-            EventType::StatusChanged => {
-                // Required: old_status, new_status
-                if !metadata.contains_key("old_status") || !metadata.contains_key("new_status") {
-                    return Err(
-                        "StatusChanged event requires 'old_status' and 'new_status' in metadata"
-                            .to_string(),
-                    );
-                }
-                Ok(())
-            }
-            EventType::Updated => {
-                // Flexible - no strict requirements (any metadata allowed)
-                Ok(())
-            }
-        }
-    }
-}
-
 impl Event {
     pub fn new(
         dfid: String,
@@ -1046,34 +984,6 @@ impl Event {
             );
         }
         merged_keys
-    }
-
-    /// Add changelog to event metadata for tracking state transitions (Phase 2)
-    /// Changelog records old→new value changes for complete audit trail
-    pub fn add_changelog(&mut self, changes: Vec<ChangelogEntry>) {
-        if changes.is_empty() {
-            return;
-        }
-
-        let changelog_json: Vec<serde_json::Value> = changes
-            .into_iter()
-            .map(|entry| {
-                serde_json::json!({
-                    "field": entry.field,
-                    "old": entry.old_value,
-                    "new": entry.new_value,
-                })
-            })
-            .collect();
-
-        self.metadata.insert(
-            "changelog".to_string(),
-            serde_json::Value::Array(changelog_json),
-        );
-
-        // Recalculate dedup hash after adding changelog
-        self.content_hash =
-            Self::calculate_dedup_hash(&self.dfid, &self.event_type, &self.source, &self.metadata);
     }
 
     pub fn encrypt(&mut self) {

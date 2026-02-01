@@ -37,7 +37,7 @@ async fn lifecycle_smoke_test() {
         .await
         .expect("create circuit");
 
-    let local_item = items
+    let (local_item, _events) = items
         .create_local_item(
             vec![
                 Identifier::canonical("generic", "tag", "LC-SMOKE-001"),
@@ -45,6 +45,7 @@ async fn lifecycle_smoke_test() {
             ],
             None,
             Uuid::new_v4(),
+            "test_user".to_string(),
         )
         .expect("create local item");
     let local_id = local_item.local_id.expect("lid exists");
@@ -88,11 +89,12 @@ async fn timeline_entries_can_be_added() {
         .await
         .expect("create circuit");
 
-    let item = items
+    let (item, _events) = items
         .create_local_item(
             vec![Identifier::canonical("generic", "tag", "TL-001")],
             None,
             Uuid::new_v4(),
+            "test_user".to_string(),
         )
         .expect("create local item");
     let lid = item.local_id.expect("lid");

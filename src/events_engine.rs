@@ -75,24 +75,6 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
         visibility: EventVisibility,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<EventCreationResult, EventsError> {
-        // Phase 2: Validate metadata schema before creating event
-        use crate::types::EventSchemaRegistry;
-        if let Err(validation_error) =
-            EventSchemaRegistry::validate_metadata(&event_type, &metadata)
-        {
-            self.logger
-                .lock()
-                .unwrap()
-                .warn(
-                    "events_engine",
-                    "event_validation_failed",
-                    format!("Event metadata validation failed: {}", validation_error),
-                )
-                .with_context("dfid", dfid.clone())
-                .with_context("event_type", format!("{event_type:?}"));
-            return Err(EventsError::ValidationError(validation_error));
-        }
-
         // Calculate dedup hash BEFORE creating the event
         let dedup_hash = Event::calculate_dedup_hash(&dfid, &event_type, &source, &metadata);
 
@@ -512,60 +494,62 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
         )
     }
 
-    pub fn create_item_enriched_event(
-        &mut self,
-        dfid: String,
-        source: String,
-        data_keys: Vec<String>,
-    ) -> Result<Event, EventsError> {
-        let event = self.create_event(
-            dfid.clone(),
-            EventType::Enriched,
-            source,
-            EventVisibility::Public,
-        )?;
+    // DEPRECATED: Use domain-specific event types instead
+    // pub fn create_item_enriched_event(
+    //     &mut self,
+    //     dfid: String,
+    //     source: String,
+    //     data_keys: Vec<String>,
+    // ) -> Result<Event, EventsError> {
+    //     let event = self.create_event(
+    //         dfid.clone(),
+    //         EventType::Created,  // Changed from Enriched
+    //         source,
+    //         EventVisibility::Public,
+    //     )?;
+    //
+    //     let keys_json: Vec<serde_json::Value> = data_keys
+    //         .into_iter()
+    //         .map(serde_json::Value::String)
+    //         .collect();
+    //
+    //     self.add_event_metadata(
+    //         &event.event_id,
+    //         [(
+    //             "enriched_keys".to_string(),
+    //             serde_json::Value::Array(keys_json),
+    //         )]
+    //         .iter()
+    //         .cloned()
+    //         .collect(),
+    //     )
+    // }
 
-        let keys_json: Vec<serde_json::Value> = data_keys
-            .into_iter()
-            .map(serde_json::Value::String)
-            .collect();
-
-        self.add_event_metadata(
-            &event.event_id,
-            [(
-                "enriched_keys".to_string(),
-                serde_json::Value::Array(keys_json),
-            )]
-            .iter()
-            .cloned()
-            .collect(),
-        )
-    }
-
-    pub fn create_item_merged_event(
-        &mut self,
-        primary_dfid: String,
-        secondary_dfid: String,
-        source: String,
-    ) -> Result<Event, EventsError> {
-        let event = self.create_event(
-            primary_dfid.clone(),
-            EventType::Merged,
-            source,
-            EventVisibility::Public,
-        )?;
-
-        self.add_event_metadata(
-            &event.event_id,
-            [(
-                "merged_from".to_string(),
-                serde_json::Value::String(secondary_dfid),
-            )]
-            .iter()
-            .cloned()
-            .collect(),
-        )
-    }
+    // DEPRECATED: Merged events replaced by domain-specific events
+    // pub fn create_item_merged_event(
+    //     &mut self,
+    //     primary_dfid: String,
+    //     secondary_dfid: String,
+    //     source: String,
+    // ) -> Result<Event, EventsError> {
+    //     let event = self.create_event(
+    //         primary_dfid.clone(),
+    //         EventType::Created,  // Changed from Merged
+    //         source,
+    //         EventVisibility::Public,
+    //     )?;
+    //
+    //     self.add_event_metadata(
+    //         &event.event_id,
+    //         [(
+    //             "merged_from".to_string(),
+    //             serde_json::Value::String(secondary_dfid),
+    //         )]
+    //         .iter()
+    //         .cloned()
+    //         .collect(),
+    //     )
+    // }
 
     pub fn create_circuit_operation_event(
         &mut self,
@@ -641,7 +625,7 @@ mod tests {
         // Use Updated event type (flexible schema) for testing
         let result = events_engine.create_event(
             "DFID-123".to_string(),
-            EventType::Updated,
+            EventType::HandlingEvent,
             "test_source".to_string(),
             EventVisibility::Public,
         );
@@ -661,7 +645,7 @@ mod tests {
         // Use Updated event type (flexible schema) for testing
         let result = events_engine.create_event(
             "DFID-123".to_string(),
-            EventType::Updated,
+            EventType::HandlingEvent,
             "test_source".to_string(),
             EventVisibility::Private,
         );
@@ -681,7 +665,7 @@ mod tests {
         let event = events_engine
             .create_event(
                 "DFID-123".to_string(),
-                EventType::Updated,
+                EventType::HandlingEvent,
                 "test_source".to_string(),
                 EventVisibility::Public,
             )
@@ -714,7 +698,7 @@ mod tests {
         events_engine
             .create_event(
                 "DFID-123".to_string(),
-                EventType::Updated,
+                EventType::HandlingEvent,
                 "source1".to_string(),
                 EventVisibility::Public,
             )
@@ -723,7 +707,7 @@ mod tests {
         events_engine
             .create_event(
                 "DFID-123".to_string(),
-                EventType::Updated,
+                EventType::HandlingEvent,
                 "source2".to_string(),
                 EventVisibility::Public,
             )

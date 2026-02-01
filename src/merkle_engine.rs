@@ -426,7 +426,7 @@ mod tests {
             let event1 = create_test_event("DFID-TEST-001", EventType::Created);
             s.store_event(&event1).unwrap();
 
-            let event2 = create_test_event("DFID-TEST-001", EventType::Enriched);
+            let event2 = create_test_event("DFID-TEST-001", EventType::Birth);
             s.store_event(&event2).unwrap();
         }
 

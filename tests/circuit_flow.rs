@@ -35,7 +35,7 @@ async fn circuit_push_creates_mapping_and_dfid() {
         .await
         .expect("create circuit");
 
-    let local_item = items
+    let (local_item, _events) = items
         .create_local_item(
             vec![
                 Identifier::canonical("bovino", "sisbov", "BR123456789012"),
@@ -43,6 +43,7 @@ async fn circuit_push_creates_mapping_and_dfid() {
             ],
             None,
             Uuid::new_v4(),
+            "test_user".to_string(),
         )
         .expect("create local item");
 
@@ -93,7 +94,7 @@ async fn canonical_deduplication_returns_same_dfid() {
 
     let canonical = "BR987654321098";
 
-    let first_item = items
+    let (first_item, _first_events) = items
         .create_local_item(
             vec![
                 Identifier::canonical("bovino", "sisbov", canonical),
@@ -101,6 +102,7 @@ async fn canonical_deduplication_returns_same_dfid() {
             ],
             None,
             Uuid::new_v4(),
+            "test_user".to_string(),
         )
         .expect("create first item");
     let lid_one = first_item.local_id.expect("lid");
@@ -116,7 +118,7 @@ async fn canonical_deduplication_returns_same_dfid() {
         .await
         .expect("push first item");
 
-    let second_item = items
+    let (second_item, _second_events) = items
         .create_local_item(
             vec![
                 Identifier::canonical("bovino", "sisbov", canonical), // same canonical ID
@@ -124,6 +126,7 @@ async fn canonical_deduplication_returns_same_dfid() {
             ],
             None,
             Uuid::new_v4(),
+            "test_user".to_string(),
         )
         .expect("create second item");
     let lid_two = second_item.local_id.expect("lid");
