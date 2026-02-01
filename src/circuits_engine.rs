@@ -1169,6 +1169,75 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
         })
     }
 
+    /// Batch push multiple items to circuit efficiently
+    pub async fn push_batch_items_to_circuit(
+        &mut self,
+        items: Vec<(Uuid, Vec<EnhancedIdentifier>, Option<HashMap<String, serde_json::Value>>)>,
+        circuit_id: &Uuid,
+        requester_id: &str,
+    ) -> Result<Vec<Result<PushResult, CircuitsError>>, CircuitsError> {
+        // Validate circuit once for all items
+        let circuit = self
+            .storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        if !circuit.has_permission(requester_id, &Permission::Push) {
+            return Err(CircuitsError::PermissionDenied(
+                "User does not have permission to push to this circuit".to_string(),
+            ));
+        }
+
+        let mut results = Vec::new();
+        let total_items = items.len();
+
+        tracing::info!(
+            "🚀 Starting batch push of {} items to circuit {}",
+            total_items,
+            circuit_id
+        );
+
+        for (idx, (local_id, identifiers, enriched_data)) in items.into_iter().enumerate() {
+            tracing::debug!(
+                "📦 Processing item {}/{}: {}",
+                idx + 1,
+                total_items,
+                local_id
+            );
+
+            let result = self
+                .push_local_item_to_circuit(
+                    &local_id,
+                    identifiers,
+                    enriched_data,
+                    circuit_id,
+                    requester_id,
+                )
+                .await;
+
+            results.push(result);
+        }
+
+        let success_count = results.iter().filter(|r| r.is_ok()).count();
+        let failure_count = total_items - success_count;
+
+        tracing::info!(
+            "✅ Batch push complete: {}/{} succeeded, {} failed",
+            success_count,
+            total_items,
+            failure_count
+        );
+
+        // Increment batch metrics
+        crate::metrics::CIRCUIT_PUSHES_TOTAL.inc_by(success_count as f64);
+        if failure_count > 0 {
+            crate::metrics::CIRCUIT_PUSHES_FAILED.inc_by(failure_count as f64);
+        }
+
+        Ok(results)
+    }
+
     fn validate_circuit_requirements(
         &self,
         circuit: &Circuit,

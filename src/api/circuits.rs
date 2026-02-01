@@ -353,6 +353,38 @@ pub struct PushLocalItemRequest {
     // No need to include it in the request body anymore
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BatchPushLocalItemRequest {
+    pub items: Vec<BatchLocalPushItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BatchLocalPushItem {
+    pub local_id: String,
+    pub identifiers: Option<Vec<IdentifierRequest>>,
+    pub enriched_data: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchPushLocalItemResponse {
+    pub results: Vec<BatchLocalPushResult>,
+    pub total: usize,
+    pub succeeded: usize,
+    pub failed: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchLocalPushResult {
+    pub local_id: String,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dfid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct PushLocalItemResponse {
     pub success: bool,
@@ -507,6 +539,7 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/members", post(add_member))
         .route("/:id/push/:dfid", post(push_item))
         .route("/:id/push-local", post(push_local_item))
+        .route("/:id/batch-push-local", post(batch_push_local_items))
         .route("/:id/push-events", post(push_events_to_circuit))
         .route("/:id/pull/:dfid", post(pull_item))
         .route("/:id/operations", get(get_circuit_operations))
@@ -1585,6 +1618,102 @@ async fn push_local_item(
             operation_id: result.operation_id.to_string(),
             local_id: result.local_id.to_string(),
         },
+    }))
+}
+
+/// Batch push multiple local items to a circuit
+async fn batch_push_local_items(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
+    Json(payload): Json<BatchPushLocalItemRequest>,
+) -> Result<Json<BatchPushLocalItemResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
+
+    // Parse and prepare all items
+    let mut items_to_push = Vec::new();
+    for item in payload.items {
+        let local_id = Uuid::parse_str(&item.local_id).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid local_id format: {}", item.local_id)})),
+            )
+        })?;
+
+        let identifiers = build_identifiers(item.identifiers.unwrap_or_default()).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid identifier payload: {}", e)})),
+            )
+        })?;
+
+        items_to_push.push((local_id, identifiers, item.enriched_data));
+    }
+
+    let total = items_to_push.len();
+
+    // Call batch push method
+    let results = {
+        let mut engine = lock_circuits_engine(&state).await?;
+
+        engine
+            .push_batch_items_to_circuit(items_to_push, &circuit_id, &requester_id)
+            .await
+            .map_err(|e| {
+                let status_code = match e {
+                    crate::circuits_engine::CircuitsError::PermissionDenied(_) => {
+                        StatusCode::FORBIDDEN
+                    }
+                    crate::circuits_engine::CircuitsError::ValidationError(_) => {
+                        StatusCode::BAD_REQUEST
+                    }
+                    crate::circuits_engine::CircuitsError::CircuitNotFound => StatusCode::NOT_FOUND,
+                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                (status_code, Json(json!({"error": format!("{}", e)})))
+            })?
+    };
+
+    // Convert results to response format
+    let mut batch_results = Vec::new();
+    let mut succeeded = 0;
+    let mut failed = 0;
+
+    for result in results {
+        match result {
+            Ok(push_result) => {
+                succeeded += 1;
+                batch_results.push(BatchLocalPushResult {
+                    local_id: push_result.local_id.to_string(),
+                    success: true,
+                    dfid: Some(push_result.dfid),
+                    status: Some(format!("{:?}", push_result.status)),
+                    error: None,
+                });
+            }
+            Err(e) => {
+                failed += 1;
+                batch_results.push(BatchLocalPushResult {
+                    local_id: "unknown".to_string(),
+                    success: false,
+                    dfid: None,
+                    status: None,
+                    error: Some(format!("{}", e)),
+                });
+            }
+        }
+    }
+
+    Ok(Json(BatchPushLocalItemResponse {
+        results: batch_results,
+        total,
+        succeeded,
+        failed,
     }))
 }
 
