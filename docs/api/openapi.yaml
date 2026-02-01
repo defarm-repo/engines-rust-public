@@ -2272,6 +2272,127 @@ paths:
         '404':
           description: Circuit or local event not found
 
+  /circuits/{circuit_id}/items/{dfid}:
+    delete:
+      tags:
+        - Circuits
+      summary: Remove item from circuit
+      description: |
+        Remove a specific item from a circuit. Requires ManageMembers permission (Owner or Admin).
+        Circuit must be Active. Creates a RemovedFromCircuit event for audit trail.
+        Does not delete the item itself, only removes it from the circuit.
+      operationId: removeItemFromCircuit
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID of the circuit
+        - name: dfid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: DFID of the item to remove
+          example: "DFID-20251201-000001-XXXX"
+      responses:
+        '200':
+          description: Item removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dfid:
+                    type: string
+                    description: DFID of the removed item
+                    example: "DFID-20251201-000001-XXXX"
+                  circuit_id:
+                    type: string
+                    format: uuid
+                    description: UUID of the circuit
+                  removed_by:
+                    type: string
+                    description: User ID who removed the item
+                  removed_at:
+                    type: string
+                    format: date-time
+                    description: Timestamp when item was removed
+        '400':
+          description: Invalid circuit or item ID
+        '403':
+          description: Permission denied (requires ManageMembers permission) or circuit is not Active
+        '404':
+          description: Circuit or item not found
+
+  /circuits/{circuit_id}/transfer:
+    post:
+      tags:
+        - Circuits
+      summary: Transfer circuit ownership
+      description: |
+        Transfer ownership of a circuit to another member. Only the current owner can transfer ownership.
+        The new owner must already be a member of the circuit. Upon transfer, the new owner's role
+        is automatically updated to Owner. The operation is persisted to PostgreSQL immediately.
+      operationId: transferCircuitOwnership
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID of the circuit to transfer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - new_owner_id
+              properties:
+                new_owner_id:
+                  type: string
+                  description: User ID of the new owner (must be existing member)
+                  example: "user-123"
+      responses:
+        '200':
+          description: Ownership transferred successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  circuit_id:
+                    type: string
+                    format: uuid
+                    description: UUID of the circuit
+                  old_owner_id:
+                    type: string
+                    description: User ID of the previous owner
+                  new_owner_id:
+                    type: string
+                    description: User ID of the new owner
+                  transferred_at:
+                    type: string
+                    format: date-time
+                    description: Timestamp when ownership was transferred
+        '400':
+          description: Invalid circuit ID or new owner is not a member
+        '403':
+          description: Permission denied (only current owner can transfer)
+        '404':
+          description: Circuit not found
+
   /circuits/{circuit_id}/adapter:
     get:
       tags:
