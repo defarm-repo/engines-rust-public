@@ -1,5 +1,6 @@
--- Enable pg_trgm extension for fuzzy search (must be first)
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- Note: pg_trgm extension should be enabled by database admin
+-- Railway PostgreSQL may already have it enabled
+-- If not available, fuzzy search index will be skipped
 
 -- Create dfid_locations table
 CREATE TABLE IF NOT EXISTS dfid_locations (
@@ -22,8 +23,9 @@ CREATE INDEX IF NOT EXISTS idx_dfid_locations_registered_at ON dfid_locations(re
 CREATE INDEX IF NOT EXISTS idx_dfid_locations_verified ON dfid_locations(verified) WHERE verified = true;
 CREATE INDEX IF NOT EXISTS idx_dfid_locations_location_type ON dfid_locations USING GIN (location_type);
 
--- Create index for search queries (requires pg_trgm extension)
-CREATE INDEX IF NOT EXISTS idx_dfid_locations_dfid_trgm ON dfid_locations USING gin (dfid gin_trgm_ops);
+-- Fuzzy search index (requires pg_trgm extension)
+-- Uncomment if pg_trgm is available:
+-- CREATE INDEX IF NOT EXISTS idx_dfid_locations_dfid_trgm ON dfid_locations USING gin (dfid gin_trgm_ops);
 
 -- Add comment
 COMMENT ON TABLE dfid_locations IS 'Index of DFID locations across different storage backends';
