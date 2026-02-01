@@ -8,6 +8,7 @@ use crate::events_engine::EventsEngine;
 use crate::identifier_types::{
     CircuitAliasConfig, EnhancedIdentifier, ExternalAlias, IdentifierType,
 };
+use crate::index_client::IndexClient;
 use crate::logging::LoggingEngine;
 use crate::postgres_persistence::PostgresPersistence;
 use crate::storage::StorageBackend;
@@ -103,6 +104,7 @@ pub struct CircuitsEngine<S: StorageBackend> {
     events_engine: EventsEngine<S>,
     dfid_engine: DfidEngine,
     dfid_client: Option<DfidClient>,
+    index_client: Option<IndexClient>,
     webhook_engine: Arc<tokio::sync::RwLock<WebhookEngine<S>>>,
     postgres: Option<Arc<RwLock<Option<PostgresPersistence>>>>,
 }
@@ -121,6 +123,7 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             events_engine,
             dfid_engine: DfidEngine::new(),
             dfid_client: None,
+            index_client: None,
             webhook_engine: Arc::new(tokio::sync::RwLock::new(webhook_engine)),
             postgres: None,
         }
@@ -128,6 +131,11 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
 
     pub fn with_dfid_client(mut self, client: DfidClient) -> Self {
         self.dfid_client = Some(client);
+        self
+    }
+
+    pub fn with_index_client(mut self, client: IndexClient) -> Self {
+        self.index_client = Some(client);
         self
     }
 
@@ -1014,6 +1022,43 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             .with_context("dfid", dfid.clone())
             .with_context("circuit_id", circuit_id.to_string())
             .with_context("status", format!("{status:?}"));
+
+        // Register location in index service (non-blocking, optional)
+        if let Some(ref index_client) = self.index_client {
+            let dfid_clone = dfid.clone();
+            let circuit_id_clone = *circuit_id;
+            let circuit_name = circuit.name.clone();
+            let requester_id_clone = requester_id.to_string();
+            let index_client_clone = index_client.clone();
+
+            tokio::spawn(async move {
+                let location_request = crate::index_client::RegisterLocationRequest {
+                    dfid: dfid_clone.clone(),
+                    location: crate::index_client::LocationInput::Circuit {
+                        circuit_id: circuit_id_clone,
+                        circuit_name,
+                        url: format!("https://connect.defarm.net/circuits/{}", circuit_id_clone),
+                    },
+                    metadata: serde_json::json!({
+                        "pushed_by": requester_id_clone,
+                        "registered_at": chrono::Utc::now().to_rfc3339(),
+                    }),
+                };
+
+                if let Err(e) = index_client_clone.register_location(location_request).await {
+                    tracing::warn!(
+                        "Failed to register DFID {} in index service: {}",
+                        dfid_clone,
+                        e
+                    );
+                } else {
+                    tracing::info!(
+                        "Successfully registered DFID {} in index service",
+                        dfid_clone
+                    );
+                }
+            });
+        }
 
         // Trigger webhooks if configured (optional)
         let trigger_event = match status {

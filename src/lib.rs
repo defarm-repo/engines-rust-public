@@ -11,6 +11,7 @@ pub mod email_service;
 pub mod error_tracking;
 pub mod events_engine;
 pub mod identifier_types;
+pub mod index_client;
 pub mod ipfs_client;
 pub mod items_engine;
 pub mod logging;

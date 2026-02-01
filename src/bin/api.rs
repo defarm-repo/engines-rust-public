@@ -276,7 +276,22 @@ async fn async_main() {
         info!("📍 DFID Service client disabled - using local DFID generation");
     }
 
-    let app_state = Arc::new(AppState::new_with_dfid_client(shared_storage, dfid_client));
+    let index_client = std::env::var("INDEX_SERVICE_URL").ok().map(|url| {
+        info!("🔗 Index Service URL configured: {}", url);
+        defarm_engine::index_client::IndexClient::new(url)
+    });
+
+    if index_client.is_some() {
+        info!("✨ Index Service client enabled - DFID location discovery activated");
+    } else {
+        info!("📍 Index Service client disabled - location discovery unavailable");
+    }
+
+    let app_state = Arc::new(AppState::new_with_clients(
+        shared_storage,
+        dfid_client,
+        index_client,
+    ));
 
     // Store PostgresPersistence reference in AppState for timeline and other direct DB access
     {

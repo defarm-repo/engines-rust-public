@@ -513,7 +513,9 @@ async fn register_dfid_on_adapter(
 }
 
 /// Helper to convert StorageLocation to JSON
-fn extract_storage_location_json(location: &crate::adapters::base::StorageLocation) -> serde_json::Value {
+fn extract_storage_location_json(
+    location: &crate::adapters::base::StorageLocation,
+) -> serde_json::Value {
     use crate::adapters::base::StorageLocation;
     match location {
         StorageLocation::Local { id } => json!({

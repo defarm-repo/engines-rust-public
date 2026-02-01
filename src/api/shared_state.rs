@@ -1,6 +1,7 @@
 use crate::api::notifications::NotificationMessage;
 use crate::api_key_engine::ApiKeyEngine;
 use crate::dfid_client::DfidClient;
+use crate::index_client::IndexClient;
 use crate::logging::LoggingEngine;
 use crate::postgres_persistence::PostgresPersistence;
 use crate::postgres_storage_with_cache::PostgresStorageWithCache;
@@ -45,16 +46,27 @@ pub struct AppState {
     pub redis_cache: Arc<AsyncRwLock<Option<RedisCache>>>,
     /// Optional DFID client for remote DFID generation
     pub dfid_client: Option<DfidClient>,
+    /// Optional Index client for DFID location discovery
+    pub index_client: Option<IndexClient>,
 }
 
 impl AppState {
     /// Create AppState with PostgreSQL primary storage (with optional Redis cache)
     pub fn new(storage: SharedStorage) -> Self {
-        Self::new_with_dfid_client(storage, None)
+        Self::new_with_clients(storage, None, None)
     }
 
     /// Create AppState with optional DFID client for remote DFID generation
     pub fn new_with_dfid_client(storage: SharedStorage, dfid_client: Option<DfidClient>) -> Self {
+        Self::new_with_clients(storage, dfid_client, None)
+    }
+
+    /// Create AppState with optional DFID and Index clients
+    pub fn new_with_clients(
+        storage: SharedStorage,
+        dfid_client: Option<DfidClient>,
+        index_client: Option<IndexClient>,
+    ) -> Self {
         // All engines share the same storage Arc - access via spawn_blocking for thread safety
         let storage_for_circuits = Arc::clone(&storage);
         let storage_for_items = Arc::clone(&storage);
@@ -65,11 +77,14 @@ impl AppState {
         let storage_for_receipts = Arc::clone(&storage);
         let storage_for_history = Arc::clone(&storage);
 
-        // Configure circuits engine with DFID client if provided
+        // Configure circuits engine with DFID client and Index client if provided
         let circuits_engine = {
             let mut engine = CircuitsEngine::<SharedStorage>::new(storage_for_circuits);
             if let Some(ref client) = dfid_client {
                 engine = engine.with_dfid_client(client.clone());
+            }
+            if let Some(ref client) = index_client {
+                engine = engine.with_index_client(client.clone());
             }
             Arc::new(AsyncRwLock::new(engine))
         };
@@ -132,6 +147,7 @@ impl AppState {
             postgres_persistence: Arc::new(AsyncRwLock::new(None)),
             redis_cache: Arc::new(AsyncRwLock::new(None)),
             dfid_client,
+            index_client,
         }
     }
 
