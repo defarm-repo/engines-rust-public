@@ -2,6 +2,7 @@ use crate::adapters::{
     base::StorageLocation, IpfsIpfsAdapter, StellarMainnetIpfsAdapter, StellarTestnetIpfsAdapter,
     StorageAdapter,
 };
+use crate::dfid_client::DfidClient;
 use crate::dfid_engine::DfidEngine;
 use crate::events_engine::EventsEngine;
 use crate::identifier_types::{
@@ -101,6 +102,7 @@ pub struct CircuitsEngine<S: StorageBackend> {
     logger: Arc<std::sync::Mutex<LoggingEngine>>,
     events_engine: EventsEngine<S>,
     dfid_engine: DfidEngine,
+    dfid_client: Option<DfidClient>,
     webhook_engine: Arc<tokio::sync::RwLock<WebhookEngine<S>>>,
     postgres: Option<Arc<RwLock<Option<PostgresPersistence>>>>,
 }
@@ -118,8 +120,24 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             logger: Arc::new(std::sync::Mutex::new(logger)),
             events_engine,
             dfid_engine: DfidEngine::new(),
+            dfid_client: None,
             webhook_engine: Arc::new(tokio::sync::RwLock::new(webhook_engine)),
             postgres: None,
+        }
+    }
+
+    pub fn with_dfid_client(mut self, client: DfidClient) -> Self {
+        self.dfid_client = Some(client);
+        self
+    }
+
+    async fn generate_dfid_internal(&self) -> Result<String, CircuitsError> {
+        if let Some(ref client) = self.dfid_client {
+            client.generate_dfid(None).await.map_err(|e| {
+                CircuitsError::ValidationError(format!("DFID generation failed: {}", e))
+            })
+        } else {
+            Ok(self.dfid_engine.generate_dfid())
         }
     }
 
@@ -1139,13 +1157,15 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             }
 
             // Save fingerprint for future lookups
-            let dfid = self.create_new_tokenized_item(
-                identifiers,
-                enriched_data,
-                requester_id,
-                local_id,
-                Some(fingerprint.clone()),
-            )?;
+            let dfid = self
+                .create_new_tokenized_item(
+                    identifiers,
+                    enriched_data,
+                    requester_id,
+                    local_id,
+                    Some(fingerprint.clone()),
+                )
+                .await?;
 
             self.storage
                 .store_fingerprint_mapping(&fingerprint, &dfid, &circuit.circuit_id)
@@ -1155,13 +1175,9 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
         }
 
         // STEP 3: Create new tokenized item
-        let dfid = self.create_new_tokenized_item(
-            identifiers,
-            enriched_data,
-            requester_id,
-            local_id,
-            None,
-        )?;
+        let dfid = self
+            .create_new_tokenized_item(identifiers, enriched_data, requester_id, local_id, None)
+            .await?;
 
         Ok((dfid, PushStatus::NewItemCreated))
     }
@@ -1187,7 +1203,7 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
         blake3::hash(combined.as_bytes()).to_hex().to_string()
     }
 
-    fn create_new_tokenized_item(
+    async fn create_new_tokenized_item(
         &self,
         identifiers: &[Identifier],
         enriched_data: Option<HashMap<String, serde_json::Value>>,
@@ -1195,7 +1211,7 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
         local_id: &Uuid,
         fingerprint: Option<String>,
     ) -> Result<String, CircuitsError> {
-        let dfid = self.dfid_engine.generate_dfid();
+        let dfid = self.generate_dfid_internal().await?;
 
         let mut item = Item {
             dfid: dfid.clone(),

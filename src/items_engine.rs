@@ -1,3 +1,4 @@
+use crate::dfid_client::DfidClient;
 use crate::dfid_engine::DfidEngine;
 use crate::logging::{LogEntry, LoggingEngine};
 use crate::storage::{StorageBackend, StorageError};
@@ -40,6 +41,7 @@ pub struct ItemsEngine<S: StorageBackend> {
     storage: S,
     logger: LoggingEngine,
     dfid_engine: DfidEngine,
+    dfid_client: Option<DfidClient>,
 }
 
 impl<S: StorageBackend + 'static> ItemsEngine<S> {
@@ -75,6 +77,26 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             storage,
             logger,
             dfid_engine,
+            dfid_client: None,
+        }
+    }
+
+    /// Configure DFID client for remote DFID generation
+    /// When set, the engine will use the remote DFID service instead of local generation
+    pub fn with_dfid_client(mut self, client: DfidClient) -> Self {
+        self.dfid_client = Some(client);
+        self
+    }
+
+    /// Generate DFID using client if available, otherwise use local engine
+    async fn generate_dfid_internal(&self) -> Result<String, ItemsError> {
+        if let Some(ref client) = self.dfid_client {
+            client
+                .generate_dfid(None)
+                .await
+                .map_err(|e| ItemsError::ValidationError(format!("DFID generation failed: {}", e)))
+        } else {
+            Ok(self.dfid_engine.generate_dfid())
         }
     }
 
@@ -107,7 +129,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         Ok(item)
     }
 
-    pub fn create_item_with_generated_dfid(
+    pub async fn create_item_with_generated_dfid(
         &mut self,
         identifiers: Vec<Identifier>,
         source_entry: Uuid,
@@ -187,7 +209,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         }
 
         // Step 2: No duplicate found - generate DFID and create new item
-        let dfid = self.dfid_engine.generate_dfid();
+        let dfid = self.generate_dfid_internal().await?;
 
         self.logger
             .info(
@@ -732,13 +754,13 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         Ok((original_item, new_item))
     }
 
-    pub fn split_item_with_generated_dfid(
+    pub async fn split_item_with_generated_dfid(
         &mut self,
         dfid: &str,
         identifiers_for_new_item: Vec<Identifier>,
     ) -> Result<(Item, Item), ItemsError> {
         // Generate a unique DFID for the new item
-        let new_dfid = self.dfid_engine.generate_dfid();
+        let new_dfid = self.generate_dfid_internal().await?;
 
         // Use the existing split_item method
         self.split_item(dfid, identifiers_for_new_item, new_dfid)

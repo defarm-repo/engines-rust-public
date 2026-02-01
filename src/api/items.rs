@@ -498,11 +498,10 @@ async fn create_item(
             )
         })?;
 
-        match engine.create_item_with_generated_dfid(
-            identifiers,
-            source_entry,
-            payload.enriched_data,
-        ) {
+        match engine
+            .create_item_with_generated_dfid(identifiers, source_entry, payload.enriched_data)
+            .await
+        {
             Ok(item) => item,
             Err(e) => {
                 return Err((
@@ -592,7 +591,10 @@ async fn create_items_batch(
                 }
             };
 
-            match engine.create_item_with_generated_dfid(identifiers, source_entry, enriched_data) {
+            match engine
+                .create_item_with_generated_dfid(identifiers, source_entry, enriched_data)
+                .await
+            {
                 Ok(item) => {
                     success_count += 1;
                     items_to_persist.push(item.clone());
@@ -946,7 +948,10 @@ async fn split_item(
                 )
             })?;
 
-        match engine.split_item_with_generated_dfid(&dfid, identifiers) {
+        match engine
+            .split_item_with_generated_dfid(&dfid, identifiers)
+            .await
+        {
             Ok((original_item, new_item)) => {
                 let items_to_persist = vec![original_item.clone(), new_item.clone()];
 

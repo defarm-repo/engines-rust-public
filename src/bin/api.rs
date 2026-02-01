@@ -263,7 +263,20 @@ async fn async_main() {
     // Create AppState with PostgreSQL storage backend
     // Storage operations use spawn_blocking for thread-safe async access
     info!("🚀 Creating AppState with PostgreSQL primary storage...");
-    let app_state = Arc::new(AppState::new(shared_storage));
+
+    // Configure optional DFID client for remote DFID generation
+    let dfid_client = std::env::var("DFID_SERVICE_URL").ok().map(|url| {
+        info!("🔗 DFID Service URL configured: {}", url);
+        defarm_engine::dfid_client::DfidClient::new(url)
+    });
+
+    if dfid_client.is_some() {
+        info!("✨ DFID Service client enabled - using remote DFID generation");
+    } else {
+        info!("📍 DFID Service client disabled - using local DFID generation");
+    }
+
+    let app_state = Arc::new(AppState::new_with_dfid_client(shared_storage, dfid_client));
 
     // Store PostgresPersistence reference in AppState for timeline and other direct DB access
     {

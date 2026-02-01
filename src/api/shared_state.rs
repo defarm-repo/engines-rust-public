@@ -1,5 +1,6 @@
 use crate::api::notifications::NotificationMessage;
 use crate::api_key_engine::ApiKeyEngine;
+use crate::dfid_client::DfidClient;
 use crate::logging::LoggingEngine;
 use crate::postgres_persistence::PostgresPersistence;
 use crate::postgres_storage_with_cache::PostgresStorageWithCache;
@@ -42,11 +43,18 @@ pub struct AppState {
     pub postgres_persistence: Arc<AsyncRwLock<Option<PostgresPersistence>>>,
     /// Optional Redis cache layer for horizontal scaling
     pub redis_cache: Arc<AsyncRwLock<Option<RedisCache>>>,
+    /// Optional DFID client for remote DFID generation
+    pub dfid_client: Option<DfidClient>,
 }
 
 impl AppState {
     /// Create AppState with PostgreSQL primary storage (with optional Redis cache)
     pub fn new(storage: SharedStorage) -> Self {
+        Self::new_with_dfid_client(storage, None)
+    }
+
+    /// Create AppState with optional DFID client for remote DFID generation
+    pub fn new_with_dfid_client(storage: SharedStorage, dfid_client: Option<DfidClient>) -> Self {
         // All engines share the same storage Arc - access via spawn_blocking for thread safety
         let storage_for_circuits = Arc::clone(&storage);
         let storage_for_items = Arc::clone(&storage);
@@ -57,12 +65,23 @@ impl AppState {
         let storage_for_receipts = Arc::clone(&storage);
         let storage_for_history = Arc::clone(&storage);
 
-        let circuits_engine = Arc::new(AsyncRwLock::new(CircuitsEngine::<SharedStorage>::new(
-            storage_for_circuits,
-        )));
-        let items_engine = Arc::new(AsyncRwLock::new(ItemsEngine::<SharedStorage>::new(
-            storage_for_items,
-        )));
+        // Configure circuits engine with DFID client if provided
+        let circuits_engine = {
+            let mut engine = CircuitsEngine::<SharedStorage>::new(storage_for_circuits);
+            if let Some(ref client) = dfid_client {
+                engine = engine.with_dfid_client(client.clone());
+            }
+            Arc::new(AsyncRwLock::new(engine))
+        };
+
+        // Configure items engine with DFID client if provided
+        let items_engine = {
+            let mut engine = ItemsEngine::<SharedStorage>::new(storage_for_items);
+            if let Some(ref client) = dfid_client {
+                engine = engine.with_dfid_client(client.clone());
+            }
+            Arc::new(AsyncRwLock::new(engine))
+        };
         let events_engine = Arc::new(AsyncRwLock::new(EventsEngine::<SharedStorage>::new(
             storage_for_events,
         )));
@@ -112,6 +131,7 @@ impl AppState {
             jwt_secret,
             postgres_persistence: Arc::new(AsyncRwLock::new(None)),
             redis_cache: Arc::new(AsyncRwLock::new(None)),
+            dfid_client,
         }
     }
 

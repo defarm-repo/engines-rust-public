@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: defarm-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: defarm-postgres
+    environment:
+      POSTGRES_DB: defarm
+      POSTGRES_USER: defarm
+      POSTGRES_PASSWORD: defarm123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U defarm"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  dfid-service:
+    build:
+      context: ./dfid-service
+      dockerfile: Dockerfile
+    container_name: defarm-dfid-service
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  item-registry:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: defarm-item-registry
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://defarm:defarm123@postgres:5432/defarm
+      DFID_SERVICE_URL: http://dfid-service:3001
+      REDIS_URL: redis://redis:6379
+      PORT: 3000
+      RUST_LOG: info
+      JWT_SECRET: "your-super-secret-jwt-key-minimum-32-characters-long!"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dfid-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: defarm-network

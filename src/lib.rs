@@ -5,6 +5,7 @@ pub mod blockchain_event_listener;
 pub mod cattle_robot;
 pub mod circuits_engine;
 pub mod conflict_detection;
+pub mod dfid_client;
 pub mod dfid_engine;
 pub mod email_service;
 pub mod error_tracking;
