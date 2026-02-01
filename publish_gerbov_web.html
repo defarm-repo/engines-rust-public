@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Publicar Items Gerbov</title>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        h1 { color: #10b981; }
+        button {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover { background: #059669; }
+        button:disabled {
+            background: #64748b;
+            cursor: not-allowed;
+        }
+        #status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background: #1e293b;
+            border-left: 4px solid #3b82f6;
+        }
+        #result {
+            white-space: pre-wrap;
+            font-family: monospace;
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success { border-left-color: #10b981; }
+        .error { border-left-color: #ef4444; }
+        .info { color: #94a3b8; font-size: 14px; }
+        label {
+            display: block;
+            margin: 10px 0 5px;
+            color: #cbd5e1;
+        }
+        input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        .checkbox-group {
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .checkbox-item {
+            padding: 8px;
+            margin: 4px 0;
+            border-radius: 4px;
+        }
+        .checkbox-item:hover {
+            background: #334155;
+        }
+    </style>
+</head>
+<body>
+    <h1>🐄 Publicar Items do Circuito Gerbov</h1>
+
+    <div class="info">
+        <p><strong>Circuito:</strong> Gerbov - Fazenda Santa Fé</p>
+        <p><strong>Circuit ID:</strong> 4eb4e8da-12f7-4bfb-9610-686e9c21c1a2</p>
+    </div>
+
+    <div id="status">
+        <p>Clique em "Carregar Items" para começar</p>
+    </div>
+
+    <button id="loadBtn" onclick="loadItems()">📦 Carregar Items do Circuito</button>
+    <button id="selectAllBtn" onclick="selectAll()" disabled>☑️ Selecionar Todos</button>
+    <button id="publishBtn" onclick="publishItems()" disabled>🚀 Publicar Items Selecionados</button>
+
+    <div id="itemsList" class="checkbox-group" style="display:none;"></div>
+
+    <div id="result"></div>
+
+    <script>
+        const BASE_URL = 'https://defarm-engines-api-production.up.railway.app';
+        const CIRCUIT_ID = '4eb4e8da-12f7-4bfb-9610-686e9c21c1a2';
+        const USERNAME = 'gerbov';
+        const PASSWORD = 'Gerbov2024!Test';
+
+        let token = null;
+        let allItems = [];
+
+        async function login() {
+            const resp = await fetch(`${BASE_URL}/api/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: USERNAME, password: PASSWORD })
+            });
+            const data = await resp.json();
+            token = data.token;
+        }
+
+        async function loadItems() {
+            try {
+                updateStatus('🔐 Autenticando...', 'info');
+                document.getElementById('loadBtn').disabled = true;
+
+                await login();
+
+                updateStatus('📦 Carregando items do circuito...', 'info');
+
+                const resp = await fetch(`${BASE_URL}/api/circuits/${CIRCUIT_ID}/items`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!resp.ok) {
+                    throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+                }
+
+                allItems = await resp.json();
+
+                updateStatus(`✅ Carregados ${allItems.length} items do circuito`, 'success');
+
+                // Display items as checkboxes using safe DOM methods
+                const itemsList = document.getElementById('itemsList');
+                itemsList.style.display = 'block';
+                itemsList.textContent = ''; // Clear existing content
+
+                allItems.forEach((item, i) => {
+                    const div = document.createElement('div');
+                    div.className = 'checkbox-item';
+
+                    const label = document.createElement('label');
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = `item_${i}`;
+                    checkbox.value = item.dfid;
+                    checkbox.checked = true;
+
+                    const text = document.createTextNode(` ${item.dfid} (${new Date(item.creation_timestamp * 1000).toLocaleDateString()})`);
+
+                    label.appendChild(checkbox);
+                    label.appendChild(text);
+                    div.appendChild(label);
+                    itemsList.appendChild(div);
+                });
+
+                document.getElementById('selectAllBtn').disabled = false;
+                document.getElementById('publishBtn').disabled = false;
+
+            } catch (error) {
+                updateStatus(`❌ Erro: ${error.message}`, 'error');
+                document.getElementById('loadBtn').disabled = false;
+            }
+        }
+
+        function selectAll() {
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            checkboxes.forEach(cb => cb.checked = !allChecked);
+        }
+
+        async function publishItems() {
+            try {
+                updateStatus('🚀 Publicando items...', 'info');
+                document.getElementById('publishBtn').disabled = true;
+
+                // Get selected DFIDs
+                const checkboxes = document.querySelectorAll('input[type="checkbox"]:checked');
+                const selectedDfids = Array.from(checkboxes).map(cb => cb.value);
+
+                if (selectedDfids.length === 0) {
+                    updateStatus('⚠️ Nenhum item selecionado', 'error');
+                    document.getElementById('publishBtn').disabled = false;
+                    return;
+                }
+
+                // Get current settings
+                const settingsResp = await fetch(`${BASE_URL}/api/circuits/${CIRCUIT_ID}/public-settings`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                let currentSettings = {};
+                if (settingsResp.ok) {
+                    currentSettings = await settingsResp.json();
+                }
+
+                // Update settings with selected items
+                const updatedSettings = {
+                    access_mode: 'Public',
+                    auto_publish_pushed_items: true,
+                    published_items: selectedDfids,
+                    show_encrypted_events: false,
+                    auto_approve_members: false,
+                    public_name: 'Gerbov - Fazenda Santa Fé',
+                    public_description: 'Rastreabilidade de bovinos da Fazenda Santa Fé com SISBOV e RFID',
+                    tagline: 'Gestão transparente de rebanho bovino'
+                };
+
+                const resp = await fetch(`${BASE_URL}/api/circuits/${CIRCUIT_ID}/public-settings`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updatedSettings)
+                });
+
+                if (!resp.ok) {
+                    const errorText = await resp.text();
+                    throw new Error(`HTTP ${resp.status}: ${errorText}`);
+                }
+
+                const result = await resp.json();
+
+                updateStatus(`✅ ${selectedDfids.length} items publicados com sucesso!`, 'success');
+
+                const resultText = `
+✅ PUBLICAÇÃO CONCLUÍDA!
+
+📊 Resumo:
+   - Items publicados: ${selectedDfids.length}
+   - Auto-publish ativado: Sim
+   - Modo de acesso: Público
+
+🌐 Acesse a página pública em:
+   https://circuits.defarm.net/public/${CIRCUIT_ID}
+
+🔗 Ou acesse o circuito normalmente:
+   https://circuits.defarm.net/circuits/${CIRCUIT_ID}
+
+🎉 Os items agora estão visíveis para todos!
+`;
+                document.getElementById('result').textContent = resultText;
+                document.getElementById('publishBtn').disabled = false;
+
+            } catch (error) {
+                updateStatus(`❌ Erro ao publicar: ${error.message}`, 'error');
+                document.getElementById('publishBtn').disabled = false;
+            }
+        }
+
+        function updateStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = type;
+        }
+    </script>
+</body>
+</html>

@@ -1010,7 +1010,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             .map_err(ItemsError::from)
     }
 
-    pub fn resolve_pending_item(
+    pub async fn resolve_pending_item(
         &mut self,
         pending_id: &Uuid,
         resolution_action: ResolutionAction,
@@ -1022,11 +1022,13 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         match resolution_action {
             ResolutionAction::Approve => {
                 // Try to create the item with the pending data
-                let result = self.create_item_with_generated_dfid(
-                    pending_item.identifiers.clone(),
-                    pending_item.source_entry,
-                    pending_item.enriched_data.clone(),
-                );
+                let result = self
+                    .create_item_with_generated_dfid(
+                        pending_item.identifiers.clone(),
+                        pending_item.source_entry,
+                        pending_item.enriched_data.clone(),
+                    )
+                    .await;
 
                 match result {
                     Ok(item) => {

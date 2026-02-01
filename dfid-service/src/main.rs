@@ -30,11 +30,17 @@ async fn main() {
     let engine = if let Ok(redis_url) = std::env::var("REDIS_URL") {
         #[cfg(feature = "redis-persistence")]
         {
-            tracing::info!("Initializing DFID engine with Redis persistence: {}", redis_url);
+            tracing::info!(
+                "Initializing DFID engine with Redis persistence: {}",
+                redis_url
+            );
             match DfidEngine::new_with_redis(&redis_url).await {
                 Ok(engine) => Arc::new(engine),
                 Err(e) => {
-                    tracing::error!("Failed to initialize Redis connection: {}. Falling back to in-memory.", e);
+                    tracing::error!(
+                        "Failed to initialize Redis connection: {}. Falling back to in-memory.",
+                        e
+                    );
                     Arc::new(DfidEngine::new())
                 }
             }

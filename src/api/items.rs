@@ -1427,7 +1427,10 @@ async fn resolve_pending_item(
         }
     };
 
-    match engine.resolve_pending_item(&pending_id, resolution_action) {
+    match engine
+        .resolve_pending_item(&pending_id, resolution_action)
+        .await
+    {
         Ok(Some(item)) => Ok(Json(ResolvePendingItemResponse {
             success: true,
             item: Some(item_to_response(item)),
