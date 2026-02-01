@@ -1,10 +1,11 @@
 use crate::dfid_client::DfidClient;
 use crate::dfid_engine::DfidEngine;
+use crate::events_engine::EventsEngine;
 use crate::logging::{LogEntry, LoggingEngine};
 use crate::storage::{StorageBackend, StorageError};
 use crate::types::{
-    Identifier, Item, ItemShare, ItemStatus, MergeStrategy, PendingItem, PendingReason,
-    SharedItemResponse,
+    Event, EventType, EventVisibility, Identifier, Item, ItemShare, ItemStatus, MergeStrategy,
+    PendingItem, PendingReason, SharedItemResponse,
 };
 use chrono::Utc;
 use std::collections::HashMap;
@@ -42,14 +43,19 @@ pub struct ItemsEngine<S: StorageBackend> {
     logger: LoggingEngine,
     dfid_engine: DfidEngine,
     dfid_client: Option<DfidClient>,
+    events_engine: EventsEngine<S>,
 }
 
 impl<S: StorageBackend + 'static> ItemsEngine<S> {
-    pub fn new(storage: S) -> Self {
+    pub fn new(storage: S) -> Self
+    where
+        S: Clone,
+    {
         let mut logger = LoggingEngine::new();
         logger.info("ItemsEngine", "initialization", "Items engine initialized");
 
         let dfid_engine = DfidEngine::new();
+        let events_engine = EventsEngine::new(storage.clone());
 
         if let Ok(existing_items) = storage.list_items() {
             let mut max_sequence = 0u64;
@@ -78,6 +84,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             logger,
             dfid_engine,
             dfid_client: None,
+            events_engine,
         }
     }
 
@@ -230,6 +237,117 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
         }
 
         Ok(item)
+    }
+
+    /// Create item and event atomically (Phase 2 - Event Atomicity)
+    /// Ensures both item and event are created together or neither is created
+    /// Implements rollback if event creation fails
+    pub async fn create_item_with_event_atomic(
+        &mut self,
+        identifiers: Vec<Identifier>,
+        source: String,
+        enriched_data: Option<HashMap<String, serde_json::Value>>,
+    ) -> Result<(Item, Event), ItemsError> {
+        // STEP 1: Generate DFID
+        let dfid = self.generate_dfid_internal().await?;
+
+        self.logger
+            .info(
+                "ItemsEngine",
+                "atomic_creation_start",
+                "Starting atomic item+event creation",
+            )
+            .with_context("dfid", dfid.clone())
+            .with_context("source", source.clone());
+
+        // STEP 2: Create item struct (not yet stored)
+        let mut item = Item::new(dfid.clone(), identifiers.clone(), Uuid::new_v4());
+
+        // Add enriched data if provided
+        if let Some(ref data) = enriched_data {
+            item.enrich(data.clone(), Uuid::new_v4());
+        }
+
+        // STEP 3: Create event struct with identifiers in metadata (not yet stored)
+        let mut event_metadata = HashMap::new();
+        event_metadata.insert(
+            "identifiers".to_string(),
+            serde_json::to_value(&identifiers).map_err(|e| {
+                ItemsError::ValidationError(format!("Failed to serialize identifiers: {}", e))
+            })?,
+        );
+
+        // Calculate content hash before creating event
+        let content_hash =
+            Event::calculate_dedup_hash(&dfid, &EventType::Created, &source, &event_metadata);
+
+        let event = Event {
+            event_id: Uuid::new_v4(),
+            dfid: dfid.clone(),
+            event_type: EventType::Created,
+            timestamp: Utc::now(),
+            source: source.clone(),
+            metadata: event_metadata,
+            visibility: EventVisibility::Private,
+            is_encrypted: false,
+            content_hash,
+            is_local: false,
+            local_event_id: None,
+            pushed_to_circuit: None,
+            snapshot_id: None,
+            snapshot_cid: None,
+        };
+
+        // STEP 4: Atomic storage (both or neither)
+        // Store item first
+        if let Err(e) = self.storage.store_item(&item) {
+            self.logger
+                .warn(
+                    "ItemsEngine",
+                    "atomic_creation_failed_item",
+                    "Failed to store item in atomic operation",
+                )
+                .with_context("dfid", dfid.clone())
+                .with_context("error", e.to_string());
+            return Err(ItemsError::StorageError(e));
+        }
+
+        // Store event - if this fails, rollback by deleting the item
+        if let Err(e) = self.storage.store_event(&event) {
+            self.logger
+                .warn(
+                    "ItemsEngine",
+                    "atomic_creation_rollback",
+                    "Event storage failed, rolling back item creation",
+                )
+                .with_context("dfid", dfid.clone())
+                .with_context("error", e.to_string());
+
+            // Rollback: Delete the item we just created
+            if let Err(delete_err) = self.storage.delete_item(&dfid) {
+                self.logger
+                    .error(
+                        "ItemsEngine",
+                        "atomic_rollback_failed",
+                        "CRITICAL: Failed to rollback item after event creation failure",
+                    )
+                    .with_context("dfid", dfid.clone())
+                    .with_context("delete_error", delete_err.to_string());
+            }
+
+            return Err(ItemsError::StorageError(e));
+        }
+
+        self.logger
+            .info(
+                "ItemsEngine",
+                "atomic_creation_success",
+                "Item and event created atomically",
+            )
+            .with_context("dfid", dfid.clone())
+            .with_context("event_id", event.event_id.to_string());
+
+        Ok((item, event))
     }
 
     pub fn create_local_item(

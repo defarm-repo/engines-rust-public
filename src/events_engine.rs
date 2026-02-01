@@ -75,6 +75,24 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
         visibility: EventVisibility,
         metadata: HashMap<String, serde_json::Value>,
     ) -> Result<EventCreationResult, EventsError> {
+        // Phase 2: Validate metadata schema before creating event
+        use crate::types::EventSchemaRegistry;
+        if let Err(validation_error) =
+            EventSchemaRegistry::validate_metadata(&event_type, &metadata)
+        {
+            self.logger
+                .lock()
+                .unwrap()
+                .warn(
+                    "events_engine",
+                    "event_validation_failed",
+                    format!("Event metadata validation failed: {}", validation_error),
+                )
+                .with_context("dfid", dfid.clone())
+                .with_context("event_type", format!("{event_type:?}"));
+            return Err(EventsError::ValidationError(validation_error));
+        }
+
         // Calculate dedup hash BEFORE creating the event
         let dedup_hash = Event::calculate_dedup_hash(&dfid, &event_type, &source, &metadata);
 
@@ -560,6 +578,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
         let event_type = match operation.as_str() {
             "push" => EventType::PushedToCircuit,
             "pull" => EventType::PulledFromCircuit,
+            "remove" => EventType::RemovedFromCircuit, // Phase 1 support
             _ => {
                 return Err(EventsError::ValidationError(
                     "Invalid operation type".to_string(),
@@ -567,9 +586,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
             }
         };
 
-        let event =
-            self.create_event(dfid.clone(), event_type, requester_id.clone(), visibility)?;
-
+        // Phase 2: Create metadata BEFORE event creation for schema validation
         let metadata = [
             (
                 "circuit_id".to_string(),
@@ -577,7 +594,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
             ),
             (
                 "requester_id".to_string(),
-                serde_json::Value::String(requester_id),
+                serde_json::Value::String(requester_id.clone()),
             ),
             (
                 "operation".to_string(),
@@ -588,7 +605,11 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
         .cloned()
         .collect();
 
-        self.add_event_metadata(&event.event_id, metadata)
+        // Create event with metadata included (passes schema validation)
+        let result =
+            self.create_event_with_metadata(dfid, event_type, requester_id, visibility, metadata)?;
+
+        Ok(result.event)
     }
 
     pub fn get_logs(&self) -> Vec<crate::logging::LogEntry> {
@@ -617,9 +638,10 @@ mod tests {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         let mut events_engine = EventsEngine::new(storage);
 
+        // Use Updated event type (flexible schema) for testing
         let result = events_engine.create_event(
             "DFID-123".to_string(),
-            EventType::Created,
+            EventType::Updated,
             "test_source".to_string(),
             EventVisibility::Public,
         );
@@ -636,9 +658,10 @@ mod tests {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         let mut events_engine = EventsEngine::new(storage);
 
+        // Use Updated event type (flexible schema) for testing
         let result = events_engine.create_event(
             "DFID-123".to_string(),
-            EventType::Created,
+            EventType::Updated,
             "test_source".to_string(),
             EventVisibility::Private,
         );
@@ -654,10 +677,11 @@ mod tests {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         let mut events_engine = EventsEngine::new(storage);
 
+        // Use Updated event type (flexible schema) for testing
         let event = events_engine
             .create_event(
                 "DFID-123".to_string(),
-                EventType::Created,
+                EventType::Updated,
                 "test_source".to_string(),
                 EventVisibility::Public,
             )
@@ -686,10 +710,11 @@ mod tests {
         let storage = Arc::new(std::sync::Mutex::new(InMemoryStorage::new()));
         let mut events_engine = EventsEngine::new(storage);
 
+        // Use Updated event type (flexible schema) for testing
         events_engine
             .create_event(
                 "DFID-123".to_string(),
-                EventType::Created,
+                EventType::Updated,
                 "source1".to_string(),
                 EventVisibility::Public,
             )
@@ -698,7 +723,7 @@ mod tests {
         events_engine
             .create_event(
                 "DFID-123".to_string(),
-                EventType::Enriched,
+                EventType::Updated,
                 "source2".to_string(),
                 EventVisibility::Public,
             )

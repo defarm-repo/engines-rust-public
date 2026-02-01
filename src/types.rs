@@ -190,6 +190,36 @@ impl Item {
         self.last_modified = Utc::now();
     }
 
+    /// Enrich item with changelog tracking (Phase 2)
+    /// Returns a Vec<ChangelogEntry> with old→new value changes for audit trail
+    pub fn enrich_with_changelog(
+        &mut self,
+        data: HashMap<String, serde_json::Value>,
+        source_entry: Uuid,
+    ) -> Vec<ChangelogEntry> {
+        let mut changes = Vec::new();
+
+        for (key, new_value) in data {
+            let old_value = self.enriched_data.get(&key).cloned();
+
+            // Only record as change if the value actually changed
+            if old_value.as_ref() != Some(&new_value) {
+                changes.push(ChangelogEntry {
+                    field: key.clone(),
+                    old_value,
+                    new_value: new_value.clone(),
+                });
+            }
+
+            self.enriched_data.insert(key, new_value);
+        }
+
+        self.source_entries.push(source_entry);
+        self.last_modified = Utc::now();
+
+        changes
+    }
+
     pub fn add_identifiers(&mut self, identifiers: Vec<Identifier>) {
         for identifier in identifiers {
             if !self.identifiers.contains(&identifier) {
@@ -816,6 +846,93 @@ pub struct EventCreationResult {
     pub merged_keys: Vec<String>,
 }
 
+/// Changelog entry for tracking state transitions (Phase 2)
+/// Records old→new value changes for audit trail
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangelogEntry {
+    pub field: String,
+    pub old_value: Option<serde_json::Value>,
+    pub new_value: serde_json::Value,
+}
+
+/// Event Schema Registry - Validates metadata structure per event type (Phase 2)
+pub struct EventSchemaRegistry;
+
+impl EventSchemaRegistry {
+    /// Validate that event metadata conforms to required schema for the event type
+    /// Returns Ok(()) if valid, Err with description if invalid
+    pub fn validate_metadata(
+        event_type: &EventType,
+        metadata: &HashMap<String, serde_json::Value>,
+    ) -> Result<(), String> {
+        match event_type {
+            EventType::Created => {
+                // Required: identifiers array
+                if !metadata.contains_key("identifiers") {
+                    return Err("Created event requires 'identifiers' in metadata".to_string());
+                }
+                if !metadata["identifiers"].is_array() {
+                    return Err("'identifiers' must be an array".to_string());
+                }
+                Ok(())
+            }
+            EventType::Enriched => {
+                // Required: enriched_keys array
+                if !metadata.contains_key("enriched_keys") {
+                    return Err("Enriched event requires 'enriched_keys' in metadata".to_string());
+                }
+                if !metadata["enriched_keys"].is_array() {
+                    return Err("'enriched_keys' must be an array".to_string());
+                }
+                Ok(())
+            }
+            EventType::PushedToCircuit
+            | EventType::PulledFromCircuit
+            | EventType::RemovedFromCircuit => {
+                // Required: circuit_id, requester_id, operation
+                let required = ["circuit_id", "requester_id", "operation"];
+                for key in required {
+                    if !metadata.contains_key(key) {
+                        return Err(format!("Circuit event requires '{}' in metadata", key));
+                    }
+                }
+                Ok(())
+            }
+            EventType::Merged => {
+                // Required: merged_from
+                if !metadata.contains_key("merged_from") {
+                    return Err("Merged event requires 'merged_from' in metadata".to_string());
+                }
+                Ok(())
+            }
+            EventType::Split => {
+                // Required: split_into array
+                if !metadata.contains_key("split_into") {
+                    return Err("Split event requires 'split_into' in metadata".to_string());
+                }
+                if !metadata["split_into"].is_array() {
+                    return Err("'split_into' must be an array".to_string());
+                }
+                Ok(())
+            }
+            EventType::StatusChanged => {
+                // Required: old_status, new_status
+                if !metadata.contains_key("old_status") || !metadata.contains_key("new_status") {
+                    return Err(
+                        "StatusChanged event requires 'old_status' and 'new_status' in metadata"
+                            .to_string(),
+                    );
+                }
+                Ok(())
+            }
+            EventType::Updated => {
+                // Flexible - no strict requirements (any metadata allowed)
+                Ok(())
+            }
+        }
+    }
+}
+
 impl Event {
     pub fn new(
         dfid: String,
@@ -929,6 +1046,34 @@ impl Event {
             );
         }
         merged_keys
+    }
+
+    /// Add changelog to event metadata for tracking state transitions (Phase 2)
+    /// Changelog records old→new value changes for complete audit trail
+    pub fn add_changelog(&mut self, changes: Vec<ChangelogEntry>) {
+        if changes.is_empty() {
+            return;
+        }
+
+        let changelog_json: Vec<serde_json::Value> = changes
+            .into_iter()
+            .map(|entry| {
+                serde_json::json!({
+                    "field": entry.field,
+                    "old": entry.old_value,
+                    "new": entry.new_value,
+                })
+            })
+            .collect();
+
+        self.metadata.insert(
+            "changelog".to_string(),
+            serde_json::Value::Array(changelog_json),
+        );
+
+        // Recalculate dedup hash after adding changelog
+        self.content_hash =
+            Self::calculate_dedup_hash(&self.dfid, &self.event_type, &self.source, &self.metadata);
     }
 
     pub fn encrypt(&mut self) {
