@@ -83,7 +83,7 @@ impl<S: StorageBackend + Clone + 'static> MerkleEngine<S> {
     /// Build a Merkle tree from an item's events
     pub fn build_item_tree(&self, dfid: &str) -> Result<MerkleTree, MerkleError> {
         let events = self.storage.get_events_by_dfid(dfid).map_err(|e| {
-            MerkleError::StorageError(format!("Failed to get events for {}: {}", dfid, e))
+            MerkleError::StorageError(format!("Failed to get events for {dfid}: {e}"))
         })?;
 
         if events.is_empty() {
@@ -119,10 +119,7 @@ impl<S: StorageBackend + Clone + 'static> MerkleEngine<S> {
     ) -> Result<(MerkleTree, Vec<ItemMerkleEntry>), MerkleError> {
         // Get all items in the circuit
         let items = self.storage.get_circuit_items(circuit_id).map_err(|e| {
-            MerkleError::StorageError(format!(
-                "Failed to get circuit items for {}: {}",
-                circuit_id, e
-            ))
+            MerkleError::StorageError(format!("Failed to get circuit items for {circuit_id}: {e}"))
         })?;
 
         if items.is_empty() {
@@ -185,7 +182,7 @@ impl<S: StorageBackend + Clone + 'static> MerkleEngine<S> {
     ) -> Result<MerkleProof, MerkleError> {
         // Get all events for the item - ONCE
         let events = self.storage.get_events_by_dfid(dfid).map_err(|e| {
-            MerkleError::StorageError(format!("Failed to get events for {}: {}", dfid, e))
+            MerkleError::StorageError(format!("Failed to get events for {dfid}: {e}"))
         })?;
 
         if events.is_empty() {
@@ -197,7 +194,7 @@ impl<S: StorageBackend + Clone + 'static> MerkleEngine<S> {
             .iter()
             .find(|e| e.event_id == *event_id)
             .ok_or_else(|| {
-                MerkleError::Other(format!("Event {} not found in item {}", event_id, dfid))
+                MerkleError::Other(format!("Event {event_id} not found in item {dfid}"))
             })?;
 
         // Build tree from SAME events (not re-fetching)
@@ -223,7 +220,7 @@ impl<S: StorageBackend + Clone + 'static> MerkleEngine<S> {
 
         // Find the item's merkle root
         let item_entry = items.iter().find(|e| e.dfid == dfid).ok_or_else(|| {
-            MerkleError::Other(format!("Item {} not found in circuit {}", dfid, circuit_id))
+            MerkleError::Other(format!("Item {dfid} not found in circuit {circuit_id}"))
         })?;
 
         // Generate proof for the item root
@@ -422,7 +419,7 @@ mod tests {
 
         // Add an item and events
         {
-            let mut s = storage.lock().unwrap();
+            let s = storage.lock().unwrap();
             let item = create_test_item("DFID-TEST-001");
             s.store_item(&item).unwrap();
 
@@ -446,7 +443,7 @@ mod tests {
 
         // Add an item and events
         {
-            let mut s = storage.lock().unwrap();
+            let s = storage.lock().unwrap();
             let item = create_test_item("DFID-TEST-001");
             s.store_item(&item).unwrap();
 

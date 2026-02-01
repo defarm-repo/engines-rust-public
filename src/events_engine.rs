@@ -193,7 +193,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
             .info(
                 "events_engine",
                 "local_event_created",
-                format!("Creating local event (no DFID yet)"),
+                "Creating local event (no DFID yet)".to_string(),
             )
             .with_context("local_event_id", event.local_event_id.unwrap().to_string())
             .with_context("event_type", format!("{event_type:?}"))
@@ -230,7 +230,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
     /// Get a local event by its local_event_id
     pub fn get_local_event(&self, local_event_id: &Uuid) -> Result<Option<Event>, EventsError> {
         // Local events use the format LOCAL-EVENT-{uuid} as their DFID
-        let temp_dfid = format!("LOCAL-EVENT-{}", local_event_id);
+        let temp_dfid = format!("LOCAL-EVENT-{local_event_id}");
         let events = self
             .storage
             .get_events_by_dfid(&temp_dfid)
@@ -253,7 +253,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
         // Get the local event
         let mut event = self
             .get_local_event(local_event_id)?
-            .ok_or_else(|| EventsError::NotFound)?;
+            .ok_or(EventsError::NotFound)?;
 
         // Validate it's a local event
         if !event.is_local {
@@ -287,7 +287,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
                     .info(
                         "events_engine",
                         "local_event_merged",
-                        format!("Local event auto-merged during push"),
+                        "Local event auto-merged during push".to_string(),
                     )
                     .with_context("local_event_id", local_event_id.to_string())
                     .with_context("existing_event_id", existing_event.event_id.to_string())
@@ -326,7 +326,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
                     .info(
                         "events_engine",
                         "local_event_deduplicated",
-                        format!("Local event deduplicated during push (no merge needed)"),
+                        "Local event deduplicated during push (no merge needed)".to_string(),
                     )
                     .with_context("local_event_id", local_event_id.to_string())
                     .with_context("existing_event_id", existing_event.event_id.to_string())
@@ -351,7 +351,7 @@ impl<S: StorageBackend + 'static> EventsEngine<S> {
             .info(
                 "events_engine",
                 "local_event_pushed",
-                format!("Local event pushed to circuit"),
+                "Local event pushed to circuit".to_string(),
             )
             .with_context("local_event_id", local_event_id.to_string())
             .with_context("circuit_id", circuit_id.to_string())

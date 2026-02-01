@@ -3126,14 +3126,13 @@ impl PostgresPersistence {
             events.push(Event {
                 event_id: row.get(0),
                 dfid: row.get(1),
-                event_type: serde_json::from_str(&format!("\"{}\"", event_type_str))
+                event_type: serde_json::from_str(&format!("\"{event_type_str}\""))
                     .unwrap_or(EventType::Created),
-                timestamp: DateTime::from_timestamp(timestamp_secs, 0)
-                    .unwrap_or_else(|| Utc::now()),
+                timestamp: DateTime::from_timestamp(timestamp_secs, 0).unwrap_or_else(Utc::now),
                 source,
                 metadata: serde_json::from_value(metadata_json).unwrap_or_default(),
                 is_encrypted,
-                visibility: serde_json::from_str(&format!("\"{}\"", visibility_str))
+                visibility: serde_json::from_str(&format!("\"{visibility_str}\""))
                     .unwrap_or(EventVisibility::Private),
                 content_hash,
                 local_event_id: None,
@@ -3193,14 +3192,13 @@ impl PostgresPersistence {
                 Ok(Some(Event {
                     event_id: row.get(0),
                     dfid: row.get(1),
-                    event_type: serde_json::from_str(&format!("\"{}\"", event_type_str))
+                    event_type: serde_json::from_str(&format!("\"{event_type_str}\""))
                         .unwrap_or(EventType::Created),
-                    timestamp: DateTime::from_timestamp(timestamp_secs, 0)
-                        .unwrap_or_else(|| Utc::now()),
+                    timestamp: DateTime::from_timestamp(timestamp_secs, 0).unwrap_or_else(Utc::now),
                     source,
                     metadata: serde_json::from_value(metadata_json).unwrap_or_default(),
                     is_encrypted,
-                    visibility: serde_json::from_str(&format!("\"{}\"", visibility_str))
+                    visibility: serde_json::from_str(&format!("\"{visibility_str}\""))
                         .unwrap_or(EventVisibility::Private),
                     content_hash: final_content_hash,
                     local_event_id: None,

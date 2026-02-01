@@ -660,7 +660,7 @@ impl SorobanRpcClient {
 
         if let Some(data) = data {
             if !data.is_null() {
-                formatted.push_str(&format!(" ({})", data));
+                formatted.push_str(&format!(" ({data})"));
             }
         }
 

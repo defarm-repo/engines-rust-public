@@ -719,7 +719,7 @@ fn create_item_snapshot(
     // Store the snapshot
     storage
         .store_snapshot(&snapshot)
-        .map_err(|e| format!("Failed to store snapshot: {}", e))?;
+        .map_err(|e| format!("Failed to store snapshot: {e}"))?;
 
     tracing::info!(
         "Created snapshot {} for item {} (version {}, operation {:?})",
@@ -1579,10 +1579,7 @@ async fn push_local_item(
                     &requester_id,
                     Some(&circuit_id),
                 )
-                .map_err(|e| {
-                    Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
-                        as Box<dyn std::error::Error>
-                })
+                .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error>)
             },
         ) {
             Ok(snapshot) => {
@@ -1703,7 +1700,7 @@ async fn batch_push_local_items(
                     success: false,
                     dfid: None,
                     status: None,
-                    error: Some(format!("{}", e)),
+                    error: Some(format!("{e}")),
                 });
             }
         }

@@ -94,7 +94,7 @@ impl<S: StorageBackend + 'static> ItemsEngine<S> {
             client
                 .generate_dfid(None)
                 .await
-                .map_err(|e| ItemsError::ValidationError(format!("DFID generation failed: {}", e)))
+                .map_err(|e| ItemsError::ValidationError(format!("DFID generation failed: {e}")))
         } else {
             Ok(self.dfid_engine.generate_dfid())
         }

@@ -95,7 +95,7 @@ impl SnapshotOperation {
                 format!("Item enriched with {} field(s)", fields.len())
             }
             SnapshotOperation::ItemIdentifiersAdded { count } => {
-                format!("{} identifier(s) added", count)
+                format!("{count} identifier(s) added")
             }
             SnapshotOperation::ItemEventAdded {
                 event_type,
@@ -103,39 +103,39 @@ impl SnapshotOperation {
                 ..
             } => {
                 if let Some(cat) = event_category {
-                    format!("Event added: {} ({})", event_type, cat)
+                    format!("Event added: {event_type} ({cat})")
                 } else {
-                    format!("Event added: {}", event_type)
+                    format!("Event added: {event_type}")
                 }
             }
             SnapshotOperation::ItemMerged { with_dfid } => {
-                format!("Item merged with {}", with_dfid)
+                format!("Item merged with {with_dfid}")
             }
             SnapshotOperation::ItemSplit { new_dfid } => {
-                format!("Item split, created {}", new_dfid)
+                format!("Item split, created {new_dfid}")
             }
             SnapshotOperation::ItemDeprecated => "Item deprecated".to_string(),
             SnapshotOperation::ItemPushedToCircuit { circuit_id } => {
-                format!("Pushed to circuit {}", circuit_id)
+                format!("Pushed to circuit {circuit_id}")
             }
             SnapshotOperation::ItemPulledFromCircuit { circuit_id } => {
-                format!("Pulled from circuit {}", circuit_id)
+                format!("Pulled from circuit {circuit_id}")
             }
             SnapshotOperation::CircuitCreated => "Circuit created".to_string(),
             SnapshotOperation::CircuitMemberAdded { member_id, role } => {
-                format!("Member {} added as {}", member_id, role)
+                format!("Member {member_id} added as {role}")
             }
             SnapshotOperation::CircuitMemberRemoved { member_id } => {
-                format!("Member {} removed", member_id)
+                format!("Member {member_id} removed")
             }
             SnapshotOperation::CircuitPermissionChanged { permission, .. } => {
-                format!("Permission {} changed", permission)
+                format!("Permission {permission} changed")
             }
             SnapshotOperation::CircuitItemPushed { dfid, .. } => {
-                format!("Item {} pushed", dfid)
+                format!("Item {dfid} pushed")
             }
             SnapshotOperation::CircuitItemPulled { dfid } => {
-                format!("Item {} pulled", dfid)
+                format!("Item {dfid} pulled")
             }
             SnapshotOperation::CircuitVisibilityChanged { is_public, .. } => {
                 if *is_public {
@@ -145,7 +145,7 @@ impl SnapshotOperation {
                 }
             }
             SnapshotOperation::CircuitAdapterConfigured { adapter_type } => {
-                format!("Adapter configured: {}", adapter_type)
+                format!("Adapter configured: {adapter_type}")
             }
         }
     }
@@ -294,11 +294,11 @@ impl StateSnapshot {
             ipfs_url: self
                 .ipfs_cid
                 .as_ref()
-                .map(|cid| format!("https://offchain.defarm.net/ipfs/{}", cid)),
+                .map(|cid| format!("https://offchain.defarm.net/ipfs/{cid}")),
             stellar_url: self
                 .blockchain_tx
                 .as_ref()
-                .map(|tx| format!("https://stellar.expert/explorer/testnet/tx/{}", tx)),
+                .map(|tx| format!("https://stellar.expert/explorer/testnet/tx/{tx}")),
         }
     }
 }

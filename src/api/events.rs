@@ -245,7 +245,7 @@ fn create_item_snapshot_for_event(
     // Store the snapshot
     storage
         .store_snapshot(&snapshot)
-        .map_err(|e| format!("Failed to store snapshot: {}", e))?;
+        .map_err(|e| format!("Failed to store snapshot: {e}"))?;
 
     Ok(snapshot)
 }

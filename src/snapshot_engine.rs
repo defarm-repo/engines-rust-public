@@ -144,12 +144,13 @@ impl SnapshotEngine {
 
         // 1. Get item from storage
         let item = {
-            let storage = self.storage.lock().map_err(|e| {
-                SnapshotError::StorageError(format!("Failed to lock storage: {}", e))
-            })?;
+            let storage = self
+                .storage
+                .lock()
+                .map_err(|e| SnapshotError::StorageError(format!("Failed to lock storage: {e}")))?;
             storage
                 .get_item_by_dfid(dfid)
-                .map_err(|e| SnapshotError::StorageError(format!("Failed to get item: {}", e)))?
+                .map_err(|e| SnapshotError::StorageError(format!("Failed to get item: {e}")))?
         };
 
         let item = item.ok_or_else(|| SnapshotError::EntityNotFound {
@@ -159,12 +160,13 @@ impl SnapshotEngine {
 
         // 2. Get all events for this item
         let events = {
-            let storage = self.storage.lock().map_err(|e| {
-                SnapshotError::StorageError(format!("Failed to lock storage: {}", e))
-            })?;
+            let storage = self
+                .storage
+                .lock()
+                .map_err(|e| SnapshotError::StorageError(format!("Failed to lock storage: {e}")))?;
             storage
                 .get_events_by_dfid(dfid)
-                .map_err(|e| SnapshotError::StorageError(format!("Failed to get events: {}", e)))?
+                .map_err(|e| SnapshotError::StorageError(format!("Failed to get events: {e}")))?
         };
 
         // 3. Get the latest snapshot to find parent
@@ -255,12 +257,13 @@ impl SnapshotEngine {
 
         // 1. Get circuit from storage
         let circuit = {
-            let storage = self.storage.lock().map_err(|e| {
-                SnapshotError::StorageError(format!("Failed to lock storage: {}", e))
-            })?;
+            let storage = self
+                .storage
+                .lock()
+                .map_err(|e| SnapshotError::StorageError(format!("Failed to lock storage: {e}")))?;
             storage
                 .get_circuit(circuit_id)
-                .map_err(|e| SnapshotError::StorageError(format!("Failed to get circuit: {}", e)))?
+                .map_err(|e| SnapshotError::StorageError(format!("Failed to get circuit: {e}")))?
         };
 
         let circuit = circuit.ok_or_else(|| SnapshotError::EntityNotFound {
@@ -381,19 +384,19 @@ impl SnapshotEngine {
         entity_type: SnapshotEntityType,
         entity_id: &str,
     ) -> Result<Vec<StateSnapshot>, SnapshotError> {
-        let key = format!("{}:{}", entity_type, entity_id);
+        let key = format!("{entity_type}:{entity_id}");
 
         let index = self
             .entity_index
             .lock()
-            .map_err(|e| SnapshotError::StorageError(format!("Failed to lock index: {}", e)))?;
+            .map_err(|e| SnapshotError::StorageError(format!("Failed to lock index: {e}")))?;
 
         let snapshot_ids = index.get(&key).cloned().unwrap_or_default();
 
         let cache = self
             .snapshot_cache
             .lock()
-            .map_err(|e| SnapshotError::StorageError(format!("Failed to lock cache: {}", e)))?;
+            .map_err(|e| SnapshotError::StorageError(format!("Failed to lock cache: {e}")))?;
 
         let mut snapshots: Vec<StateSnapshot> = snapshot_ids
             .iter()
@@ -411,7 +414,7 @@ impl SnapshotEngine {
         let cache = self
             .snapshot_cache
             .lock()
-            .map_err(|e| SnapshotError::StorageError(format!("Failed to lock cache: {}", e)))?;
+            .map_err(|e| SnapshotError::StorageError(format!("Failed to lock cache: {e}")))?;
 
         Ok(cache.get(snapshot_id).cloned())
     }
@@ -601,7 +604,7 @@ impl SnapshotEngine {
             let mut cache = self
                 .snapshot_cache
                 .lock()
-                .map_err(|e| SnapshotError::StorageError(format!("Failed to lock cache: {}", e)))?;
+                .map_err(|e| SnapshotError::StorageError(format!("Failed to lock cache: {e}")))?;
             cache.insert(snapshot.snapshot_id.clone(), snapshot.clone());
         }
 
@@ -611,7 +614,7 @@ impl SnapshotEngine {
             let mut index = self
                 .entity_index
                 .lock()
-                .map_err(|e| SnapshotError::StorageError(format!("Failed to lock index: {}", e)))?;
+                .map_err(|e| SnapshotError::StorageError(format!("Failed to lock index: {e}")))?;
             index
                 .entry(key)
                 .or_insert_with(Vec::new)
@@ -665,7 +668,7 @@ impl SnapshotEngine {
                     let new_path = if path.is_empty() {
                         key.clone()
                     } else {
-                        format!("{}.{}", path, key)
+                        format!("{path}.{key}")
                     };
 
                     if let Some(from_val) = from_obj.get(key) {
@@ -698,7 +701,7 @@ impl SnapshotEngine {
                         let new_path = if path.is_empty() {
                             key.clone()
                         } else {
-                            format!("{}.{}", path, key)
+                            format!("{path}.{key}")
                         };
                         changes.push(StateChange {
                             path: new_path,

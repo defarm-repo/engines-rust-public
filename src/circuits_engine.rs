@@ -141,9 +141,10 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
 
     async fn generate_dfid_internal(&self) -> Result<String, CircuitsError> {
         if let Some(ref client) = self.dfid_client {
-            client.generate_dfid(None).await.map_err(|e| {
-                CircuitsError::ValidationError(format!("DFID generation failed: {}", e))
-            })
+            client
+                .generate_dfid(None)
+                .await
+                .map_err(|e| CircuitsError::ValidationError(format!("DFID generation failed: {e}")))
         } else {
             Ok(self.dfid_engine.generate_dfid())
         }
@@ -1117,7 +1118,7 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
                     location: crate::index_client::LocationInput::Circuit {
                         circuit_id: circuit_id_clone,
                         circuit_name,
-                        url: format!("https://connect.defarm.net/circuits/{}", circuit_id_clone),
+                        url: format!("https://connect.defarm.net/circuits/{circuit_id_clone}"),
                     },
                     metadata: serde_json::json!({
                         "pushed_by": requester_id_clone,
@@ -1172,7 +1173,11 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
     /// Batch push multiple items to circuit efficiently
     pub async fn push_batch_items_to_circuit(
         &mut self,
-        items: Vec<(Uuid, Vec<EnhancedIdentifier>, Option<HashMap<String, serde_json::Value>>)>,
+        items: Vec<(
+            Uuid,
+            Vec<EnhancedIdentifier>,
+            Option<HashMap<String, serde_json::Value>>,
+        )>,
         circuit_id: &Uuid,
         requester_id: &str,
     ) -> Result<Vec<Result<PushResult, CircuitsError>>, CircuitsError> {
@@ -1632,13 +1637,9 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
 
         // Process event_locations for additional metadata
         for location in &upload_result.metadata.event_locations {
-            match location {
-                StorageLocation::IPFS { cid, pinned } => {
-                    transaction_metadata.insert("ipfs_cid".to_string(), serde_json::json!(cid));
-                    transaction_metadata
-                        .insert("ipfs_pinned".to_string(), serde_json::json!(pinned));
-                }
-                _ => {}
+            if let StorageLocation::IPFS { cid, pinned } = location {
+                transaction_metadata.insert("ipfs_cid".to_string(), serde_json::json!(cid));
+                transaction_metadata.insert("ipfs_pinned".to_string(), serde_json::json!(pinned));
             }
         }
 

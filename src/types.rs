@@ -867,7 +867,7 @@ impl Event {
         let timestamp = Utc::now();
         let local_event_id = Uuid::new_v4();
         // Use temporary DFID format for local events
-        let dfid = format!("LOCAL-EVENT-{}", local_event_id);
+        let dfid = format!("LOCAL-EVENT-{local_event_id}");
         let content_hash = Self::calculate_dedup_hash(&dfid, &event_type, &source, &metadata);
 
         Self {
@@ -1760,20 +1760,15 @@ impl Activity {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum UploadStatus {
+    #[default]
     Pending,
     Uploaded,
     Failed {
         error: String,
         failed_at: DateTime<Utc>,
     },
-}
-
-impl Default for UploadStatus {
-    fn default() -> Self {
-        UploadStatus::Pending
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

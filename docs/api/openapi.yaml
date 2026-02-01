@@ -68,6 +68,8 @@ tags:
     description: Audit logs and compliance
   - name: Admin
     description: Administrative operations
+  - name: Metrics
+    description: Prometheus metrics for monitoring and observability
   - name: ZK Proofs
     description: Zero-knowledge proof generation and verification
   - name: Test Blockchain
@@ -4503,3 +4505,262 @@ paths:
                     type: integer
                   open_incidents:
                     type: integer
+
+  # ============================================================================
+  # METRICS ENDPOINT (Prometheus)
+  # ============================================================================
+
+  /metrics:
+    get:
+      tags:
+        - Metrics
+      summary: Prometheus metrics
+      description: |
+        Returns Prometheus-compatible metrics for monitoring and observability.
+        
+        **Metrics available:**
+        - Items: items_created_total, items_enriched_total, items_merged_total, items_active
+        - Circuits: circuits_created_total, circuit_pushes_total, circuit_pushes_failed, circuits_active
+        - Adapters: adapter_uploads_total, adapter_uploads_success, adapter_uploads_failed
+        - Cache: cache_hits_total, cache_misses_total, cache_writes_total, cache_errors_total
+        - External Services: dfid_service_calls_total, dfid_service_failures, index_service_calls_total
+        - HTTP: http_requests_total, http_request_duration_seconds
+      security: []  # Public endpoint
+      responses:
+        '200':
+          description: Metrics in Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP items_created_total Total number of items created
+                  # TYPE items_created_total counter
+                  items_created_total 1234
+                  
+                  # HELP circuit_pushes_total Total circuit push operations
+                  # TYPE circuit_pushes_total counter
+                  circuit_pushes_total 567
+                  
+                  # HELP cache_hits_total Total cache hits
+                  # TYPE cache_hits_total counter
+                  cache_hits_total 8901
+
+  # ============================================================================
+  # BATCH OPERATIONS
+  # ============================================================================
+
+  /circuits/{circuit_id}/batch-push-local:
+    post:
+      tags:
+        - Circuits
+        - Batch Operations
+      summary: Batch push multiple local items to circuit
+      description: |
+        Efficiently push multiple local items to a circuit in a single operation.
+        
+        **Features:**
+        - Single circuit validation for all items
+        - Individual DFID generation per item
+        - Detailed per-item results (success/error)
+        - Continues processing even if some items fail
+        - Atomic batch-level metrics tracking
+        
+        **Use cases:**
+        - Bulk import from external systems
+        - Batch synchronization of local databases  
+        - Migration of existing items to circuits
+        - High-throughput data ingestion
+        
+        **Performance:** More efficient than individual push operations due to reduced HTTP overhead and single permission check.
+      parameters:
+        - name: circuit_id
+          in: path
+          required: true
+          description: Circuit UUID
+          schema:
+            type: string
+            format: uuid
+            example: "002ea6db-6b7b-4a69-8780-1f01ae074265"
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchPushLocalItemRequest'
+            example:
+              items:
+                - local_id: "550e8400-e29b-41d4-a716-446655440001"
+                  identifiers:
+                    - namespace: "bovino"
+                      key: "sisbov"
+                      value: "BR12345678901234"
+                      identifier_type: "canonical"
+                  enriched_data:
+                    peso_kg: 450
+                    raca: "Nelore"
+                - local_id: "550e8400-e29b-41d4-a716-446655440002"
+                  identifiers:
+                    - namespace: "bovino"
+                      key: "sisbov"
+                      value: "BR98765432109876"
+                      identifier_type: "canonical"
+                  enriched_data:
+                    peso_kg: 420
+                    raca: "Angus"
+      responses:
+        '200':
+          description: Batch push completed with per-item results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchPushLocalItemResponse'
+              example:
+                results:
+                  - local_id: "550e8400-e29b-41d4-a716-446655440001"
+                    success: true
+                    dfid: "DFID-20250201-000042-A7B2C3"
+                    status: "NewItemCreated"
+                    error: null
+                  - local_id: "550e8400-e29b-41d4-a716-446655440002"
+                    success: false
+                    dfid: null
+                    status: null
+                    error: "Adapter upload failed: Connection timeout"
+                total: 2
+                succeeded: 1
+                failed: 1
+        '400':
+          description: Invalid request format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Permission denied - user lacks push permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Circuit not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    # ========================================================================
+    # Batch Operations Schemas
+    # ========================================================================
+
+    BatchPushLocalItemRequest:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          description: Array of local items to push to the circuit
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/BatchLocalPushItem'
+      example:
+        items:
+          - local_id: "550e8400-e29b-41d4-a716-446655440001"
+            identifiers:
+              - namespace: "bovino"
+                key: "sisbov"
+                value: "BR12345678901234"
+                identifier_type: "canonical"
+            enriched_data:
+              peso_kg: 450
+
+    BatchLocalPushItem:
+      type: object
+      required:
+        - local_id
+      properties:
+        local_id:
+          type: string
+          format: uuid
+          description: Local ID (LID) of the item to push
+          example: "550e8400-e29b-41d4-a716-446655440001"
+        identifiers:
+          type: array
+          description: Enhanced identifiers for the item
+          items:
+            $ref: '#/components/schemas/IdentifierRequest'
+        enriched_data:
+          type: object
+          description: Additional metadata for the item
+          additionalProperties: true
+          example:
+            peso_kg: 450
+            raca: "Nelore"
+            data_nascimento: "2023-01-15"
+
+    BatchPushLocalItemResponse:
+      type: object
+      required:
+        - results
+        - total
+        - succeeded
+        - failed
+      properties:
+        results:
+          type: array
+          description: Detailed results for each item in the batch
+          items:
+            $ref: '#/components/schemas/BatchLocalPushResult'
+        total:
+          type: integer
+          description: Total number of items processed
+          example: 10
+        succeeded:
+          type: integer
+          description: Number of items successfully pushed
+          example: 8
+        failed:
+          type: integer
+          description: Number of items that failed to push
+          example: 2
+
+    BatchLocalPushResult:
+      type: object
+      required:
+        - local_id
+        - success
+      properties:
+        local_id:
+          type: string
+          format: uuid
+          description: Local ID of the item
+          example: "550e8400-e29b-41d4-a716-446655440001"
+        success:
+          type: boolean
+          description: Whether the push operation succeeded for this item
+          example: true
+        dfid:
+          type: string
+          nullable: true
+          description: Generated or resolved DFID (only present on success)
+          example: "DFID-20250201-000042-A7B2C3"
+          pattern: '^DFID-\d{8}-\d{6}-[A-F0-9]{6}$'
+        status:
+          type: string
+          nullable: true
+          description: Tokenization status (only present on success)
+          enum:
+            - NewItemCreated
+            - ExistingItemEnriched
+            - ConflictDetected
+          example: "NewItemCreated"
+        error:
+          type: string
+          nullable: true
+          description: Error message (only present on failure)
+          example: "Adapter upload failed: Connection timeout"

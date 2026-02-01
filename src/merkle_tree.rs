@@ -159,13 +159,13 @@ impl std::fmt::Display for MerkleError {
         match self {
             MerkleError::EmptyTree => write!(f, "Merkle tree has no leaves"),
             MerkleError::LeafIndexOutOfBounds { index, max } => {
-                write!(f, "Leaf index {} out of bounds (max: {})", index, max)
+                write!(f, "Leaf index {index} out of bounds (max: {max})")
             }
             MerkleError::ProofVerificationFailed { reason } => {
-                write!(f, "Proof verification failed: {}", reason)
+                write!(f, "Proof verification failed: {reason}")
             }
-            MerkleError::StorageError(msg) => write!(f, "Storage error: {}", msg),
-            MerkleError::Other(msg) => write!(f, "{}", msg),
+            MerkleError::StorageError(msg) => write!(f, "Storage error: {msg}"),
+            MerkleError::Other(msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -360,7 +360,7 @@ impl MerkleTree {
             .leaves
             .iter()
             .position(|h| h == leaf_hash)
-            .ok_or_else(|| MerkleError::Other(format!("Leaf hash not found: {}", leaf_hash)))?;
+            .ok_or_else(|| MerkleError::Other(format!("Leaf hash not found: {leaf_hash}")))?;
 
         self.generate_proof(index)
     }
@@ -389,7 +389,7 @@ impl MerkleTree {
 
     /// Hash two values together using BLAKE3
     pub fn hash_pair(left: &str, right: &str) -> String {
-        let combined = format!("{}|{}", left, right);
+        let combined = format!("{left}|{right}");
         blake3::hash(combined.as_bytes()).to_hex().to_string()
     }
 
@@ -630,8 +630,7 @@ mod tests {
             let proof = tree.generate_proof(i).unwrap();
             assert!(
                 MerkleTree::verify_proof(&proof, tree.root().unwrap()),
-                "Proof failed for leaf index {}",
-                i
+                "Proof failed for leaf index {i}"
             );
         }
     }

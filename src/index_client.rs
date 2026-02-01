@@ -90,8 +90,8 @@ pub enum IndexClientError {
 impl std::fmt::Display for IndexClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IndexClientError::RequestFailed(msg) => write!(f, "Request failed: {}", msg),
-            IndexClientError::ParseError(msg) => write!(f, "Parse error: {}", msg),
+            IndexClientError::RequestFailed(msg) => write!(f, "Request failed: {msg}"),
+            IndexClientError::ParseError(msg) => write!(f, "Parse error: {msg}"),
             IndexClientError::ServiceUnavailable => write!(f, "Index service unavailable"),
         }
     }

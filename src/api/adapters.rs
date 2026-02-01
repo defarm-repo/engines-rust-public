@@ -506,8 +506,7 @@ async fn register_dfid_on_adapter(
         location,
         registered_at: Utc::now(),
         message: Some(format!(
-            "DFID successfully registered on {} adapter",
-            adapter_type.to_string()
+            "DFID successfully registered on {adapter_type} adapter"
         )),
     }))
 }
