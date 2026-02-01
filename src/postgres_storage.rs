@@ -3099,7 +3099,7 @@ impl StorageBackend for PostgresStorage {
     }
 
     // ============================================================================
-    // TIMELINE & CID MAPPINGS - Stubs (TODO: Implement with proper schema)
+    // Implementation pending
     // ============================================================================
 
     fn add_cid_to_timeline(

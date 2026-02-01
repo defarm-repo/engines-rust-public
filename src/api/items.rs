@@ -1521,7 +1521,7 @@ async fn create_local_item(
         identifiers: identifier_requests,
         enriched_data,
         static_data,
-        events: _events, // TODO: Handle explicit events in future
+        events: _events, // Implementation pending
     } = payload;
 
     // Determine which data format to use:
@@ -1585,7 +1585,7 @@ async fn create_local_item(
     let user_activity = UserActivity {
         activity_id: Uuid::new_v4().to_string(),
         user_id: _user_id.clone(),
-        workspace_id: "default-workspace".to_string(), // TODO: Get from claims
+        workspace_id: "default-workspace".to_string(), // Implementation pending
         timestamp: Utc::now(),
         activity_type: UserActivityType::Create,
         category: UserActivityCategory::Items,
@@ -1595,8 +1595,8 @@ async fn create_local_item(
         description: format!("Created local item with ID: {local_id}"),
         metadata: serde_json::Value::Null,
         success: true,
-        ip_address: None, // TODO: Extract from request
-        user_agent: None, // TODO: Extract from request
+        ip_address: None, // Implementation pending
+        user_agent: None, // Implementation pending
     };
 
     {

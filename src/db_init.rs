@@ -26,7 +26,7 @@ pub fn initialize_default_admin(
     println!("🐔 Initializing default admin user 'hen'...");
 
     // Generate bcrypt hash for the admin password
-    let hen_password_hash = hash("demo123", DEFAULT_COST)?;
+    let hen_password_hash = hash("[REDACTED]", DEFAULT_COST)?;
 
     let hen_admin = UserAccount {
         user_id: admin_user_id.clone(),
@@ -70,7 +70,7 @@ pub fn initialize_default_admin(
     println!("   - Email: hen@defarm.com");
     println!("   - Tier: Admin");
     println!("   - Credits: 1,000,000");
-    println!("   - Password: demo123");
+    println!("   - Password: [REDACTED]");
 
     Ok(())
 }
@@ -80,8 +80,8 @@ pub fn initialize_sample_users(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🌱 Creating sample users for development...");
 
-    // Generate bcrypt hashes for all passwords (using demo123 for all development users)
-    let demo_password_hash = hash("demo123", DEFAULT_COST)?;
+    // Generate bcrypt hashes for all passwords (using [REDACTED] for all development users)
+    let demo_password_hash = hash("[REDACTED]", DEFAULT_COST)?;
 
     let sample_users = vec![
         // Add pullet user (matches auth.rs)
@@ -270,7 +270,7 @@ pub fn initialize_production_adapters(
         // Get testnet configuration from environment
         let testnet_secret = std::env::var("STELLAR_TESTNET_SECRET").ok();
         let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
-            "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+            "STELLAR_WALLET_PLACEHOLDER".to_string()
         });
 
         let mut custom_headers = HashMap::new();
@@ -329,7 +329,7 @@ pub fn initialize_production_adapters(
         (pinata_api_key, pinata_secret, mainnet_ipcm, mainnet_secret)
     {
         let interface_address = std::env::var("DEFARM_OWNER_WALLET").unwrap_or_else(|_| {
-            "GANDYZQQ3OQBXHZQXJHZ7AQ2GDBFUQIR4ZLMUPD3P2B7PLIYQNFG54XQ".to_string()
+            "STELLAR_WALLET_PLACEHOLDER".to_string()
         });
 
         let mut custom_headers = HashMap::new();
@@ -403,13 +403,13 @@ pub fn setup_development_data(
 
     println!("🎉 Development data setup complete!");
     println!();
-    println!("📋 Available test accounts (all use password: demo123):");
-    println!("   🐔 Admin:      hen / demo123");
-    println!("   🐣 Pro:        pullet / demo123");
-    println!("   🐓 Enterprise: cock / demo123");
-    println!("   🌱 Basic:      basic_farmer / demo123");
-    println!("   🚀 Pro:        pro_farmer / demo123");
-    println!("   🏢 Enterprise: enterprise_farmer / demo123");
+    println!("📋 Available test accounts (all use password: [REDACTED]):");
+    println!("   🐔 Admin:      hen / [REDACTED]");
+    println!("   🐣 Pro:        pullet / [REDACTED]");
+    println!("   🐓 Enterprise: cock / [REDACTED]");
+    println!("   🌱 Basic:      basic_farmer / [REDACTED]");
+    println!("   🚀 Pro:        pro_farmer / [REDACTED]");
+    println!("   🏢 Enterprise: enterprise_farmer / [REDACTED]");
     println!();
     println!("🔗 Admin Panel: http://localhost:3000/api/admin/dashboard/stats");
 

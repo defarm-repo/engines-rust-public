@@ -1137,7 +1137,7 @@ impl StorageBackend for RedisPostgresStorage {
                 .await
                 .map_err(|e| StorageError::WriteError(format!("Failed to persist user: {e}")))?;
 
-            // TODO: Invalidate user cache if we add user caching
+            // Implementation pending
             Ok(())
         })
     }
@@ -1620,7 +1620,7 @@ impl StorageBackend for RedisPostgresStorage {
         &self,
         _snapshot: &crate::snapshot_types::StateSnapshot,
     ) -> Result<(), StorageError> {
-        // TODO: Implement Redis+PostgreSQL storage for snapshots
+        // Implementation pending
         Ok(())
     }
 
@@ -1628,7 +1628,7 @@ impl StorageBackend for RedisPostgresStorage {
         &self,
         _snapshot_id: &str,
     ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
-        // TODO: Implement Redis+PostgreSQL retrieval for snapshots
+        // Implementation pending
         Ok(None)
     }
 
@@ -1637,7 +1637,7 @@ impl StorageBackend for RedisPostgresStorage {
         _entity_type: crate::snapshot_types::SnapshotEntityType,
         _entity_id: &str,
     ) -> Result<Vec<crate::snapshot_types::StateSnapshot>, StorageError> {
-        // TODO: Implement Redis+PostgreSQL query for entity snapshots
+        // Implementation pending
         Ok(Vec::new())
     }
 
@@ -1646,7 +1646,7 @@ impl StorageBackend for RedisPostgresStorage {
         _entity_type: crate::snapshot_types::SnapshotEntityType,
         _entity_id: &str,
     ) -> Result<Option<crate::snapshot_types::StateSnapshot>, StorageError> {
-        // TODO: Implement Redis+PostgreSQL query for latest snapshot
+        // Implementation pending
         Ok(None)
     }
 
@@ -1654,7 +1654,7 @@ impl StorageBackend for RedisPostgresStorage {
         &self,
         _snapshot: &crate::snapshot_types::StateSnapshot,
     ) -> Result<(), StorageError> {
-        // TODO: Implement Redis+PostgreSQL update for snapshots
+        // Implementation pending
         Ok(())
     }
 
@@ -1663,7 +1663,7 @@ impl StorageBackend for RedisPostgresStorage {
         _entity_type: crate::snapshot_types::SnapshotEntityType,
         _entity_id: &str,
     ) -> Result<u64, StorageError> {
-        // TODO: Implement Redis+PostgreSQL count for entity snapshots
+        // Implementation pending
         Ok(0)
     }
 }
