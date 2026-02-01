@@ -726,6 +726,12 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
                                 let mut circuit_item_mut = circuit_item.clone();
                                 circuit_item_mut.mark_failed(error_msg.clone());
                                 let _ = self.storage.store_circuit_item(&circuit_item_mut);
+
+                                // Increment metrics
+                                crate::metrics::ADAPTER_UPLOADS_TOTAL.inc();
+                                crate::metrics::ADAPTER_UPLOADS_FAILED.inc();
+                                crate::metrics::CIRCUIT_UPLOAD_FAILURES.inc();
+
                                 tracing::error!(
                                     "❌ Adapter upload failed for DFID {}: {}",
                                     dfid,
@@ -754,6 +760,12 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
                                 let mut circuit_item_mut = circuit_item.clone();
                                 circuit_item_mut.mark_failed(error_msg.clone());
                                 let _ = self.storage.store_circuit_item(&circuit_item_mut);
+
+                                // Increment metrics
+                                crate::metrics::ADAPTER_UPLOADS_TOTAL.inc();
+                                crate::metrics::ADAPTER_UPLOADS_FAILED.inc();
+                                crate::metrics::CIRCUIT_UPLOAD_FAILURES.inc();
+
                                 tracing::error!(
                                     "❌ Adapter upload failed for DFID {}: {}",
                                     dfid,
@@ -782,6 +794,12 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
                                 let mut circuit_item_mut = circuit_item.clone();
                                 circuit_item_mut.mark_failed(error_msg.clone());
                                 let _ = self.storage.store_circuit_item(&circuit_item_mut);
+
+                                // Increment metrics
+                                crate::metrics::ADAPTER_UPLOADS_TOTAL.inc();
+                                crate::metrics::ADAPTER_UPLOADS_FAILED.inc();
+                                crate::metrics::CIRCUIT_UPLOAD_FAILURES.inc();
+
                                 tracing::error!(
                                     "❌ Adapter upload failed for DFID {}: {}",
                                     dfid,
@@ -970,6 +988,10 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
                     .store_circuit_item(&circuit_item_mut)
                     .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
 
+                // Increment metrics
+                crate::metrics::ADAPTER_UPLOADS_TOTAL.inc();
+                crate::metrics::ADAPTER_UPLOADS_SUCCESS.inc();
+
                 tracing::info!(
                     "✅ Adapter upload succeeded for DFID {}: {:?}",
                     dfid,
@@ -1135,6 +1157,9 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
             storage_details, // NOW INCLUDES REAL STORAGE DETAILS!
         )
         .await;
+
+        // Increment metrics - successful push
+        crate::metrics::CIRCUIT_PUSHES_TOTAL.inc();
 
         Ok(PushResult {
             dfid,

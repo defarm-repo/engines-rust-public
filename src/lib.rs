@@ -17,6 +17,7 @@ pub mod items_engine;
 pub mod logging;
 pub mod merkle_engine;
 pub mod merkle_tree;
+pub mod metrics;
 pub mod receipt_engine;
 pub mod snapshot_engine;
 pub mod snapshot_types;

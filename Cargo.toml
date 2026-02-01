@@ -56,6 +56,10 @@ thiserror = "1.0"
 reqwest = { version = "0.11", features = ["json", "multipart"] }
 url = "2.5"
 
+# Metrics (Prometheus)
+prometheus = "0.13"
+lazy_static = "1.4"
+
 # Email service (MailerSend for password reset emails)
 # - reqwest for MailerSend/SendGrid API calls (primary method)
 # - lettre for SMTP fallback (increased reliability)

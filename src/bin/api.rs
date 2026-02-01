@@ -122,6 +122,10 @@ async fn async_main() {
     // Initialize tracing
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
+    // Initialize Prometheus metrics
+    defarm_engine::metrics::init_metrics();
+    info!("📊 Prometheus metrics initialized");
+
     // Load environment variables
     dotenv::dotenv().ok();
 
@@ -348,6 +352,7 @@ async fn async_main() {
     let public_routes = Router::new()
         .route("/", get(root))
         .route("/health", get(health_check))
+        .route("/metrics", get(metrics))
         .merge(health_routes)
         .nest("/api/auth", auth_routes(app_state.clone()))
         // WebSocket route does NOT use JWT middleware (verifies token from query param)
@@ -549,6 +554,12 @@ async fn health_check() -> (StatusCode, Json<Value>) {
             "uptime": "System operational"
         })),
     )
+}
+
+/// Prometheus metrics endpoint
+async fn metrics() -> (StatusCode, String) {
+    let metrics = defarm_engine::metrics::encode_metrics();
+    (StatusCode::OK, metrics)
 }
 
 async fn health_check_db(
