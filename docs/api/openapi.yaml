@@ -415,11 +415,106 @@ components:
         enriched_data:
           type: object
           additionalProperties: true
-          description: Additional metadata for the item
+          description: |
+            (Legacy format) All item data - system will auto-categorize temporal fields into events.
+            Use this for backward compatibility. System detects patterns like data_nasc (birth date),
+            ultimo_peso (weight measurement), local (location), etc. and automatically creates
+            corresponding events.
           example:
-            weight: "500kg"
-            harvest_date: "2024-01-15"
-            quality_grade: "A"
+            data_nasc: "10/12/2025"
+            raca: "Brangus"
+            ultimo_peso: 285
+            data_ultima_pesagem: "27/11/2025"
+            local: "PASTO 15"
+        static_data:
+          type: object
+          additionalProperties: true
+          description: |
+            (New format) Static item attributes that don't change over time.
+            Use with 'events' field for explicit event creation.
+          example:
+            breed: "Nelore"
+            birth_date: "2023-05-15"
+        events:
+          type: array
+          description: |
+            (New format) Explicit event data for structured event creation.
+            Use with 'static_data' field to separate temporal events from static attributes.
+          items:
+            $ref: '#/components/schemas/EventData'
+
+    EventData:
+      type: object
+      required:
+        - event_type
+        - data
+      properties:
+        event_type:
+          type: string
+          description: Type of event (vaccination, weight_measurement, transfer, etc.)
+          example: "weight_measurement"
+        timestamp:
+          type: string
+          format: date-time
+          description: Optional timestamp for the event (defaults to current time)
+          example: "2024-06-15T10:30:00Z"
+        data:
+          type: object
+          additionalProperties: true
+          description: Event-specific data
+          example:
+            weight_kg: 450
+            scale_id: "SCALE-01"
+        visibility:
+          $ref: '#/components/schemas/EventVisibility'
+
+    EventVisibility:
+      type: string
+      enum: [Public, Private, CircuitOnly, Direct]
+      description: |
+        - Public: Visible to all users
+        - Private: Only visible to item owner (default)
+        - CircuitOnly: Only visible within circuit context
+        - Direct: Direct message visibility
+      default: Private
+
+    EventType:
+      type: string
+      enum:
+        - Created
+        - Birth
+        - EnteredFarm
+        - WeightMeasurement
+        - LocationChanged
+        - BatchAssigned
+        - CategoryAssigned
+        - ObservationAdded
+        - Transfer
+        - IATF
+        - Weighing
+        - Vaccination
+        - HandlingEvent
+        - PushedToCircuit
+        - PulledFromCircuit
+        - RemovedFromCircuit
+      description: |
+        Domain-specific event types:
+        - Created: Item creation event
+        - Birth: Birth date recorded (from data_nasc)
+        - EnteredFarm: Farm entry date (from data_entrada)
+        - WeightMeasurement: Weight measurement (from ultimo_peso)
+        - LocationChanged: Location change (from local)
+        - BatchAssigned: Batch assignment (from lote)
+        - CategoryAssigned: Category assignment (from categoria)
+        - ObservationAdded: Observation added (from observação)
+        - Transfer: Transfer event (from ultimo_manejo: Transferência)
+        - IATF: Artificial insemination (from ultimo_manejo: IATF)
+        - Weighing: Weighing event (from ultimo_manejo: Pesagem)
+        - Vaccination: Vaccination event (from ultimo_manejo: Vacina)
+        - HandlingEvent: Generic handling event
+        - PushedToCircuit: Item pushed to circuit
+        - PulledFromCircuit: Item pulled from circuit
+        - RemovedFromCircuit: Item removed from circuit
 
     Identifier:
       type: object
@@ -2949,6 +3044,18 @@ paths:
       description: |
         Create a local item with a LID (Local ID).
         Item remains workspace-private until pushed to a circuit.
+
+        **Auto-Categorization**: System automatically detects temporal patterns in enriched_data
+        and creates corresponding events. Portuguese field patterns supported:
+        - `data_nasc` → Birth event
+        - `ultimo_peso` + `data_ultima_pesagem` → WeightMeasurement event
+        - `local` → LocationChanged event
+        - `lote` → BatchAssigned event
+        - `ultimo_manejo` → Transfer/IATF/Weighing/Vaccination events
+
+        **Two formats supported**:
+        1. Legacy: Use `enriched_data` for automatic event decomposition
+        2. New: Use `static_data` + `events` for explicit event creation
       operationId: createLocalItem
       requestBody:
         required: true
@@ -2974,7 +3081,11 @@ paths:
                         format: uuid
                       status:
                         type: string
-                        example: "local_only"
+                        example: "LocalOnly"
+                      events_created:
+                        type: integer
+                        description: Number of events automatically created from item data
+                        example: 5
 
   /items/mapping/{local_id}:
     get:
