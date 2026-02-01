@@ -20,14 +20,17 @@ pub struct DfidEngine {
     sequence_counter: Arc<AtomicU64>,
     #[cfg(feature = "redis-persistence")]
     redis_client: Option<redis::Client>,
+    last_date: Arc<std::sync::Mutex<String>>, // Track current day for sequence reset
 }
 
 impl DfidEngine {
     pub fn new() -> Self {
+        let today = Utc::now().format("%Y%m%d").to_string();
         Self {
             sequence_counter: Arc::new(AtomicU64::new(1)),
             #[cfg(feature = "redis-persistence")]
             redis_client: None,
+            last_date: Arc::new(std::sync::Mutex::new(today)),
         }
     }
 
@@ -36,19 +39,23 @@ impl DfidEngine {
         let client = redis::Client::open(redis_url)?;
         let mut conn = client.get_async_connection().await?;
 
-        // Load current sequence from Redis or initialize to 1
+        // Load sequence for today (per-day sequence)
+        let today = Utc::now().format("%Y%m%d").to_string();
+        let redis_key = format!("dfid:sequence:{}", today);
+
         let current_seq: Option<u64> = redis::cmd("GET")
-            .arg("dfid:sequence")
+            .arg(&redis_key)
             .query_async(&mut conn)
             .await?;
 
         let seq = current_seq.unwrap_or(1);
 
-        tracing::info!("Initialized DFID sequence from Redis: {}", seq);
+        tracing::info!("Initialized DFID sequence for {} from Redis: {}", today, seq);
 
         Ok(Self {
             sequence_counter: Arc::new(AtomicU64::new(seq)),
             redis_client: Some(client),
+            last_date: Arc::new(std::sync::Mutex::new(today)),
         })
     }
 
@@ -58,9 +65,19 @@ impl DfidEngine {
 
     pub fn generate_dfid_with_context(&self, _context: Option<&str>) -> String {
         let timestamp = Utc::now();
-        let sequence = self.sequence_counter.fetch_add(1, Ordering::SeqCst);
-
         let timestamp_str = timestamp.format("%Y%m%d").to_string();
+
+        // Check if day changed and reset sequence if needed
+        {
+            let mut last_date = self.last_date.lock().unwrap();
+            if *last_date != timestamp_str {
+                tracing::info!("Day changed from {} to {}, resetting sequence to 1", last_date, timestamp_str);
+                self.sequence_counter.store(1, Ordering::SeqCst);
+                *last_date = timestamp_str.clone();
+            }
+        }
+
+        let sequence = self.sequence_counter.fetch_add(1, Ordering::SeqCst);
         let sequence_str = format!("{sequence:06}");
         let checksum = self.calculate_checksum(&timestamp_str, &sequence_str);
 
@@ -153,13 +170,42 @@ impl DfidEngine {
             let seq = self.sequence_counter.load(Ordering::SeqCst);
             let mut conn = client.get_async_connection().await?;
 
+            // Per-day sequence key
+            let today = Utc::now().format("%Y%m%d").to_string();
+            let redis_key = format!("dfid:sequence:{}", today);
+
+            // Save current sequence with 48h expiry (keep yesterday and today)
             redis::cmd("SET")
-                .arg("dfid:sequence")
+                .arg(&redis_key)
                 .arg(seq)
+                .arg("EX")
+                .arg(172800) // 48 hours
                 .query_async::<_, ()>(&mut conn)
                 .await?;
 
-            tracing::debug!("Persisted sequence to Redis: {}", seq);
+            // Backup: also save to snapshot list (trimmed to last 30 days)
+            let backup_key = "dfid:sequence:backups";
+            let backup_entry = format!("{}:{}", today, seq);
+
+            redis::cmd("ZADD")
+                .arg(backup_key)
+                .arg(today.parse::<i64>().unwrap_or(0))
+                .arg(&backup_entry)
+                .query_async::<_, ()>(&mut conn)
+                .await?;
+
+            // Trim old backups (keep last 30 days)
+            let cutoff_date = (Utc::now() - chrono::Duration::days(30))
+                .format("%Y%m%d")
+                .to_string();
+            redis::cmd("ZREMRANGEBYSCORE")
+                .arg(backup_key)
+                .arg("-inf")
+                .arg(cutoff_date)
+                .query_async::<_, ()>(&mut conn)
+                .await?;
+
+            tracing::debug!("Persisted sequence for {} to Redis: {} (with backup)", today, seq);
         }
         Ok(())
     }
@@ -190,6 +236,42 @@ impl DfidEngine {
                 Ok(_) => break,
                 Err(actual) => current = actual,
             }
+        }
+    }
+
+    #[cfg(feature = "redis-persistence")]
+    pub async fn restore_from_backup(&self, date: &str) -> Result<u64, DfidError> {
+        if let Some(ref client) = self.redis_client {
+            let mut conn = client.get_async_connection().await?;
+            let backup_key = "dfid:sequence:backups";
+
+            // Get all backups and find the one for the requested date
+            let backups: Vec<String> = redis::cmd("ZRANGEBYSCORE")
+                .arg(backup_key)
+                .arg(date)
+                .arg(date)
+                .query_async(&mut conn)
+                .await?;
+
+            if let Some(entry) = backups.first() {
+                // Parse "YYYYMMDD:sequence" format
+                if let Some((_, seq_str)) = entry.split_once(':') {
+                    if let Ok(seq) = seq_str.parse::<u64>() {
+                        self.sequence_counter.store(seq, Ordering::SeqCst);
+                        tracing::info!("Restored sequence from backup for {}: {}", date, seq);
+                        return Ok(seq);
+                    }
+                }
+            }
+
+            Err(DfidError::PersistenceError(format!(
+                "No backup found for date: {}",
+                date
+            )))
+        } else {
+            Err(DfidError::PersistenceError(
+                "Redis persistence not enabled".to_string(),
+            ))
         }
     }
 }

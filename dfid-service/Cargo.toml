@@ -23,6 +23,17 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Metrics (Prometheus)
+prometheus = "0.13"
+lazy_static = "1.4"
+
+# Rate limiting
+tower_governor = "0.4"
+
+# OpenAPI/Swagger
+utoipa = { version = "4.2", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
+
 # Redis for sequence persistence
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"], optional = true }
 
