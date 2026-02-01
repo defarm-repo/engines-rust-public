@@ -59,7 +59,15 @@ pub mod registries {
     }
 
     fn validate_sisbov(value: &str) -> bool {
-        value.starts_with("BR") && value.len() == 14 && value[2..].chars().all(char::is_numeric)
+        // SISBOV accepts two formats:
+        // - Old format: BR + 12 digits = 14 characters
+        // - New format: BR + 15 digits = 17 characters
+        if !value.starts_with("BR") {
+            return false;
+        }
+
+        let len = value.len();
+        (len == 14 || len == 17) && value[2..].chars().all(char::is_numeric)
     }
 
     fn validate_cpf(cpf: &str) -> bool {
