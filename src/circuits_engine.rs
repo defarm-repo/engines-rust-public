@@ -2037,6 +2037,112 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
         Ok(circuit)
     }
 
+    pub async fn remove_item_from_circuit(
+        &mut self,
+        circuit_id: &Uuid,
+        dfid: &str,
+        requester_id: &str,
+    ) -> Result<(), CircuitsError> {
+        let circuit = self
+            .storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Check permission (Owner, Admin, or member with ManageMembers permission)
+        if !circuit.has_permission(requester_id, &Permission::ManageMembers) {
+            return Err(CircuitsError::PermissionDenied(
+                "Only owners/admins can remove items from circuit".to_string(),
+            ));
+        }
+
+        // Check circuit is active
+        if circuit.status != CircuitStatus::Active {
+            return Err(CircuitsError::ValidationError(
+                "Cannot remove items from inactive circuit".to_string(),
+            ));
+        }
+
+        // Remove item from circuit_items table
+        self.storage
+            .remove_circuit_item(circuit_id, dfid)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        // Create "RemovedFromCircuit" event
+        self.events_engine
+            .create_circuit_operation_event(
+                dfid.to_string(),
+                circuit_id.to_string(),
+                "remove".to_string(),
+                requester_id.to_string(),
+                EventVisibility::CircuitOnly,
+            )
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger
+            .lock()
+            .unwrap()
+            .info(
+                "circuits_engine",
+                "item_removed_from_circuit",
+                "Item removed from circuit",
+            )
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("dfid", dfid.to_string())
+            .with_context("requester_id", requester_id.to_string());
+
+        Ok(())
+    }
+
+    pub async fn transfer_ownership(
+        &mut self,
+        circuit_id: &Uuid,
+        new_owner_id: &str,
+    ) -> Result<Circuit, CircuitsError> {
+        let mut circuit = self
+            .storage
+            .get_circuit(circuit_id)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?
+            .ok_or(CircuitsError::CircuitNotFound)?;
+
+        // Verify new owner is a member
+        if !circuit.members.iter().any(|m| m.member_id == new_owner_id) {
+            return Err(CircuitsError::ValidationError(
+                "New owner must be a circuit member".to_string(),
+            ));
+        }
+
+        // Update owner
+        circuit.owner_id = new_owner_id.to_string();
+        circuit.last_modified = chrono::Utc::now();
+
+        // Also update the member's role to Owner if not already
+        if let Some(member) = circuit
+            .members
+            .iter_mut()
+            .find(|m| m.member_id == new_owner_id)
+        {
+            member.role = MemberRole::Owner;
+        }
+
+        self.storage
+            .update_circuit(&circuit)
+            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+        self.logger
+            .lock()
+            .unwrap()
+            .info(
+                "circuits_engine",
+                "ownership_transferred",
+                "Circuit ownership transferred",
+            )
+            .with_context("circuit_id", circuit_id.to_string())
+            .with_context("new_owner_id", new_owner_id.to_string());
+
+        Ok(circuit)
+    }
+
     pub async fn get_logs(&self) -> Vec<crate::logging::LogEntry> {
         self.logger.lock().unwrap().get_logs().to_vec()
     }

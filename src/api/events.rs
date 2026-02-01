@@ -216,6 +216,9 @@ fn create_item_snapshot_for_event(
         EventType::PulledFromCircuit => SnapshotOperation::ItemEnriched {
             fields: vec!["pulled_from_circuit".to_string()],
         },
+        EventType::RemovedFromCircuit => SnapshotOperation::ItemEnriched {
+            fields: vec!["removed_from_circuit".to_string()],
+        },
     };
 
     // Create the snapshot

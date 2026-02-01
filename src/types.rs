@@ -278,6 +278,7 @@ pub enum EventType {
     Split,
     PushedToCircuit,
     PulledFromCircuit,
+    RemovedFromCircuit,
     Updated,
     StatusChanged,
 }
@@ -767,7 +768,7 @@ pub struct CircuitPermissions {
     pub allow_public_visibility: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CircuitStatus {
     Active,
     Inactive,

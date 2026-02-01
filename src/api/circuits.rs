@@ -529,6 +529,139 @@ pub struct UpdateWebhookRequest {
     pub enabled: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TransferOwnershipRequest {
+    pub new_owner_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TransferOwnershipResponse {
+    pub circuit_id: String,
+    pub old_owner_id: String,
+    pub new_owner_id: String,
+    pub transferred_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemoveItemResponse {
+    pub dfid: String,
+    pub circuit_id: String,
+    pub removed_by: String,
+    pub removed_at: String,
+}
+
+async fn remove_item_from_circuit(
+    State(state): State<Arc<AppState>>,
+    Path((circuit_id, dfid)): Path<(String, String)>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
+) -> Result<Json<RemoveItemResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&circuit_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
+
+    let mut engine = lock_circuits_engine(&state).await?;
+
+    match engine
+        .remove_item_from_circuit(&circuit_id, &dfid, &requester_id)
+        .await
+    {
+        Ok(()) => {
+            drop(engine);
+
+            Ok(Json(RemoveItemResponse {
+                dfid: dfid.clone(),
+                circuit_id: circuit_id.to_string(),
+                removed_by: requester_id,
+                removed_at: Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to remove item from circuit: {}", e)})),
+        )),
+    }
+}
+
+async fn transfer_circuit_ownership(
+    State(state): State<Arc<AppState>>,
+    Path(circuit_id): Path<String>,
+    AuthenticatedUser(requester_id): AuthenticatedUser,
+    Json(payload): Json<TransferOwnershipRequest>,
+) -> Result<Json<TransferOwnershipResponse>, (StatusCode, Json<Value>)> {
+    let circuit_id = Uuid::parse_str(&circuit_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid circuit ID format"})),
+        )
+    })?;
+
+    let mut engine = lock_circuits_engine(&state).await?;
+
+    // Verify current user is owner
+    let circuit = engine
+        .get_circuit(&circuit_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to get circuit: {}", e)})),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Circuit not found"})),
+        ))?;
+
+    if circuit.owner_id != requester_id {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Only the circuit owner can transfer ownership"})),
+        ));
+    }
+
+    let old_owner_id = circuit.owner_id.clone();
+
+    match engine
+        .transfer_ownership(&circuit_id, &payload.new_owner_id)
+        .await
+    {
+        Ok(updated_circuit) => {
+            // Clone for persistence
+            let circuit_clone = updated_circuit.clone();
+
+            // Release engine lock before async operations
+            drop(engine);
+
+            // PostgreSQL persistence
+            let pg_lock = state.postgres_persistence.read().await;
+            if let Some(pg_instance) = &*pg_lock {
+                if let Err(e) = pg_instance.persist_circuit(&circuit_clone).await {
+                    tracing::warn!("Failed to persist ownership transfer to PostgreSQL: {}", e);
+                } else {
+                    tracing::info!(
+                        "Circuit {} ownership transfer persisted to PostgreSQL",
+                        circuit_clone.circuit_id
+                    );
+                }
+            }
+            drop(pg_lock);
+
+            Ok(Json(TransferOwnershipResponse {
+                circuit_id: circuit_id.to_string(),
+                old_owner_id,
+                new_owner_id: payload.new_owner_id,
+                transferred_at: Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to transfer ownership: {}", e)})),
+        )),
+    }
+}
+
 pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", post(create_circuit))
@@ -546,6 +679,7 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/operations/pending", get(get_pending_operations))
         .route("/operations/:operation_id/approve", post(approve_operation))
         .route("/:id/deactivate", put(deactivate_circuit))
+        .route("/:id/transfer", post(transfer_circuit_ownership))
         .route("/:id/requests", post(request_to_join_circuit))
         .route("/:id/requests/pending", get(get_pending_join_requests))
         .route(
@@ -566,6 +700,7 @@ pub fn circuit_routes(app_state: Arc<AppState>) -> Router {
         .route("/:id/public/join", post(join_public_circuit))
         .route("/:id/activities", get(get_circuit_activities))
         .route("/:id/items", get(get_circuit_items))
+        .route("/:id/items/:dfid", delete(remove_item_from_circuit))
         .route("/:id/push/batch", post(batch_push_items))
         .route("/:id/pending-items", get(get_circuit_pending_items))
         .route(
