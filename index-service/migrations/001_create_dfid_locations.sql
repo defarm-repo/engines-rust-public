@@ -1,3 +1,6 @@
+-- Enable pg_trgm extension for fuzzy search (must be first)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- Create dfid_locations table
 CREATE TABLE IF NOT EXISTS dfid_locations (
     location_id UUID PRIMARY KEY,
@@ -14,16 +17,13 @@ CREATE TABLE IF NOT EXISTS dfid_locations (
 );
 
 -- Create indexes for efficient queries
-CREATE INDEX idx_dfid_locations_dfid ON dfid_locations(dfid);
-CREATE INDEX idx_dfid_locations_registered_at ON dfid_locations(registered_at DESC);
-CREATE INDEX idx_dfid_locations_verified ON dfid_locations(verified) WHERE verified = true;
-CREATE INDEX idx_dfid_locations_location_type ON dfid_locations USING GIN (location_type);
+CREATE INDEX IF NOT EXISTS idx_dfid_locations_dfid ON dfid_locations(dfid);
+CREATE INDEX IF NOT EXISTS idx_dfid_locations_registered_at ON dfid_locations(registered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dfid_locations_verified ON dfid_locations(verified) WHERE verified = true;
+CREATE INDEX IF NOT EXISTS idx_dfid_locations_location_type ON dfid_locations USING GIN (location_type);
 
--- Create index for search queries
-CREATE INDEX idx_dfid_locations_dfid_trgm ON dfid_locations USING gin (dfid gin_trgm_ops);
-
--- Enable pg_trgm extension for fuzzy search
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- Create index for search queries (requires pg_trgm extension)
+CREATE INDEX IF NOT EXISTS idx_dfid_locations_dfid_trgm ON dfid_locations USING gin (dfid gin_trgm_ops);
 
 -- Add comment
 COMMENT ON TABLE dfid_locations IS 'Index of DFID locations across different storage backends';
