@@ -156,7 +156,7 @@ impl DfidEngine {
             redis::cmd("SET")
                 .arg("dfid:sequence")
                 .arg(seq)
-                .query_async(&mut conn)
+                .query_async::<_, ()>(&mut conn)
                 .await?;
 
             tracing::debug!("Persisted sequence to Redis: {}", seq);

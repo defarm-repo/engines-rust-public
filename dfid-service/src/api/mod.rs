@@ -85,7 +85,7 @@ pub async fn validate_dfid(
     State(state): State<Arc<AppState>>,
     Path(dfid): Path<String>,
 ) -> impl IntoResponse {
-    let valid = state.engine.validate_dfid(&dfid);
+    let valid = state.engine.validate_dfid(&dfid).unwrap_or(false);
 
     let response = ValidateResponse { valid };
     (StatusCode::OK, Json(response))
