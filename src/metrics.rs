@@ -148,6 +148,33 @@ lazy_static! {
         "Total failed adapter uploads"
     )
     .expect("metric can be created");
+
+    // ====================
+    // CACHE METRICS
+    // ====================
+    pub static ref CACHE_HITS_TOTAL: Counter = register_counter!(
+        "cache_hits_total",
+        "Total number of cache hits"
+    )
+    .expect("metric can be created");
+
+    pub static ref CACHE_MISSES_TOTAL: Counter = register_counter!(
+        "cache_misses_total",
+        "Total number of cache misses"
+    )
+    .expect("metric can be created");
+
+    pub static ref CACHE_WRITES_TOTAL: Counter = register_counter!(
+        "cache_writes_total",
+        "Total number of cache write operations"
+    )
+    .expect("metric can be created");
+
+    pub static ref CACHE_ERRORS_TOTAL: Counter = register_counter!(
+        "cache_errors_total",
+        "Total number of cache operation errors"
+    )
+    .expect("metric can be created");
 }
 
 /// Initialize all metrics (called at startup)
@@ -178,6 +205,11 @@ pub fn init_metrics() {
     lazy_static::initialize(&ADAPTER_UPLOADS_TOTAL);
     lazy_static::initialize(&ADAPTER_UPLOADS_SUCCESS);
     lazy_static::initialize(&ADAPTER_UPLOADS_FAILED);
+
+    lazy_static::initialize(&CACHE_HITS_TOTAL);
+    lazy_static::initialize(&CACHE_MISSES_TOTAL);
+    lazy_static::initialize(&CACHE_WRITES_TOTAL);
+    lazy_static::initialize(&CACHE_ERRORS_TOTAL);
 }
 
 /// Encode all metrics to Prometheus text format

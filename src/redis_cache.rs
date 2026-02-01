@@ -65,9 +65,11 @@ impl RedisCache {
         if let Some(json) = cached {
             let item: Item = serde_json::from_str(&json)
                 .map_err(|e| format!("Failed to deserialize item: {e}"))?;
+            crate::metrics::CACHE_HITS_TOTAL.inc();
             tracing::debug!("🎯 Cache HIT: item {}", dfid);
             Ok(Some(item))
         } else {
+            crate::metrics::CACHE_MISSES_TOTAL.inc();
             tracing::debug!("❌ Cache MISS: item {}", dfid);
             Ok(None)
         }
@@ -83,8 +85,12 @@ impl RedisCache {
         let _: () = conn
             .set_ex(&key, json, self.default_ttl.as_secs())
             .await
-            .map_err(|e| format!("Redis set failed: {e}"))?;
+            .map_err(|e| {
+                crate::metrics::CACHE_ERRORS_TOTAL.inc();
+                format!("Redis set failed: {e}")
+            })?;
 
+        crate::metrics::CACHE_WRITES_TOTAL.inc();
         tracing::debug!("✅ Cached item: {}", item.dfid);
         Ok(())
     }

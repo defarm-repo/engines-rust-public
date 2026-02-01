@@ -226,10 +226,21 @@ async fn async_main() {
     // Optional Redis cache initialization
     let redis_cache_opt = match std::env::var("REDIS_URL") {
         Ok(redis_url) if !redis_url.is_empty() => {
-            info!("🔴 Redis cache enabled - initializing connection...");
+            // Configurable cache TTL (default: 1 hour)
+            let cache_ttl_seconds = std::env::var("CACHE_TTL_SECONDS")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(3600); // Default: 1 hour
+
+            info!(
+                "🔴 Redis cache enabled - TTL: {} seconds ({} minutes)",
+                cache_ttl_seconds,
+                cache_ttl_seconds / 60
+            );
+
             match defarm_engine::redis_cache::RedisCache::new(
                 &redis_url,
-                std::time::Duration::from_secs(3600), // 1 hour TTL
+                std::time::Duration::from_secs(cache_ttl_seconds),
             ) {
                 Ok(redis_cache) => match redis_cache.health_check().await {
                     Ok(_) => {
