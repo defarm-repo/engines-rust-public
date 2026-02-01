@@ -667,6 +667,7 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
 
         // 6.5. CALL ADAPTER TO ACTUALLY UPLOAD TO BLOCKCHAIN/IPFS
         // This is where the REAL blockchain integration happens!
+        // NEW: Wrap in error handling to support retry on failure
         let storage_details = if let Some(circuit_adapter_config) = self
             .storage
             .get_circuit_adapter_config(circuit_id)
@@ -690,27 +691,47 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
                 let is_new_dfid = matches!(status, PushStatus::NewItemCreated);
 
                 // Create adapter instance based on type and call store_new_item with mint flag
+                // NEW: Catch errors and update circuit_item status accordingly
                 let upload_result = match adapter_type {
                     AdapterType::None => {
-                        // No storage adapter - skip upload entirely
-                        return Err(CircuitsError::StorageError(
-                            "Circuit has no storage adapter configured (adapter type: None)"
-                                .to_string(),
-                        ));
+                        // No storage adapter - mark as failed
+                        let error_msg =
+                            "Circuit has no storage adapter configured (adapter type: None)";
+                        let mut circuit_item_mut = circuit_item.clone();
+                        circuit_item_mut.mark_failed(error_msg.to_string());
+                        self.storage
+                            .store_circuit_item(&circuit_item_mut)
+                            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+                        tracing::error!(
+                            "❌ Adapter upload failed for DFID {}: {}",
+                            dfid,
+                            error_msg
+                        );
+                        return Err(CircuitsError::StorageError(error_msg.to_string()));
                     }
                     AdapterType::IpfsIpfs => {
                         let adapter = IpfsIpfsAdapter::new().map_err(|e| {
-                            CircuitsError::StorageError(format!(
-                                "Failed to create IPFS adapter: {e}"
-                            ))
+                            let error_msg = format!("Failed to create IPFS adapter: {e}");
+                            let mut circuit_item_mut = circuit_item.clone();
+                            circuit_item_mut.mark_failed(error_msg.clone());
+                            let _ = self.storage.store_circuit_item(&circuit_item_mut);
+                            CircuitsError::StorageError(error_msg)
                         })?;
                         adapter
                             .store_new_item(&item, is_new_dfid, requester_id)
                             .await
                             .map_err(|e| {
-                                CircuitsError::StorageError(format!(
-                                    "Failed to upload to IPFS: {e}"
-                                ))
+                                let error_msg = format!("Failed to upload to IPFS: {e}");
+                                let mut circuit_item_mut = circuit_item.clone();
+                                circuit_item_mut.mark_failed(error_msg.clone());
+                                let _ = self.storage.store_circuit_item(&circuit_item_mut);
+                                tracing::error!(
+                                    "❌ Adapter upload failed for DFID {}: {}",
+                                    dfid,
+                                    error_msg
+                                );
+                                CircuitsError::StorageError(error_msg)
                             })?
                     }
                     AdapterType::StellarTestnetIpfs => {
@@ -718,17 +739,27 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
                             full_adapter_config.as_ref(),
                         )
                         .map_err(|e| {
-                            CircuitsError::StorageError(format!(
-                                "Failed to create Stellar Testnet adapter: {e}"
-                            ))
+                            let error_msg =
+                                format!("Failed to create Stellar Testnet adapter: {e}");
+                            let mut circuit_item_mut = circuit_item.clone();
+                            circuit_item_mut.mark_failed(error_msg.clone());
+                            let _ = self.storage.store_circuit_item(&circuit_item_mut);
+                            CircuitsError::StorageError(error_msg)
                         })?;
                         adapter
                             .store_new_item(&item, is_new_dfid, requester_id)
                             .await
                             .map_err(|e| {
-                                CircuitsError::StorageError(format!(
-                                    "Failed to upload to Stellar Testnet: {e}"
-                                ))
+                                let error_msg = format!("Failed to upload to Stellar Testnet: {e}");
+                                let mut circuit_item_mut = circuit_item.clone();
+                                circuit_item_mut.mark_failed(error_msg.clone());
+                                let _ = self.storage.store_circuit_item(&circuit_item_mut);
+                                tracing::error!(
+                                    "❌ Adapter upload failed for DFID {}: {}",
+                                    dfid,
+                                    error_msg
+                                );
+                                CircuitsError::StorageError(error_msg)
                             })?
                     }
                     AdapterType::StellarMainnetIpfs => {
@@ -736,23 +767,37 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
                             full_adapter_config.as_ref(),
                         )
                         .map_err(|e| {
-                            CircuitsError::StorageError(format!(
-                                "Failed to create Stellar Mainnet adapter: {e}"
-                            ))
+                            let error_msg =
+                                format!("Failed to create Stellar Mainnet adapter: {e}");
+                            let mut circuit_item_mut = circuit_item.clone();
+                            circuit_item_mut.mark_failed(error_msg.clone());
+                            let _ = self.storage.store_circuit_item(&circuit_item_mut);
+                            CircuitsError::StorageError(error_msg)
                         })?;
                         adapter
                             .store_new_item(&item, is_new_dfid, requester_id)
                             .await
                             .map_err(|e| {
-                                CircuitsError::StorageError(format!(
-                                    "Failed to upload to Stellar Mainnet: {e}"
-                                ))
+                                let error_msg = format!("Failed to upload to Stellar Mainnet: {e}");
+                                let mut circuit_item_mut = circuit_item.clone();
+                                circuit_item_mut.mark_failed(error_msg.clone());
+                                let _ = self.storage.store_circuit_item(&circuit_item_mut);
+                                tracing::error!(
+                                    "❌ Adapter upload failed for DFID {}: {}",
+                                    dfid,
+                                    error_msg
+                                );
+                                CircuitsError::StorageError(error_msg)
                             })?
                     }
                     _ => {
-                        return Err(CircuitsError::StorageError(format!(
-                            "Unsupported adapter type: {adapter_type:?}"
-                        )));
+                        let error_msg = format!("Unsupported adapter type: {adapter_type:?}");
+                        let mut circuit_item_mut = circuit_item.clone();
+                        circuit_item_mut.mark_failed(error_msg.clone());
+                        self.storage
+                            .store_circuit_item(&circuit_item_mut)
+                            .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+                        return Err(CircuitsError::StorageError(error_msg));
                     }
                 };
 
@@ -917,6 +962,19 @@ impl<S: StorageBackend + 'static> CircuitsEngine<S> {
                         );
                     }
                 }
+
+                // NEW: Mark circuit_item as successfully uploaded
+                let mut circuit_item_mut = circuit_item.clone();
+                circuit_item_mut.mark_uploaded();
+                self.storage
+                    .store_circuit_item(&circuit_item_mut)
+                    .map_err(|e| CircuitsError::StorageError(e.to_string()))?;
+
+                tracing::info!(
+                    "✅ Adapter upload succeeded for DFID {}: {:?}",
+                    dfid,
+                    adapter_type
+                );
 
                 self.logger
                     .lock()

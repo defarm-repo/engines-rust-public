@@ -2,15 +2,26 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::error::Error as StdError;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::time::Duration;
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct IndexClient {
     base_url: String,
     client: Client,
+    retry_queue: Arc<Mutex<Vec<RetryEntry>>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug)]
+struct RetryEntry {
+    request: RegisterLocationRequest,
+    attempts: u32,
+    last_attempt: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct RegisterLocationRequest {
     pub dfid: String,
     pub location: LocationInput,
@@ -18,7 +29,7 @@ pub struct RegisterLocationRequest {
     pub metadata: serde_json::Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LocationInput {
     Circuit {
@@ -92,7 +103,11 @@ impl IndexClient {
     pub fn new(base_url: String) -> Self {
         Self {
             base_url,
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .unwrap(),
+            retry_queue: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -121,6 +136,99 @@ impl IndexClient {
             .map_err(|e| IndexClientError::ParseError(e.to_string()))?;
 
         Ok(result)
+    }
+
+    /// Register location with automatic retry queue on failure
+    pub async fn register_location_with_retry(&self, request: RegisterLocationRequest) {
+        match self.register_location(request.clone()).await {
+            Ok(_) => {
+                tracing::debug!("Successfully registered DFID {} in index", request.dfid);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to register DFID {} in index: {}. Adding to retry queue.",
+                    request.dfid,
+                    e
+                );
+
+                let mut queue = self.retry_queue.lock().await;
+                queue.push(RetryEntry {
+                    request,
+                    attempts: 0,
+                    last_attempt: Utc::now(),
+                });
+            }
+        }
+    }
+
+    /// Process retry queue (should be called periodically in background)
+    pub async fn process_retry_queue(&self) {
+        const MAX_RETRIES: u32 = 5;
+        const RETRY_INTERVAL: Duration = Duration::from_secs(60);
+
+        let mut queue = self.retry_queue.lock().await;
+        let mut to_retry = Vec::new();
+        let mut to_keep = Vec::new();
+
+        for entry in queue.drain(..) {
+            let elapsed = Utc::now().signed_duration_since(entry.last_attempt);
+
+            // Only retry if enough time has passed
+            if elapsed.num_seconds() >= RETRY_INTERVAL.as_secs() as i64 {
+                to_retry.push(entry);
+            } else {
+                to_keep.push(entry);
+            }
+        }
+
+        drop(queue); // Release lock while processing
+
+        for mut entry in to_retry {
+            entry.attempts += 1;
+            entry.last_attempt = Utc::now();
+
+            match self.register_location(entry.request.clone()).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "✅ Retry successful for DFID {} after {} attempts",
+                        entry.request.dfid,
+                        entry.attempts
+                    );
+                }
+                Err(e) => {
+                    if entry.attempts >= MAX_RETRIES {
+                        tracing::error!(
+                            "❌ Giving up on DFID {} after {} attempts: {}",
+                            entry.request.dfid,
+                            entry.attempts,
+                            e
+                        );
+                    } else {
+                        tracing::warn!(
+                            "Retry {}/{} failed for DFID {}: {}",
+                            entry.attempts,
+                            MAX_RETRIES,
+                            entry.request.dfid,
+                            e
+                        );
+                        to_keep.push(entry);
+                    }
+                }
+            }
+        }
+
+        // Put failed entries back in queue
+        let mut queue = self.retry_queue.lock().await;
+        queue.extend(to_keep);
+
+        if !queue.is_empty() {
+            tracing::debug!("Retry queue size: {}", queue.len());
+        }
+    }
+
+    /// Get retry queue size (for monitoring)
+    pub async fn get_retry_queue_size(&self) -> usize {
+        self.retry_queue.lock().await.len()
     }
 
     /// Get all locations for a DFID
@@ -175,5 +283,16 @@ impl IndexClient {
             .map_err(|e| IndexClientError::ParseError(e.to_string()))?;
 
         Ok(result.dfids)
+    }
+
+    /// Spawn background task to process retry queue
+    pub fn spawn_retry_processor(self: Arc<Self>) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                self.process_retry_queue().await;
+            }
+        });
     }
 }

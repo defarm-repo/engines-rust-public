@@ -633,6 +633,13 @@ impl StorageBackend for RedisPostgresStorage {
         Ok(Vec::new())
     }
 
+    fn get_failed_circuit_items(
+        &self,
+        _circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitItem>, StorageError> {
+        Ok(Vec::new())
+    }
+
     fn remove_circuit_item(&self, _circuit_id: &Uuid, _dfid: &str) -> Result<(), StorageError> {
         Ok(())
     }

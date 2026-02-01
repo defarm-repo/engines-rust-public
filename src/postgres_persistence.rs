@@ -1929,6 +1929,7 @@ impl PostgresPersistence {
             pushed_by: row.get("added_by"),
             pushed_at,
             permissions: Vec::new(),
+            upload_status: crate::types::UploadStatus::Uploaded, // Default for backward compatibility
         })
     }
 

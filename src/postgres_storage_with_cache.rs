@@ -487,6 +487,22 @@ impl StorageBackend for PostgresStorageWithCache {
         })
     }
 
+    fn get_failed_circuit_items(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitItem>, StorageError> {
+        let all_items = self.get_circuit_items(circuit_id)?;
+        Ok(all_items
+            .into_iter()
+            .filter(|item| {
+                matches!(
+                    item.upload_status,
+                    crate::types::UploadStatus::Failed { .. }
+                )
+            })
+            .collect())
+    }
+
     fn remove_circuit_item(&self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {

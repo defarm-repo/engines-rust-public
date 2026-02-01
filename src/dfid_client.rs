@@ -1,6 +1,7 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::time::{sleep, Duration};
 
 #[derive(Debug, Error)]
 pub enum DfidClientError {
@@ -15,6 +16,9 @@ pub enum DfidClientError {
 
     #[error("DFID generation failed: {0}")]
     GenerationFailed(String),
+
+    #[error("All retry attempts exhausted: {0}")]
+    RetryExhausted(String),
 }
 
 #[derive(Clone)]
@@ -131,6 +135,101 @@ impl DfidClient {
             .await?;
 
         Ok(response.status().is_success())
+    }
+
+    /// Generate DFID with automatic retry (3 attempts with exponential backoff)
+    pub async fn generate_dfid_with_retry(
+        &self,
+        context: Option<String>,
+    ) -> Result<String, DfidClientError> {
+        const MAX_RETRIES: u32 = 3;
+        let mut last_error = None;
+
+        for attempt in 1..=MAX_RETRIES {
+            match self.generate_dfid(context.clone()).await {
+                Ok(dfid) => {
+                    if attempt > 1 {
+                        tracing::info!(
+                            "DFID generation succeeded on attempt {}/{}",
+                            attempt,
+                            MAX_RETRIES
+                        );
+                    }
+                    return Ok(dfid);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "DFID generation attempt {}/{} failed: {}",
+                        attempt,
+                        MAX_RETRIES,
+                        e
+                    );
+                    last_error = Some(e);
+
+                    if attempt < MAX_RETRIES {
+                        let backoff = Duration::from_millis(100 * 2_u64.pow(attempt - 1));
+                        tracing::debug!("Retrying after {:?}", backoff);
+                        sleep(backoff).await;
+                    }
+                }
+            }
+        }
+
+        Err(DfidClientError::RetryExhausted(format!(
+            "Failed after {} attempts: {}",
+            MAX_RETRIES,
+            last_error.unwrap()
+        )))
+    }
+
+    /// Generate batch of DFIDs with automatic retry
+    pub async fn generate_batch_with_retry(
+        &self,
+        count: usize,
+        context: Option<String>,
+    ) -> Result<Vec<String>, DfidClientError> {
+        const MAX_RETRIES: u32 = 3;
+        let mut last_error = None;
+
+        for attempt in 1..=MAX_RETRIES {
+            match self.generate_batch(count, context.clone()).await {
+                Ok(dfids) => {
+                    if attempt > 1 {
+                        tracing::info!(
+                            "Batch DFID generation succeeded on attempt {}/{}",
+                            attempt,
+                            MAX_RETRIES
+                        );
+                    }
+                    return Ok(dfids);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Batch DFID generation attempt {}/{} failed: {}",
+                        attempt,
+                        MAX_RETRIES,
+                        e
+                    );
+                    last_error = Some(e);
+
+                    if attempt < MAX_RETRIES {
+                        let backoff = Duration::from_millis(100 * 2_u64.pow(attempt - 1));
+                        sleep(backoff).await;
+                    }
+                }
+            }
+        }
+
+        Err(DfidClientError::RetryExhausted(format!(
+            "Failed after {} attempts: {}",
+            MAX_RETRIES,
+            last_error.unwrap()
+        )))
+    }
+
+    /// Check if DFID service is available
+    pub async fn is_available(&self) -> bool {
+        self.health_check().await.unwrap_or(false)
     }
 }
 

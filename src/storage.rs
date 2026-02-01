@@ -197,6 +197,8 @@ pub trait StorageBackend: Send + Sync {
     // Circuit Items operations
     fn store_circuit_item(&self, circuit_item: &CircuitItem) -> Result<(), StorageError>;
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError>;
+    fn get_failed_circuit_items(&self, circuit_id: &Uuid)
+        -> Result<Vec<CircuitItem>, StorageError>;
     fn remove_circuit_item(&self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError>;
 
     // Audit Event operations
@@ -1071,6 +1073,25 @@ impl StorageBackend for InMemoryStorage {
             s.circuit_items
                 .values()
                 .filter(|item| item.circuit_id == *circuit_id)
+                .cloned()
+                .collect()
+        }))
+    }
+
+    fn get_failed_circuit_items(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitItem>, StorageError> {
+        Ok(self.with_state(|s| {
+            s.circuit_items
+                .values()
+                .filter(|item| {
+                    item.circuit_id == *circuit_id
+                        && matches!(
+                            item.upload_status,
+                            crate::types::UploadStatus::Failed { .. }
+                        )
+                })
                 .cloned()
                 .collect()
         }))
@@ -3127,6 +3148,14 @@ impl StorageBackend for Arc<Mutex<InMemoryStorage>> {
         guard.get_circuit_items(circuit_id)
     }
 
+    fn get_failed_circuit_items(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitItem>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_failed_circuit_items(circuit_id)
+    }
+
     fn remove_circuit_item(&self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {
         let guard = self.lock().unwrap();
         guard.remove_circuit_item(circuit_id, dfid)
@@ -4351,6 +4380,13 @@ impl StorageBackend for EncryptedFileStorage {
         Ok(vec![])
     }
 
+    fn get_failed_circuit_items(
+        &self,
+        _circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitItem>, StorageError> {
+        Ok(vec![])
+    }
+
     fn remove_circuit_item(&self, _circuit_id: &Uuid, _dfid: &str) -> Result<(), StorageError> {
         Ok(())
     }
@@ -5511,6 +5547,14 @@ impl StorageBackend for Arc<Mutex<PostgresStorageWithCache>> {
     fn get_circuit_items(&self, circuit_id: &Uuid) -> Result<Vec<CircuitItem>, StorageError> {
         let guard = self.lock().unwrap();
         guard.get_circuit_items(circuit_id)
+    }
+
+    fn get_failed_circuit_items(
+        &self,
+        circuit_id: &Uuid,
+    ) -> Result<Vec<CircuitItem>, StorageError> {
+        let guard = self.lock().unwrap();
+        guard.get_failed_circuit_items(circuit_id)
     }
 
     fn remove_circuit_item(&self, circuit_id: &Uuid, dfid: &str) -> Result<(), StorageError> {

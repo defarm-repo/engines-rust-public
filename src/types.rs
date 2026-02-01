@@ -1760,6 +1760,22 @@ impl Activity {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum UploadStatus {
+    Pending,
+    Uploaded,
+    Failed {
+        error: String,
+        failed_at: DateTime<Utc>,
+    },
+}
+
+impl Default for UploadStatus {
+    fn default() -> Self {
+        UploadStatus::Pending
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircuitItem {
     pub dfid: String,
@@ -1767,6 +1783,8 @@ pub struct CircuitItem {
     pub pushed_by: String,
     pub pushed_at: DateTime<Utc>,
     pub permissions: Vec<String>,
+    #[serde(default)]
+    pub upload_status: UploadStatus,
 }
 
 impl CircuitItem {
@@ -1782,7 +1800,19 @@ impl CircuitItem {
             pushed_by,
             pushed_at: Utc::now(),
             permissions,
+            upload_status: UploadStatus::Pending,
         }
+    }
+
+    pub fn mark_uploaded(&mut self) {
+        self.upload_status = UploadStatus::Uploaded;
+    }
+
+    pub fn mark_failed(&mut self, error: String) {
+        self.upload_status = UploadStatus::Failed {
+            error,
+            failed_at: Utc::now(),
+        };
     }
 }
 
